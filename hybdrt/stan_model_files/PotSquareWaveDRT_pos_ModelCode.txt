@@ -1,0 +1,109 @@
+functions {
+	vector unit_step (vector times, real t_step) {
+		int M = rows(times);
+		vector[M] u;
+		for (m in 1:M) {
+			if (times[m] > t_step) {
+				u[m] = 1;
+			}
+			else {
+				u[m] = 0;
+			}
+		}
+		return u;
+	}
+}
+data {
+	// dimensions
+	int<lower=0> N; // number of measured times
+	int<lower=0> K; // number of basis functions
+	int<lower=0> N_steps; // number of steps
+	
+	// voltage signal info
+	vector[N_steps] t_steps; // times at which steps occurred
+	vector[N_steps] V_steps; // sign and magnitude of voltage steps
+	
+	// response data
+	vector[N] times; // times
+	vector[N] I; // current vector
+	
+	// matrices
+	matrix[N,K] A; // exponential matrix
+	matrix[K,K] L0; // 0th order differentiation matrix
+	matrix[K,K] L1; // 1st order differentiation matrix
+	matrix[K,K] L2; // 2nd order differentiation matrix
+	
+	// fixed hyperparameters
+	real<lower=0> sigma_min; // noise level floor
+	real<lower=0> ups_alpha; // shape for inverse gamma distribution on ups
+	real<lower=0> ups_beta; // rate for inverse gamma distribution on ups
+	real<lower=0> ups_scale;
+	real<lower=0> sigma_res_scale;
+	// real<lower=0> induc_scale;
+	real<lower=0> R_inf_scale;
+}
+parameters {
+	real<lower=0> R_inf_raw;
+	// real<lower=0> induc_raw;
+	vector<lower=0>[K] R; // resistances
+	real<lower=0> sigma_res_raw;
+	// real<lower=0> alpha_prop_raw;
+	// real<lower=0> alpha_re_raw;
+	// real<lower=0> alpha_im_raw;
+	vector<lower=0>[K] ups_raw;
+	real<lower=0> d0_strength;
+	real<lower=0> d1_strength;
+	real<lower=0> d2_strength;
+}
+transformed parameters {
+	// offests
+	real<lower=0> R_inf = R_inf_raw*R_inf_scale;
+	vector[N_steps] I_inf_steps = V_steps ./ (R_inf + sum(R));
+	vector[N] I_inf = rep_vector(0, N);
+	
+	// error structure
+	real<lower=0> sigma_res = sigma_res_raw*sigma_res_scale;
+	real<lower=0> sigma_tot = sqrt(square(sigma_min) + square(sigma_res));
+	
+	// coefficient construction
+	vector<lower=0>[K] cumsum_R = cumulative_sum(R) + R_inf;
+	vector<lower=0>[K] cumsum_R_offset;
+	vector<lower=0>[K] x; 
+	
+	// calculated current
+	vector[N] I_hat;
+	
+	// complexity
+	vector<lower=0>[K] q;
+	vector<lower=0>[K] ups = ups_raw * ups_scale;
+	vector[K-2] dups;
+	
+	// calculate coefficients and I_hat
+	cumsum_R_offset[1] = R_inf;
+	cumsum_R_offset[2:K] = cumsum_R[1:K-1];
+	x = R ./ (cumsum_R .* cumsum_R_offset);
+	for (n in 1:N_steps) {
+		I_inf += I_inf_steps[n]*unit_step(times, t_steps[n]);
+	}
+	I_hat = A*x + I_inf;
+	
+	// calculate complexity and upsilon
+	q = sqrt(d0_strength*square(L0*x) + d1_strength*square(L1*x) + d2_strength*square(L2*x));
+	for (k in 1:K-2)
+		dups[k] = 0.5*(ups[k+1] - 0.5*(ups[k] + ups[k+2]))/ups[k+1];
+}
+model {
+	d0_strength ~ inv_gamma(5,5);
+	d1_strength ~ inv_gamma(5,5);
+	d2_strength ~ inv_gamma(5,5);
+	ups_raw ~ inv_gamma(ups_alpha,ups_beta);
+	R_inf_raw ~ std_normal();
+	// induc_raw ~ std_normal();
+	q ~ normal(0,ups);
+	dups ~ std_normal();
+	I ~ normal(I_hat,sigma_tot);
+	sigma_res_raw ~ std_normal();
+	// alpha_prop_raw ~ std_normal();
+	// alpha_re_raw ~ std_normal();
+	// alpha_im_raw ~ std_normal();
+}
