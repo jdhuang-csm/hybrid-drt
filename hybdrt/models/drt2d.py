@@ -198,8 +198,8 @@ class DRT2d(DRTBase):
 
             # Make lml matrix for each derivative order
             l2_matrices = [penalty_matrices[f'm{k}'] for k in range(0, 3)]
-            lml = qphb.calculate_qp_l2_matrix(derivative_weights, rho_vector, l2_matrices, l2_lambda_vectors,
-                                              l2_lambda_0, penalty_type)
+            lml = qphb.calculate_qp_l2_matrix(derivative_weights, rho_vector, dop_rho_vector, l2_matrices,
+                                              l2_lambda_vectors, penalty_type, special_qp_params)
 
             cvx_result = qphb.solve_convex_opt(wrv, wrm, lml, l1_lambda_vector, nonneg, special_indices)
 
@@ -365,10 +365,9 @@ class DRT2d(DRTBase):
 
         # Initialize data weight (IMPORTANT)
         # ----------------------------------
-        est_weights, init_weights, x_overfit = qphb.initialize_weights(penalty_matrices, penalty_type,
-                                                                       derivative_weights, rho_vector, s_vectors, rv,
-                                                                       rm, vmm, nonneg, self.special_qp_params,
-                                                                       iw_alpha, iw_beta, outlier_lambda)
+        est_weights, init_weights, x_overfit = qphb.initialize_weights(hypers, penalty_matrices, penalty_type,
+                                                                       rho_vector, dop_rho_vector, s_vectors, rv, rm,
+                                                                       vmm, nonneg, self.special_qp_params)
 
         weights = init_weights
         # print(est_weights[0], weights[0])
@@ -394,10 +393,11 @@ class DRT2d(DRTBase):
 
             # print(it, weights[0], weight_factor)
             x, s_vectors, rho_vector, weights, cvx_result, converged = qphb.iterate_qphb(x_in, s_vectors, rho_vector,
-                                                                                         rv, weights, est_weights,
-                                                                                         outlier_variance, rm, vmm,
-                                                                                         penalty_matrices, penalty_type,
-                                                                                         l1_lambda_vector, l2_lambda_0,
+                                                                                         dop_rho_vector, rv, weights,
+                                                                                         est_weights, outlier_variance,
+                                                                                         rm, vmm, penalty_matrices,
+                                                                                         penalty_type, l1_lambda_vector,
+                                                                                         l2_lambda_0,
                                                                                          derivative_weights, rho_alpha,
                                                                                          rho_0, s_alpha, None, s_0,
                                                                                          xmx_norms, None, None, nonneg)
@@ -435,7 +435,8 @@ class DRT2d(DRTBase):
 
         # Store QPHB diagnostic parameters
         p_matrix, q_vector = qphb.calculate_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights, l2_lambda_0,
-                                               l1_lambda_vector, rho_vector, s_vectors)
+                                               l1_lambda_vector, dop_rho_vector, rho_vector, s_vectors,
+                                               special_qp_params)
 
         # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(3)]
         # sms = qphb.calculate_sms(np.array(derivative_weights) * rho_vector, l2_matrices, s_vectors)
@@ -449,7 +450,8 @@ class DRT2d(DRTBase):
         # q_vector = -wrm.T @ wrv + l1_lambda_vector
 
         post_lp = qphb.evaluate_posterior_lp(x, derivative_weights, penalty_type, penalty_matrices, l2_lambda_0,
-                                             l1_lambda_vector, rho_vector, s_vectors, weights, rm, rv)
+                                             l1_lambda_vector, dop_rho_vector, rho_vector, s_vectors, weights, rm, rv,
+                                             special_qp_params)
 
         self.qphb_params = {'est_weights': est_weights.copy(),
                             'init_weights': init_weights.copy(),
@@ -753,8 +755,8 @@ class DRT2d(DRTBase):
 
             # Make lml matrix for each derivative order
             l2_matrices = [penalty_matrices[f'm{k}'] for k in range(0, 3)]
-            lml = qphb.calculate_qp_l2_matrix(derivative_weights, rho_vector, l2_matrices, l2_lambda_vectors,
-                                              l2_lambda_0, penalty_type)
+            lml = qphb.calculate_qp_l2_matrix(derivative_weights, rho_vector, dop_rho_vector, l2_matrices,
+                                              l2_lambda_vectors, penalty_type, special_qp_params)
 
             cvx_result = qphb.solve_convex_opt(wrv, wrm, lml, l1_lambda_vector, nonneg, special_indices)
 
@@ -862,9 +864,9 @@ class DRT2d(DRTBase):
             else:
                 psi = self.psi_fit
 
-        # If op_mode is not provided, use fitted op_mode
+        # If chrono_mode is not provided, use fitted chrono_mode
         if op_mode is None:
-            op_mode = self.op_mode
+            op_mode = self.chrono_mode
         utils.check_op_mode(op_mode)
 
         # TODO: add getters and setters for basis_times etc.
@@ -973,13 +975,13 @@ class DRT2d(DRTBase):
 
         # Transform time to visualize each step on a log scale
         if transform_time:
-            x, trans_functions = get_transformed_plot_time(times, self.step_times, linear_time_axis)
+            x, trans_functions = get_transformed_plot_time(times, self.step_times)
         else:
             x = times
 
         # Add linear time axis
         if linear_time_axis and transform_time:
-            axt = add_linear_time_axis(ax, self.step_times, trans_functions)
+            axt = add_linear_time_axis(ax, times, self.step_times, trans_functions)
 
         # Plot data
         if plot_data:
@@ -1000,9 +1002,9 @@ class DRT2d(DRTBase):
         else:
             ax.set_xlabel('$t$ (s)')
 
-        if self.op_mode == 'galvanostatic':
+        if self.chrono_mode == 'galvanostatic':
             ax.set_ylabel('$v$ (V)')
-        elif self.op_mode == 'potentiostatic':
+        elif self.chrono_mode == 'potentiostatic':
             ax.set_ylabel('$i$ (A)')
 
         fig.tight_layout()
@@ -1091,7 +1093,7 @@ class DRT2d(DRTBase):
 
         if x_axis == 'f(t)':
             # Transform time to visualize each step on a log scale
-            x, trans_functions = get_transformed_plot_time(times, self.step_times, linear_time_axis)
+            x, trans_functions = get_transformed_plot_time(times, self.step_times)
             ax.set_xlabel('$f(t)$')
         elif x_axis == 'index':
             # Uniform spacing
@@ -1103,7 +1105,7 @@ class DRT2d(DRTBase):
 
         # Add linear time axis
         if linear_time_axis and x_axis == 'f(t)':
-            axt = add_linear_time_axis(ax, self.step_times, trans_functions)
+            axt = add_linear_time_axis(ax, times, self.step_times, trans_functions)
 
         # Get model response
         y_hat = self.predict_response(times=times, input_signal=self.raw_input_signal[time_index],
@@ -1120,9 +1122,9 @@ class DRT2d(DRTBase):
         ax.axhline(0, c='k', lw=1, zorder=-10)
 
         # Labels
-        if self.op_mode == 'galvanostatic':
+        if self.chrono_mode == 'galvanostatic':
             ax.set_ylabel('$\hat{v} - v$ (V)')
-        elif self.op_mode == 'potentiostatic':
+        elif self.chrono_mode == 'potentiostatic':
             ax.set_ylabel('$\hat{i} - i$ (A)')
 
         fig.tight_layout()
@@ -1281,9 +1283,9 @@ class DRT2d(DRTBase):
             # print('Finished signal scaling')
             #
             # # Estimate baseline
-            # if self.op_mode == 'galvanostatic':
+            # if self.chrono_mode == 'galvanostatic':
             #     response_baseline = np.mean(v_signal_scaled[sample_times < step_times[0]])
-            # elif self.op_mode == 'potentiostatic':
+            # elif self.chrono_mode == 'potentiostatic':
             #     response_baseline = np.mean(i_signal_scaled[sample_times < step_times[0]])
 
             # Get matrices
@@ -1326,9 +1328,9 @@ class DRT2d(DRTBase):
 
         # Estimate chrono baseline after scaling
         if sample_times is not None:
-            if self.op_mode == 'galvanostatic':
+            if self.chrono_mode == 'galvanostatic':
                 response_baseline = np.mean(v_signal_scaled[sample_times < step_times[0]])
-            elif self.op_mode == 'potentiostatic':
+            elif self.chrono_mode == 'potentiostatic':
                 response_baseline = np.mean(i_signal_scaled[sample_times < step_times[0]])
         else:
             response_baseline = None
@@ -1433,7 +1435,7 @@ class DRT2d(DRTBase):
                                                     self.tau_basis_type, self.tau_epsilon,
                                                     psi_basis_type, psi_epsilon,
                                                     time_basis_type, basis_times, time_epsilon, psi_map_coef,
-                                                    tau_rise, self.op_mode)
+                                                    tau_rise, self.chrono_mode)
             rm, rm_layered = rm
 
             print('Constructed response matrix')
@@ -1442,7 +1444,7 @@ class DRT2d(DRTBase):
 
             if self.step_model == 'expdecay':
                 induc_rv = mat1d.construct_inductance_response_vector(times, self.step_model, step_times, step_sizes, tau_rise,
-                                                                      self.op_mode)
+                                                                      self.chrono_mode)
             else:
                 induc_rv = np.zeros(len(times))
             self.fit_matrices['inductance_response'] = induc_rv.copy()
@@ -1508,7 +1510,7 @@ class DRT2d(DRTBase):
         return zm, zm_inf, induc_zv
 
     def _prep_penalty_matrices(self, penalty_type, derivative_weights, fxx_penalty, fyy_penalty, fxy_penalty):
-        # Handle penalty (derivative) matrices separately - depend only on self.basis_tau, self.op_mode, and penalty
+        # Handle penalty (derivative) matrices separately - depend only on self.basis_tau, self.chrono_mode, and penalty
         # Always recalculate since these depend on some args passed to fit, rather than attributes
         # (and are quick to calculate)
         penalty_matrices = {}
@@ -1797,7 +1799,7 @@ class DRT2d(DRTBase):
                                                     self.tau_basis_type, self.tau_epsilon,
                                                     self.psi_basis_type, self.psi_epsilon,
                                                     time_basis_type, basis_times, time_epsilon, psi_map_coef,
-                                                    tau_rise, self.op_mode)
+                                                    tau_rise, self.chrono_mode)
             rm, rm_layered = rm
             if self.step_model == 'expdecay':
                 induc_rv = mat1d.construct_inductance_response_vector(times, self.step_model, step_times, step_sizes, tau_rise,

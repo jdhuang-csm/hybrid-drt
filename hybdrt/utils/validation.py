@@ -4,7 +4,7 @@ from hybdrt.utils.array import check_equality
 
 
 def check_basis_type(basis_type):
-    options = ['gaussian', 'Cole-Cole', 'step', 'pw_linear', 'pwl_transformed', 'zga']
+    options = ['gaussian', 'Cole-Cole', 'step', 'delta', 'ramp', 'pwl', 'pwl_transformed', 'zga']
     if basis_type not in options:
         raise ValueError(f'Invalid basis_type {basis_type}. Options: {options}')
 
@@ -33,10 +33,12 @@ def check_eis_data(frequencies, z):
 
 
 def check_chrono_data(times, i_signal, v_signal):
-    if not (
-            check_equality(np.shape(times), np.shape(i_signal)) and check_equality(np.shape(times), np.shape(v_signal))
-    ):
-        raise ValueError('times, i_signal, and v_signal must have same shape')
+    if i_signal is not None:
+        if not check_equality(np.shape(times), np.shape(i_signal)):
+            raise ValueError('times and i_signal must have same shape')
+    if v_signal is not None:
+        if not check_equality(np.shape(times), np.shape(v_signal)):
+            raise ValueError('times and v_signal must have same shape')
 
 
 def check_md_data(psi_array, chrono_data_list, eis_data_list):
@@ -74,7 +76,8 @@ def check_md_x_spec(*args):
                          'psi_array, obs_indices, or x')
 
 
-def check_op_mode(op_mode):
-    options = ['galvanostatic', 'potentiostatic']
-    if op_mode not in options:
-        raise ValueError(f'Invalid op_mode {op_mode}. Options: {options}')
+def check_ctrl_mode(ctrl_mode):
+    options = ['galv', 'pot']
+    if ctrl_mode not in options:
+        raise ValueError(f'Invalid ctrl_mode {ctrl_mode}. Options: {options}')
+    

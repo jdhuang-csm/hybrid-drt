@@ -1,12 +1,12 @@
 import numpy as np
 from scipy.special import loggamma
 import cvxopt
+from copy import deepcopy
 
 from hybdrt.utils.stats import log_pdf_gamma, pdf_normal
 from .. import preprocessing as pp
-from . import peaks
-from ..matrices import basis
-
+# from . import peaks
+# from ..matrices import basis
 
 cvxopt.solvers.options['show_progress'] = False
 
@@ -14,17 +14,33 @@ cvxopt.solvers.options['show_progress'] = False
 # ===============================================
 # Analytical solutions for hyper-lambda approach
 # ===============================================
-def calculate_qp_l2_matrix(derivative_weights, rho_vector, penalty_matrices, s_vectors, l2_lambda_0, penalty_type):
+def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices, s_vectors,
+                           penalty_type, special_qp_params):
     """
     Calculate lml matrix (Lambda^1/2 @ M @ Lambda^1/2)
-    :param l2_lambda_0:
-    :param list derivative_weights: list of derivative weights
+    :param dop_rho_vector:
+    :param special_qp_params:
+    :param dict hypers: dict of hyperparameters
     :param ndarray rho_vector:
     :param dict penalty_matrices: list of l2 (M) matrices
     :param list s_vectors: list of lambda vectors
     :param str penalty_type:
     :return:
     """
+    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+
+    derivative_weights = hypers['derivative_weights']
+    l2_lambda_0 = hypers['l2_lambda_0']
+
+    if 'x_dop' in special_qp_params.keys():
+        dop_start = special_qp_params['x_dop']['index']
+        dop_end = dop_start + special_qp_params['x_dop']['size']
+        dop_l2_lambda_0 = hypers['dop_l2_lambda_0']
+        dop_derivative_weights = hypers['dop_derivative_weights']
+    else:
+        dop_start, dop_end = None, None
+        dop_l2_lambda_0, dop_derivative_weights = None, None
+
     # Sum weighted matrices for all derivative orders
     if penalty_type == 'integral':
         l2_mat = np.zeros_like(penalty_matrices['m0'])
@@ -32,9 +48,21 @@ def calculate_qp_l2_matrix(derivative_weights, rho_vector, penalty_matrices, s_v
             if d_weight > 0:
                 sv = s_vectors[k]
                 sm = np.diag(sv ** 0.5)
-                m_k = penalty_matrices[f'm{k}']
-                l2_mat += d_weight * rho_vector[k] * (sm @ m_k @ sm)
+                m_k = penalty_matrices[f'm{k}'].copy()
+
+                # Multiply DRT sub-matrix by derivative weight and rho
+                m_k[num_special:, num_special:] *= l2_lambda_0 * d_weight * rho_vector[k]
+
+                # Multiply DOP sub-matrix by derivative weight and rho
+                if 'x_dop' in special_qp_params.keys():
+                    dop_factor = dop_l2_lambda_0 * dop_derivative_weights[k] * dop_rho_vector[k]
+                    m_k[dop_start:dop_end, dop_start:dop_end] *= dop_factor
+
+                # l2_mat += d_weight * rho_vector[k] * (sm @ m_k @ sm)
+                l2_mat += sm @ m_k @ sm
         # l2_mat *= 2  # multiply by 2 for exponential prior
+        # return l2_lambda_0 * l2_mat
+        return l2_mat
     elif penalty_type == 'discrete':
         l2_mat = np.zeros((penalty_matrices['l0'].shape[1], penalty_matrices['l0'].shape[1]))
         for k, d_weight in enumerate(derivative_weights):
@@ -44,11 +72,11 @@ def calculate_qp_l2_matrix(derivative_weights, rho_vector, penalty_matrices, s_v
                 l_k = penalty_matrices[f'l{k}']
                 l2_mat += d_weight * rho_vector[k] * l_k.T @ sm @ l_k
 
-    return l2_lambda_0 * l2_mat
+        return l2_lambda_0 * l2_mat
 
 
 def calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors, l2_lambda_0_diagonal,
-                         penalty_type):
+                              penalty_type):
     # Apply rho_diagonals to penalty matrices
     if penalty_type == 'integral':
         scaled_penalty_matrices = {f'm{k}': rho_diagonals[k] @ penalty_matrices[f'm{k}'] @ rho_diagonals[k]
@@ -57,8 +85,8 @@ def calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrice
         scaled_penalty_matrices = {f'l{k}': rho_diagonals[k] @ penalty_matrices[f'l{k}']
                                    for k in range(len(derivative_weights))}
 
-    l2_mat = calculate_qp_l2_matrix(derivative_weights, np.ones(len(derivative_weights)), scaled_penalty_matrices,
-                                    s_vectors, 1, penalty_type)
+    l2_mat = calculate_qp_l2_matrix(hypers, np.ones(len(derivative_weights)), dop_rho_vector,
+                                    scaled_penalty_matrices, s_vectors, penalty_type, special_qp_params)
     # Apply l2_lambda_0 data vector
     l2_mat = l2_lambda_0_diagonal @ l2_mat @ l2_lambda_0_diagonal
 
@@ -122,12 +150,12 @@ def get_data_factor_from_data(times, step_times, frequencies):
     return get_data_factor(tot_num, tot_ppd)
 
 
-def get_default_hypers(data_factor, eff_hp):
+def get_default_hypers(eff_hp, fit_dop):
     if eff_hp:
         s_alpha = np.array([5, 10, 25])  # np.array([1.5, 2.5, 25])
         rho_alpha = np.array([0.15, 0.2, 0.25])  # np.array([0.1, 0.15, 0.2])
-        iw_alpha = 1.5
-        iw_beta = 0.5 * data_factor ** 2
+        iw_alpha = None  # 1.5
+        iw_beta = None  # 0.5 * data_factor ** 2
     else:
         s_alpha = np.array([1.05, 1.15, 2.5])
         rho_alpha = np.array([0.05, 0.1, 0.05])
@@ -139,7 +167,7 @@ def get_default_hypers(data_factor, eff_hp):
         derivative_weights=np.array([1.5, 1.0, 0.5]),
         sigma_ds=np.array([1, 1000, 1000]),
         l1_lambda_0=0,
-        l2_lambda_0=284 * data_factor ** -1,
+        l2_lambda_0=100,  # 284 * data_factor ** -1,
         iw_alpha=iw_alpha,
         iw_beta=iw_beta,
         s_alpha=s_alpha,
@@ -148,6 +176,17 @@ def get_default_hypers(data_factor, eff_hp):
         rho_0=np.ones(3),
         outlier_p=None,
     )
+
+    if fit_dop:
+        hypers['dop_l2_lambda_0'] = 10
+        hypers['dop_l1_lambda_0'] = 0
+        hypers['dop_derivative_weights'] = np.array([1, 0, 0])
+        hypers['dop_s_alpha'] = np.array([2, 2, 2])
+        hypers['dop_rho_alpha'] = np.array([0.15, 0.2, 0.25])
+        hypers['dop_s_0'] = np.ones(3)
+        hypers['dop_rho_0'] = np.ones(3)
+        hypers['dop_sigma_ds'] = np.array([1, 1, 1])
+
     return hypers
 
 
@@ -223,10 +262,15 @@ def solve_s(pm_k, x, sv_k, rho_k, alpha, beta, g_mat, sigma_ds, penalty_type, x_
         # b = gzd @ sv_k ** 0.5
         gu = gamma @ um
         np.fill_diagonal(gu, 0)
-        b = np.sum(gu, axis=1)
 
-        u_hat = (-b + np.sign(b) * np.sqrt(b ** 2 + 4 * np.diag(gamma) * (alpha - 1))) / (2 * np.diag(gamma))
-        s_hat = u_hat ** 2
+        if np.max(np.abs(gu)) > 1e-10:
+            # gu is not diagonal. Quadratic solution
+            b = np.sum(gu, axis=1)
+            u_hat = (-b + np.sign(b) * np.sqrt(b ** 2 + 4 * np.diag(gamma) * (alpha - 1))) / (2 * np.diag(gamma))
+            s_hat = u_hat ** 2
+        else:
+            # gu is diagonal
+            s_hat = (alpha - 1) / (np.diag(gamma))
     elif penalty_type == 'discrete':
         if np.max(np.abs(g_mat)) > 1e-10:
             lx2 = rho_k * (pm_k @ x) ** 2
@@ -245,6 +289,7 @@ def solve_s(pm_k, x, sv_k, rho_k, alpha, beta, g_mat, sigma_ds, penalty_type, x_
     s_hat[np.isnan(s_hat)] = 1
 
     return s_hat
+
 
 # def solve_s(m_k, x, sv_k, rho_k, alpha, beta):
 #     """
@@ -358,7 +403,8 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
         # V_baseline and vz_factor can be negative
         for sp in special_params.values():
             if not sp['nonneg']:
-                h[sp['index']] = 10
+                end_index = sp['index'] + sp.get('size', 1)
+                h[sp['index']:end_index] = 10
         # h[special_indices['unbnd']] = 10
         # print(h)
     # print(h)
@@ -369,7 +415,8 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
         # h[special_indices['nonneg']] = 0
         for sp in special_params.values():
             if sp['nonneg']:
-                h[sp['index']] = 0
+                end_index = sp['index'] + sp.get('size', 1)
+                h[sp['index']:end_index] = 0
         # print(h)
 
     if curvature_constraint is not None:
@@ -379,7 +426,6 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
 
     G = cvxopt.matrix(G)
     h = cvxopt.matrix(h)
-
 
     p_matrix = cvxopt.matrix(p_matrix.T)
     # print('rank(p_matrix):', np.linalg.matrix_rank(p_matrix))
@@ -435,13 +481,13 @@ def is_converged(x_in, x_out, x_atol, x_rtol):
         return False
 
 
-def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_t,
+def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_t,
                  rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
                  hypers, eff_hp,
-                 xmx_norms, fixed_x_index, fixed_x_values, curvature_constraint,
+                 xmx_norms, dop_xmx_norms, fixed_x_index, fixed_x_values, curvature_constraint,
                  nonneg, special_qp_params, x_rtol, max_hp_iter, history):
     # Unpack hyperparameter dict
-    l2_lambda_0 = hypers['l2_lambda_0']
+    # l2_lambda_0 = hypers['l2_lambda_0']
     derivative_weights = hypers['derivative_weights']
     rho_alpha = hypers['rho_alpha']
     rho_0 = hypers['rho_0']
@@ -450,6 +496,18 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
     # outlier_lambda = hypers['outlier_lambda']
     outlier_p = hypers['outlier_p']
     sigma_ds = hypers['sigma_ds']
+
+    # if 'dop' in special_qp_params.keys():
+    #     dop_start = special_qp_params['dop']['index']
+    #     dop_end = dop_start + special_qp_params['dop']['size']
+    #
+    #     # dop_l2_lambda_0 = hypers['dop_l2_lambda_0']
+    #     dop_derivative_weights = hypers['dop_derivative_weights']
+    #     dop_rho_alpha = hypers['dop_rho_alpha']
+    #     dop_rho_0 = hypers['dop_rho_0']
+    #     dop_s_alpha = hypers['dop_s_alpha']
+    #     dop_s_0 = hypers['dop_s_0']
+    #     dop_sigma_ds = hypers['dop_sigma_ds']
     # if outlier_alpha is not None:
     #     outlier_args = (outlier_alpha, outlier_beta, outlier_variance, 2)
     # else:
@@ -465,36 +523,29 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
     # Make l2_matrix matrix for each derivative order
     # l2_matrices = [penalty_matrices[f'pm_k{n}'] for n in range(k_range)]
     # l2_matrices = [lambdas[k] * penalty_matrices[f'pm_k{n}'] for n in range(3)]
-    l2_matrix = calculate_qp_l2_matrix(np.array(derivative_weights), rho_vector, penalty_matrices, s_vectors,
-                                       l2_lambda_0, penalty_type)
+    l2_matrix = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
+                                       s_vectors, penalty_type, special_qp_params)
     # print('l2_matrix', np.sum(l2_matrix))
 
-    # xm = np.diag(np.sign(x_in) * np.abs(x_in) ** 0.5)
-    # g_mat = penalty_matrices['m1'].copy()
-    # g_mat = xm @ g_mat @ xm
-    # l2_matrix += g_mat
-
-    x_offsets = [0., 0.0, 0.0, 0.]
-    for k in range(len(derivative_weights)):
-        if x_offsets[k] > 0:
-            sv = s_vectors[k]
-            sm = np.diag(sv ** 0.5)
-            m = penalty_matrices[f'm{k}']
-            ramp_length = 20
-            x_offset = np.zeros(len(x_in)) + x_offsets[k]
-            rbf = basis.get_basis_func('gaussian')
-            x_offset[:ramp_length] = x_offsets[k] * rbf(ramp_length - np.arange(ramp_length), 0.1)
-            x_offset[-ramp_length:] = x_offsets[k] * rbf(np.arange(ramp_length), 0.1)
-
-            sms = 2 * l2_lambda_0 * derivative_weights[k] * rho_vector[k] * sm @ m @ sm
-            l1_lambda_vector = l1_lambda_vector + sms @ x_offset
+    # x_offsets = [0., 0.0, 0.0, 0.]
+    # for k in range(len(derivative_weights)):
+    #     if x_offsets[k] > 0:
+    #         sv = s_vectors[k]
+    #         sm = np.diag(sv ** 0.5)
+    #         m = penalty_matrices[f'm{k}']
+    #         ramp_length = 20
+    #         x_offset = np.zeros(len(x_in)) + x_offsets[k]
+    #         rbf = basis.get_basis_func('gaussian')
+    #         x_offset[:ramp_length] = x_offsets[k] * rbf(ramp_length - np.arange(ramp_length), 0.1)
+    #         x_offset[-ramp_length:] = x_offsets[k] * rbf(np.arange(ramp_length), 0.1)
+    #
+    #         sms = 2 * l2_lambda_0 * derivative_weights[k] * rho_vector[k] * sm @ m @ sm
+    #         l1_lambda_vector = l1_lambda_vector + sms @ x_offset
 
     # Solve the ridge problem with QP: optimize x
-    # Multiply l2_matrix by 2 due to exponential prior
     cvx_result = solve_convex_opt(wrv, wrm, l2_matrix, l1_lambda_vector, nonneg, special_qp_params,
                                   fixed_x_index=fixed_x_index, fixed_x_values=fixed_x_values,
                                   curvature_constraint=curvature_constraint)
-    # init_vals={'x': cvxopt.matrix(x0)})
     x = np.array(list(cvx_result['x']))
 
     if fixed_x_index is not None:
@@ -504,7 +555,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
             x = np.insert(x, index, value)
 
     # Get number of special (non-DRT) parameters in x vector
-    num_special = len(special_qp_params)
+    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
 
     # lambdas = np.zeros(3)
     # l_alphas = [10, 5, 1]
@@ -512,6 +563,8 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
     # For each derivative order, update the global penalty strength and the local penalty scale vector
     s_vectors = s_vectors.copy()
     rho_vector = rho_vector.copy()
+    if dop_rho_vector is not None:
+        dop_rho_vector = dop_rho_vector.copy()
 
     # # *TMP*
     # g_drt = np.eye(len(x) - num_special)
@@ -562,53 +615,45 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
                     s_k_beta = (s_k_alpha - 0.5) / s_k_0
 
                 if not eff_hp:
-                    rho_k = rho_vector[k]
+                    rho_k_eff = rho_vector[k]
                 else:
-                    rho_k = 1
-
-                if k == 0:
-                    xm = np.diag(np.sign(x) * np.abs(x) ** 0.5)
-                    g_mat = penalty_matrices['m1'].copy()
-                    # if penalty_type == 'discrete':
-                    #     g_mat *= 0.2
-                    g_mat = xm @ g_mat @ xm
-                    # if penalty_type == 'discrete':
-                    #     g_mat += 0.2 * np.diag(x) @ penalty_matrices[f'm{k}'] @ np.diag(x)
-                else:
-                    g_mat = 0
+                    rho_k_eff = 1
 
                 # if k == 0:
-                #     nu = np.ones(len(sv_in))
                 #     xm = np.diag(np.sign(x) * np.abs(x) ** 0.5)
-                #     g_mat = xm @ penalty_matrices['m1'] @ xm
-                #     for i in range(2):
-                #         nu = solve_s(g_mat, sv_in, nu, 1,
-                #                     1.8, 0.1,
-                #                      0, 1, 'integral')
-                #     nu_diag = np.diag(nu ** 0.5)
-                #     g_mat = nu_diag @ g_mat @ nu_diag
-                #     nu_vectors[k] = nu
+                #     g_mat = penalty_matrices['m1'].copy()
+                #     g_mat = xm @ g_mat @ xm
                 # else:
                 #     g_mat = 0
+                #
+                # sv_out = solve_s(pm_k, x, sv_in, rho_k_eff, s_k_alpha, s_k_beta, g_mat, sigma_ds=sigma_ds[k],
+                #                  penalty_type=penalty_type, x_offset=0) #x_offsets[k])
+                #
+                # # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
+                # sv_out[sv_out <= 0] = 1e-15
+                # sv_out[:num_special] = s_k_0
+                # s_vectors[k] = sv_out
+                # s_converged[k] = is_converged(sv_in, sv_out, np.mean(s_k_0) * 5e-2, 1e-2)
 
-                # if k == 0:
-                #     sigma_s = 1
-                # elif k == 1:
-                #     sigma_s = 1000
-                # elif k == 2:
-                #     sigma_s = 1
-                # else:
-                #     sigma_s = 0.1
+                x_drt = x[num_special:]
+                pm_drt = pm_k[num_special:, num_special:]
+                sv_drt = sv_in[num_special:]
 
-                sv_out = solve_s(pm_k, x, sv_in, rho_k, s_k_alpha, s_k_beta, g_mat, sigma_ds=sigma_ds[k],
-                                 penalty_type=penalty_type, x_offset=x_offsets[k])
+                if k == 0:
+                    xm = np.diag(np.sign(x_drt) * np.abs(x_drt) ** 0.5)
+                    g_mat_drt = penalty_matrices['m1'][num_special:, num_special:]
+                    g_mat_drt = xm @ g_mat_drt @ xm
+                else:
+                    g_mat_drt = 0
+
+                sv_out = solve_s(pm_drt, x_drt, sv_drt, rho_k_eff, s_k_alpha, s_k_beta, g_mat_drt,
+                                 sigma_ds=sigma_ds[k], penalty_type=penalty_type, x_offset=0)
 
                 # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
                 sv_out[sv_out <= 0] = 1e-15
-                sv_out[:num_special] = s_k_0
-                s_vectors[k] = sv_out
+                s_vectors[k][num_special:] = sv_out
 
-                s_converged[k] = is_converged(sv_in, sv_out, np.mean(s_k_0) * 5e-2, 1e-2)
+                s_converged[k] = is_converged(sv_drt, sv_out, np.mean(s_k_0) * 5e-2, 1e-2)
 
                 # calculate global derivative strength
                 rho_k_alpha = rho_alpha[k]
@@ -619,10 +664,10 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
                 rho_k_beta = rho_k_alpha / rho_k_0
 
                 # Only include DRT penalty in rho calculation
-                x_drt = x[num_special:]
-                pm_drt = pm_k[num_special:, num_special:]
-                sv_drt = sv_out[num_special:]
-                rho_vector[k] = solve_rho(pm_drt, x_drt, sv_drt, rho_k_alpha, rho_k_beta, xmx_norms[k], penalty_type)
+                # x_drt = x[num_special:]
+                # pm_drt = pm_k[num_special:, num_special:]
+                # sv_drt = sv_out[num_special:]
+                rho_vector[k] = solve_rho(pm_drt, x_drt, sv_out, rho_k_alpha, rho_k_beta, xmx_norms[k], penalty_type)
 
                 rho_converged[k] = is_converged(rho_in[k], rho_vector[k], rho_k_0 * 5e-2, 1e-2)
 
@@ -641,7 +686,122 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
     # print('xmx norms', xmx_norms)
     # print('lambdas', lambdas)
 
-    ############# original cvx location
+    # DOP
+    # --------------------
+    if 'x_dop' in special_qp_params.keys():
+        dop_start = special_qp_params['x_dop']['index']
+        dop_end = dop_start + special_qp_params['x_dop']['size']
+
+        # dop_l2_lambda_0 = hypers['dop_l2_lambda_0']
+        dop_derivative_weights = hypers['dop_derivative_weights']
+        dop_rho_alpha = hypers['dop_rho_alpha']
+        dop_rho_0 = hypers['dop_rho_0']
+        dop_s_alpha = hypers['dop_s_alpha']
+        dop_s_0 = hypers['dop_s_0']
+        dop_sigma_ds = hypers['dop_sigma_ds']
+
+        it = 0
+        while it < max_hp_iter:
+            s_converged = [False] * k_range
+            rho_converged = [False] * k_range
+            rho_in = dop_rho_vector.copy()
+            for k, d_weight in enumerate(dop_derivative_weights):
+                if d_weight > 0:
+                    # Get penalty matrix
+                    if penalty_type == 'integral':
+                        pm_k = penalty_matrices[f'm{k}']
+                    else:
+                        pm_k = penalty_matrices[f'l{k}']
+
+                    sv_in = s_vectors[k]
+                    # Solve for lambda scale vector
+                    s_k_alpha = dop_s_alpha[k]
+                    if np.shape(dop_s_0) == (k_range,) or type(dop_s_0) == list:
+                        s_k_0 = dop_s_0[k]
+                    else:
+                        s_k_0 = dop_s_0
+
+                    # Set beta such that mode of gamma distribution for s is s_k_0
+                    if penalty_type == 'integral':
+                        s_k_beta = (s_k_alpha - 1) / s_k_0
+                    else:
+                        s_k_beta = (s_k_alpha - 0.5) / s_k_0
+
+                    if not eff_hp:
+                        rho_k_eff = dop_rho_vector[k]
+                    else:
+                        rho_k_eff = 1
+
+                    # if k == 0:
+                    #     xm = np.diag(np.sign(x) * np.abs(x) ** 0.5)
+                    #     g_mat = penalty_matrices['m1'].copy()
+                    #     g_mat = xm @ g_mat @ xm
+                    # else:
+                    #     g_mat = 0
+
+                    # sv_out = solve_s(pm_k, x, sv_in, rho_k_eff, s_k_alpha, s_k_beta, g_mat, sigma_ds=sigma_ds[k],
+                    #                  penalty_type=penalty_type, x_offset=x_offsets[k])
+
+                    x_dop = x[dop_start:dop_end]
+                    pm_dop = pm_k[dop_start:dop_end, dop_start:dop_end]
+                    sv_dop = sv_in[dop_start:dop_end]
+                    # print(sv_dop)
+
+                    g_mat_dop = penalty_matrices.get(f'gmat{k}_dop', 0)
+                    # if k == 0:
+                    #     xm = np.diag(np.sign(x_dop * np.abs(x_dop) ** 0.5)
+                    #     g_mat_drt = penalty_matrices['m1'].copy()[num_special:, num_special:]
+                    #     # if penalty_type == 'discrete':
+                    #     #     g_mat *= 0.2
+                    #     g_mat_drt = xm @ g_mat_drt @ xm
+                    #     # if penalty_type == 'discrete':
+                    #     #     g_mat += 0.2 * np.diag(x) @ penalty_matrices[f'm{k}'] @ np.diag(x)
+                    # else:
+                    #     g_mat_drt = 0
+
+                    sv_out = solve_s(pm_dop, x_dop, sv_dop, rho_k_eff, s_k_alpha, s_k_beta, g_mat_dop,
+                                     sigma_ds=dop_sigma_ds[k], penalty_type=penalty_type, x_offset=0)
+                    # print(pm_dop)
+
+                    # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
+                    sv_out[sv_out <= 0] = 1e-15
+                    s_vectors[k][dop_start:dop_end] = sv_out
+
+                    s_converged[k] = is_converged(sv_dop, sv_out, np.mean(s_k_0) * 5e-2, 1e-2)
+
+                    # calculate global derivative strength
+                    rho_k_alpha = dop_rho_alpha[k]
+                    if np.shape(dop_rho_0) == (k_range,):
+                        rho_k_0 = dop_rho_0[k]
+                    else:
+                        rho_k_0 = dop_rho_0
+                    rho_k_beta = rho_k_alpha / rho_k_0
+
+                    # Only include DOP penalty in rho calculation
+                    # x_dop = x[dop_start:dop_end]
+                    # pm_drt = pm_k[dop_start:dop_end, dop_start:dop_end]
+                    # sv_drt = sv_out[num_special:]
+                    # print('x_dop:', x_dop)
+                    dop_rho_vector[k] = solve_rho(pm_dop, x_dop, sv_out, rho_k_alpha, rho_k_beta,
+                                                  dop_xmx_norms[k],
+                                                  penalty_type)
+
+                    rho_converged[k] = is_converged(rho_in[k], dop_rho_vector[k], rho_k_0 * 5e-2, 1e-2)
+
+                    # sm = np.diag(sv_drt ** 0.5)
+                    # l_beta = l_alphas[k] / 200
+                    # lambdas[k] = l_alphas[k] / (l_beta + d_weight * rho_vector[k] * x_drt @ sm @ m_drt @ sm @ x_drt)
+
+            # print(it, rho_vector)
+            # rho_converged = is_converged(rho_in, rho_vector, rho_0 * 5e-2, 1e-2)
+
+            if np.min(rho_converged) and np.min(s_converged):
+                # print(f'hp update converged in {it + 1} iterations')
+                break
+            else:
+                it += 1
+    # ---------
+    # END DOP
 
     # Estimate weights
     weights, outlier_t = estimate_weights(x, rv, vmm, rm, est_weights, None, None, outlier_t, outlier_p)
@@ -662,6 +822,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
              # 'l2_lambda_0': l2_lambda_0,
              's_vectors': s_vectors.copy(),
              'rho_vector': rho_vector.copy(),
+             'dop_rho_vector': deepcopy(dop_rho_vector),
              'weights': weights.copy(),
              'outlier_t': outlier_t,
              'fun': cvx_result['primal objective'],
@@ -676,189 +837,188 @@ def iterate_qphb(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_
     x_atol = np.mean(x_in) * 1e-3  # absolute tolerance
     converged = is_converged(x_in, x, x_atol, x_rtol)
 
-    return x, s_vectors, rho_vector, weights, outlier_t, cvx_result, converged
+    return x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged
 
 
-def iterate_qphb2(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_t,
-                 rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
-                 hypers, eff_hp,
-                 xmx_norms, fixed_x_index, fixed_x_values,
-                 nonneg, special_qp_params, x_rtol, max_hp_iter, history):
-    # Unpack hyperparameter dict
-    l2_lambda_0 = hypers['l2_lambda_0']
-    derivative_weights = hypers['derivative_weights']
-    rho_alpha = hypers['rho_alpha']
-    rho_0 = hypers['rho_0']
-    s_alpha = hypers['s_alpha']
-    s_0 = hypers['s_0']
-    # outlier_lambda = hypers['outlier_lambda']
-    outlier_p = hypers['outlier_p']
-    # if outlier_alpha is not None:
-    #     outlier_args = (outlier_alpha, outlier_beta, outlier_variance, 2)
-    # else:
-    #     outlier_args = None
-    k_range = len(derivative_weights)
-
-    # Apply weights to rm and rv
-    # wv = format_chrono_weights(rv, weights)
-    wm = np.diag(weights)
-    wrm = wm @ rm
-    wrv = wm @ rv
-
-    # Make l2_matrix matrix for each derivative order
-    l2_matrix = calculate_qp_l2_matrix(np.array(derivative_weights), rho_vector, penalty_matrices, s_vectors,
-                                       l2_lambda_0, penalty_type)
-    # print('l2_matrix', np.sum(l2_matrix))
-
-    # Solve the ridge problem with QP: optimize x
-    cvx_result = solve_convex_opt(wrv, wrm, l2_matrix, l1_lambda_vector, nonneg, special_qp_params,
-                                  fixed_x_index=fixed_x_index, fixed_x_values=fixed_x_values)
-    # init_vals={'x': cvxopt.matrix(x0)})
-    x = np.array(list(cvx_result['x']))
-
-    if fixed_x_index is not None:
-        # insert_index = [index - i for i, index in enumerate(fixed_x_index)]
-        # print(fixed_x_index, insert_index)
-        for index, value in zip(fixed_x_index, fixed_x_values):
-            x = np.insert(x, index, value)
-
-    # Get number of special (non-DRT) parameters in x vector
-    num_special = len(special_qp_params)
-
-    # lambdas = np.zeros(3)
-    # l_alphas = [10, 5, 1]
-
-    # For each derivative order, update the global penalty strength and the local penalty scale vector
-    s_vectors = s_vectors.copy()
-    rho_vector = rho_vector.copy()
-
-    it = 0
-    while it < max_hp_iter:
-        rho_converged = [False] * k_range
-        rho_in = rho_vector.copy()
-        sv_in = s_vectors[0].copy()
-
-        # First calculate overall s_vector
-        m_tot = 0
-        for k in range(k_range):
-            if penalty_type == 'integral':
-                m_tot += penalty_matrices[f'm{k}'] * derivative_weights[k] * rho_vector[k]
-            else:
-                m_tot += penalty_matrices[f'l{k}'] * (derivative_weights[k] * rho_vector[k]) ** 0.5
-
-        # Solve for lambda scale vector
-        s_k_alpha = s_alpha[0]
-        if np.shape(s_0) == (k_range,):
-            s_k_0 = s_0[0]
-        else:
-            s_k_0 = s_0
-
-        # Set beta such that mode of gamma distribution for s is s_k_0
-        if penalty_type == 'integral':
-            s_k_beta = (s_k_alpha - 1) / s_k_0
-        else:
-            s_k_beta = (s_k_alpha - 0.5) / s_k_0
-
-        # if not eff_hp:
-        #     rho_k = rho_vector[0]
-        # else:
-        #     rho_k = 1
-
-        xm = np.diag(np.sign(x) * np.abs(x) ** 0.5)
-        if penalty_type == 'discrete':
-            sm = np.diag(sv_in)
-            g_mat = penalty_matrices['l1'].T @ sm @ penalty_matrices['l1']
-            g_mat = xm @ g_mat @ xm
-        else:
-            g_mat = xm @ penalty_matrices['m1'] @ xm
-        # g_mat = penalty_matrices['m1']
-        # g_mat *= 1e-10
-
-        sv_out = solve_s(1 * m_tot / m_tot[-1, -1], x, sv_in, 1, s_k_alpha, s_k_beta, g_mat, 1, penalty_type)
-
-        # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
-        sv_out[sv_out <= 0] = 1e-15
-        for k in range(k_range):
-            s_vectors[k] = sv_out
-
-        s_converged = is_converged(sv_in, sv_out, s_k_0 * 5e-2, 1e-2)
-
-        # Next calculate rho_vector
-        for k, d_weight in enumerate(derivative_weights):
-            if d_weight > 0:
-                if penalty_type == 'integral':
-                    pm_k = penalty_matrices[f'm{k}']
-                else:
-                    pm_k = penalty_matrices[f'l{k}']
-
-                # calculate derivative strength
-                rho_k_alpha = rho_alpha[k]
-                if np.shape(rho_0) == (k_range,):
-                    rho_k_0 = rho_0[k]
-                else:
-                    rho_k_0 = rho_0
-                rho_k_beta = rho_k_alpha / rho_k_0
-
-                # Only include DRT penalty in rho calculation
-                x_drt = x[num_special:]
-                m_drt = pm_k[num_special:, num_special:]
-                sv_drt = sv_out[num_special:]
-                rho_vector[k] = solve_rho(m_drt, x_drt, sv_drt, rho_k_alpha, rho_k_beta, xmx_norms[k], penalty_type)
-
-                rho_converged[k] = is_converged(rho_in[k], rho_vector[k], rho_k_0 * 5e-2, 1e-2)
-
-                # sm = np.diag(sv_drt ** 0.5)
-                # l_beta = l_alphas[k] / 200
-                # lambdas[k] = l_alphas[k] / (l_beta + d_weight * rho_vector[k] * x_drt @ sm @ m_drt @ sm @ x_drt)
-
-
-        # print(it, rho_vector)
-        # rho_converged = is_converged(rho_in, rho_vector, rho_0 * 5e-2, 1e-2)
-
-        if np.min(rho_converged) and s_converged:
-            # print(f'hp update converged in {it + 1} iterations')
-            break
-        else:
-            it += 1
-    # print('xmx norms', xmx_norms)
-    # print('lambdas', lambdas)
-
-    ############# original cvx location
-
-    # Estimate weights
-    weights, outlier_t = estimate_weights(x, rv, vmm, rm, est_weights, None, None, outlier_t, outlier_p)
-    # print(weights[0], est_weights[0])
-
-    # Calculate cost for diagnostics
-    P = wrm.T @ wrm + l2_matrix
-    q = (-wrm.T @ wrv + l1_lambda_vector)
-    cost = 0.5 * x.T @ P @ x + q.T @ x
-
-    if history is not None:
-        history.append(
-            {'x': x.copy(),
-             'l1_lambda_vector': l1_lambda_vector.copy(),
-             'l2_lambda_0': l2_lambda_0,
-             's_vectors': s_vectors.copy(),
-             'rho_vector': rho_vector.copy(),
-             'weights': weights.copy(),
-             'outlier_t': outlier_t,
-             'fun': cvx_result['primal objective'],
-             'cost': cost,
-             'cvx_result': cvx_result,
-             }
-        )
-
-    # check for convergence
-    x_atol = np.mean(x_in) * 1e-3
-    converged = is_converged(x_in, x, x_atol, x_rtol)
-
-    return x, s_vectors, rho_vector, weights, outlier_t, cvx_result, converged
+# def iterate_qphb2(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_t,
+#                   rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
+#                   hypers, eff_hp,
+#                   xmx_norms, fixed_x_index, fixed_x_values,
+#                   nonneg, special_qp_params, x_rtol, max_hp_iter, history):
+#     # Unpack hyperparameter dict
+#     l2_lambda_0 = hypers['l2_lambda_0']
+#     derivative_weights = hypers['derivative_weights']
+#     rho_alpha = hypers['rho_alpha']
+#     rho_0 = hypers['rho_0']
+#     s_alpha = hypers['s_alpha']
+#     s_0 = hypers['s_0']
+#     # outlier_lambda = hypers['outlier_lambda']
+#     outlier_p = hypers['outlier_p']
+#     # if outlier_alpha is not None:
+#     #     outlier_args = (outlier_alpha, outlier_beta, outlier_variance, 2)
+#     # else:
+#     #     outlier_args = None
+#     k_range = len(derivative_weights)
+#
+#     # Apply weights to rm and rv
+#     # wv = format_chrono_weights(rv, weights)
+#     wm = np.diag(weights)
+#     wrm = wm @ rm
+#     wrv = wm @ rv
+#
+#     # Make l2_matrix matrix for each derivative order
+#     l2_matrix = calculate_qp_l2_matrix(np.array(derivative_weights), rho_vector, penalty_matrices, s_vectors,
+#                                        l2_lambda_0, penalty_type, special_qp_params, dop_params)
+#     # print('l2_matrix', np.sum(l2_matrix))
+#
+#     # Solve the ridge problem with QP: optimize x
+#     cvx_result = solve_convex_opt(wrv, wrm, l2_matrix, l1_lambda_vector, nonneg, special_qp_params,
+#                                   fixed_x_index=fixed_x_index, fixed_x_values=fixed_x_values)
+#     # init_vals={'x': cvxopt.matrix(x0)})
+#     x = np.array(list(cvx_result['x']))
+#
+#     if fixed_x_index is not None:
+#         # insert_index = [index - i for i, index in enumerate(fixed_x_index)]
+#         # print(fixed_x_index, insert_index)
+#         for index, value in zip(fixed_x_index, fixed_x_values):
+#             x = np.insert(x, index, value)
+#
+#     # Get number of special (non-DRT) parameters in x vector
+#     num_special = len(special_qp_params)
+#
+#     # lambdas = np.zeros(3)
+#     # l_alphas = [10, 5, 1]
+#
+#     # For each derivative order, update the global penalty strength and the local penalty scale vector
+#     s_vectors = s_vectors.copy()
+#     rho_vector = rho_vector.copy()
+#
+#     it = 0
+#     while it < max_hp_iter:
+#         rho_converged = [False] * k_range
+#         rho_in = rho_vector.copy()
+#         sv_in = s_vectors[0].copy()
+#
+#         # First calculate overall s_vector
+#         m_tot = 0
+#         for k in range(k_range):
+#             if penalty_type == 'integral':
+#                 m_tot += penalty_matrices[f'm{k}'] * derivative_weights[k] * rho_vector[k]
+#             else:
+#                 m_tot += penalty_matrices[f'l{k}'] * (derivative_weights[k] * rho_vector[k]) ** 0.5
+#
+#         # Solve for lambda scale vector
+#         s_k_alpha = s_alpha[0]
+#         if np.shape(s_0) == (k_range,):
+#             s_k_0 = s_0[0]
+#         else:
+#             s_k_0 = s_0
+#
+#         # Set beta such that mode of gamma distribution for s is s_k_0
+#         if penalty_type == 'integral':
+#             s_k_beta = (s_k_alpha - 1) / s_k_0
+#         else:
+#             s_k_beta = (s_k_alpha - 0.5) / s_k_0
+#
+#         # if not eff_hp:
+#         #     rho_k = rho_vector[0]
+#         # else:
+#         #     rho_k = 1
+#
+#         xm = np.diag(np.sign(x) * np.abs(x) ** 0.5)
+#         if penalty_type == 'discrete':
+#             sm = np.diag(sv_in)
+#             g_mat = penalty_matrices['l1'].T @ sm @ penalty_matrices['l1']
+#             g_mat = xm @ g_mat @ xm
+#         else:
+#             g_mat = xm @ penalty_matrices['m1'] @ xm
+#         # g_mat = penalty_matrices['m1']
+#         # g_mat *= 1e-10
+#
+#         sv_out = solve_s(1 * m_tot / m_tot[-1, -1], x, sv_in, 1, s_k_alpha, s_k_beta, g_mat, 1, penalty_type)
+#
+#         # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
+#         sv_out[sv_out <= 0] = 1e-15
+#         for k in range(k_range):
+#             s_vectors[k] = sv_out
+#
+#         s_converged = is_converged(sv_in, sv_out, s_k_0 * 5e-2, 1e-2)
+#
+#         # Next calculate rho_vector
+#         for k, d_weight in enumerate(derivative_weights):
+#             if d_weight > 0:
+#                 if penalty_type == 'integral':
+#                     pm_k = penalty_matrices[f'm{k}']
+#                 else:
+#                     pm_k = penalty_matrices[f'l{k}']
+#
+#                 # calculate derivative strength
+#                 rho_k_alpha = rho_alpha[k]
+#                 if np.shape(rho_0) == (k_range,):
+#                     rho_k_0 = rho_0[k]
+#                 else:
+#                     rho_k_0 = rho_0
+#                 rho_k_beta = rho_k_alpha / rho_k_0
+#
+#                 # Only include DRT penalty in rho calculation
+#                 x_drt = x[num_special:]
+#                 m_drt = pm_k[num_special:, num_special:]
+#                 sv_drt = sv_out[num_special:]
+#                 rho_vector[k] = solve_rho(m_drt, x_drt, sv_drt, rho_k_alpha, rho_k_beta, xmx_norms[k], penalty_type)
+#
+#                 rho_converged[k] = is_converged(rho_in[k], rho_vector[k], rho_k_0 * 5e-2, 1e-2)
+#
+#                 # sm = np.diag(sv_drt ** 0.5)
+#                 # l_beta = l_alphas[k] / 200
+#                 # lambdas[k] = l_alphas[k] / (l_beta + d_weight * rho_vector[k] * x_drt @ sm @ m_drt @ sm @ x_drt)
+#
+#         # print(it, rho_vector)
+#         # rho_converged = is_converged(rho_in, rho_vector, rho_0 * 5e-2, 1e-2)
+#
+#         if np.min(rho_converged) and s_converged:
+#             # print(f'hp update converged in {it + 1} iterations')
+#             break
+#         else:
+#             it += 1
+#     # print('xmx norms', xmx_norms)
+#     # print('lambdas', lambdas)
+#
+#     ############# original cvx location
+#
+#     # Estimate weights
+#     weights, outlier_t = estimate_weights(x, rv, vmm, rm, est_weights, None, None, outlier_t, outlier_p)
+#     # print(weights[0], est_weights[0])
+#
+#     # Calculate cost for diagnostics
+#     P = wrm.T @ wrm + l2_matrix
+#     q = (-wrm.T @ wrv + l1_lambda_vector)
+#     cost = 0.5 * x.T @ P @ x + q.T @ x
+#
+#     if history is not None:
+#         history.append(
+#             {'x': x.copy(),
+#              'l1_lambda_vector': l1_lambda_vector.copy(),
+#              'l2_lambda_0': l2_lambda_0,
+#              's_vectors': s_vectors.copy(),
+#              'rho_vector': rho_vector.copy(),
+#              'weights': weights.copy(),
+#              'outlier_t': outlier_t,
+#              'fun': cvx_result['primal objective'],
+#              'cost': cost,
+#              'cvx_result': cvx_result,
+#              }
+#         )
+#
+#     # check for convergence
+#     x_atol = np.mean(x_in) * 1e-3
+#     converged = is_converged(x_in, x, x_atol, x_rtol)
+#
+#     return x, s_vectors, rho_vector, weights, outlier_t, cvx_result, converged
 
 
 def iterate_md_qphb(x_in, s_vectors, rho_array, rho_diagonals, data_vector, weights, est_weights, outlier_t,
                     rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
-                    l2_lambda_0_diagonal, qphb_hypers, #derivative_weights, rho_alpha, rho_0, s_alpha, s_0,
+                    l2_lambda_0_diagonal, qphb_hypers,  # derivative_weights, rho_alpha, rho_0, s_alpha, s_0,
                     gp_args,
                     xmx_norm_array, fixed_x_index, fixed_x_values,
                     batch_size, params_per_obs, special_qp_params, x_rtol, max_hp_iter, history):
@@ -1041,10 +1201,12 @@ def iterate_md_qphb(x_in, s_vectors, rho_array, rho_diagonals, data_vector, weig
 # ==============================
 # Credible interval construction
 # ==============================
-def calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, s_vectors,
-                 weights):
+def calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, dop_rho_vector,
+                 s_vectors, weights, special_qp_params):
     """
     Calculate P and q for quadratic programming
+    :param dop_rho_vector:
+    :param special_qp_params:
     :param penalty_type:
     :param rm:
     :param rv:
@@ -1058,8 +1220,8 @@ def calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vecto
     :return:
     """
     # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(len(derivative_weights))]
-    l2_matrix = calculate_qp_l2_matrix(hypers['derivative_weights'], rho_vector, penalty_matrices, s_vectors,
-                                       hypers['l2_lambda_0'], penalty_type)
+    l2_matrix = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
+                                       s_vectors, penalty_type, special_qp_params)
 
     wm = np.diag(weights)
     wrm = wm @ rm
@@ -1071,10 +1233,11 @@ def calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vecto
     return p_matrix, q_vector
 
 
-def calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights, l2_lambda_0_diagonal, l1_lambda_vector, rho_diagonals,
+def calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights, l2_lambda_0_diagonal, l1_lambda_vector,
+                    rho_diagonals,
                     s_vectors, weights):
     l2_matrix = calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors,
-                                    l2_lambda_0_diagonal, penalty_type)
+                                          l2_lambda_0_diagonal, penalty_type)
 
     wm = np.diag(weights)
     wrm = wm @ rm
@@ -1130,10 +1293,10 @@ def get_eff_hyperparams(rho_alpha_raw, rho_beta_raw, s_alpha_raw, s_beta_raw, rh
     return rho_alpha, rho_0, s_alpha, s_0
 
 
-def evaluate_posterior_lp(x, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, s_vectors,
-                          weights, rm, rv, xmx_norms):
+def evaluate_posterior_lp(x, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, dop_rho_vector,
+                          s_vectors, weights, rm, rv, xmx_norms, special_qp_params):
     p_matrix, q_vector = calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector,
-                                      s_vectors, weights)
+                                      dop_rho_vector, s_vectors, weights, special_qp_params)
 
     wm = np.diag(weights)
     wrv = wm @ rv
@@ -1163,8 +1326,8 @@ def evaluate_posterior_lp(x, penalty_matrices, penalty_type, hypers, l1_lambda_v
     return lp_x + lp_rho + lp_s
 
 
-def evaluate_lml(x_hat, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, s_vectors,
-                 weights, rm, rv, alpha_0=1, beta_0=1):
+def evaluate_lml(x_hat, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector, dop_rho_vector, s_vectors,
+                 weights, rm, rv, special_qp_params, alpha_0=1, beta_0=1):
     """
     Evaluate log-marginal likelihood (evidence) assuming fixed hyperparameters (s, rho)
     :param x_hat:
@@ -1181,7 +1344,7 @@ def evaluate_lml(x_hat, penalty_matrices, penalty_type, hypers, l1_lambda_vector
     """
     # Get posterior precision matrix (P)
     p_matrix, q_vector = calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vector, rho_vector,
-                                      s_vectors, weights)
+                                      dop_rho_vector, s_vectors, weights, special_qp_params)
     # q_vector = p_matrix @ x_hat  # equivalent
     # q_vector = -wrm.T @ wrv
 
@@ -1193,8 +1356,8 @@ def evaluate_lml(x_hat, penalty_matrices, penalty_type, hypers, l1_lambda_vector
     wrm = np.diag(weights) @ rm
     # waaw = wrm.T @ wrm
     # omega = p_matrix - waaw  # prior precision matrix
-    omega = calculate_qp_l2_matrix(hypers['derivative_weights'], rho_vector, penalty_matrices, s_vectors,
-                                   hypers['l2_lambda_0'], penalty_type)
+    omega = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
+                                   s_vectors, penalty_type, special_qp_params)
     # print(omega)
 
     det_sign, log_det_omega = np.linalg.slogdet(omega)
@@ -1225,7 +1388,7 @@ def evaluate_lml(x_hat, penalty_matrices, penalty_type, hypers, l1_lambda_vector
     # print('beta:', beta)
     # print('xMx:', x_hat.T @ omega @ x_hat)
     # print('y2 - Ax2:', wrv.T @ wrv - x_hat.T @ wrm.T @ wrm @ x_hat )
-    lml = 0.5 * (log_det_omega - log_det_p) + np.sum(np.log(weights))  \
+    lml = 0.5 * (log_det_omega - log_det_p) + np.sum(np.log(weights)) \
           + loggamma(alpha) - loggamma(alpha_0) + alpha_0 * np.log(beta_0) - alpha * np.log(beta)
 
     return lml
@@ -1362,20 +1525,20 @@ def solve_init_weight_scale(w_scale_est, alpha, beta):
         w_hat = s_hat ** -0.5
     else:
         # Do nothing
-        w_hat = w_scale_est
+        w_hat = deepcopy(w_scale_est)
     return w_hat
 
 
 def solve_outlier_variance(s_base, resid, alpha, beta):
     # s_out = (-0.5 + np.sqrt(0.25 + 2 * outlier_lambda * resid ** 2)) / (2 * outlier_lambda) - s_base
     s_out = (
-                np.sqrt(
-                    8 * alpha * beta * resid ** 2 - 8 * alpha * resid ** 2 * s_base + beta ** 2
-                    + 10 * beta * resid ** 2 - 2 * beta * s_base + resid ** 4 - 10 * resid ** 2 * s_base
-                    + s_base ** 2
-                )
-                - 4 * alpha * s_base - beta + resid ** 2 - 5 * s_base
-        ) / (2 * (2 * alpha + 3))
+                    np.sqrt(
+                        8 * alpha * beta * resid ** 2 - 8 * alpha * resid ** 2 * s_base + beta ** 2
+                        + 10 * beta * resid ** 2 - 2 * beta * s_base + resid ** 4 - 10 * resid ** 2 * s_base
+                        + s_base ** 2
+                    )
+                    - 4 * alpha * s_base - beta + resid ** 2 - 5 * s_base
+            ) / (2 * (2 * alpha + 3))
     s_out = np.maximum(s_out, 0)
     s_out[np.isnan(s_out)] = 0
     return s_out
@@ -1400,7 +1563,8 @@ def solve_outlier_t(vmm, t_in, resid, outlier_p):
     # Don't consider points with *smaller* residuals than expected by s_bar to be treated as outliers
     t_new[np.sqrt(s_bar) > np.abs(resid)] = 1
 
-    t_out = t_in * t_new
+    t_out = t_new
+    # t_out = t_in * t_new
 
     return t_out
 
@@ -1424,8 +1588,7 @@ def outlier_tvt(vmm, outlier_t):
 # Chrono weight estimation
 # ---------------------------
 def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
-                     outlier_t=None, outlier_p=None, var_floor=1e-5):
-
+                     outlier_t=None, outlier_p=None, var_floor=None):
     resid = rm @ x - y
 
     # Get outlier_t vector
@@ -1436,6 +1599,9 @@ def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
         outlier_t = np.ones(len(y))
 
     # Estimate error variance vector from weighted mean of residuals
+    if var_floor is None:
+        var_floor = np.var(y) * 1e-7
+        # print('var floor:', var_floor)
     s_hat = vmm @ resid ** 2
     s_hat[s_hat < var_floor] = var_floor
 
@@ -1467,14 +1633,23 @@ def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
     return w_hat, outlier_t
 
 
-def initialize_weights(penalty_matrices, penalty_type, derivative_weights, rho_vector, s_vectors, rv, rm,
-                       vmm, nonneg, special_qp_params,
-                       iw_alpha, iw_beta, outlier_p):
+def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector, s_vectors, rv, rm,
+                       vmm, nonneg, special_qp_params):
     # Calculate L2 penalty matrix (SMS)
     # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(len(derivative_weights))]
     # Apply very small penalty strength for overfit
-    l2_matrix = calculate_qp_l2_matrix(np.array(derivative_weights), rho_vector, penalty_matrices, s_vectors, 1e-6,
-                                       penalty_type)
+    iw_hypers = hypers.copy()
+    iw_hypers['l2_lambda_0'] = 1e-4
+    if 'dop_l2_lambda_0' in hypers.keys():
+        dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
+        iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
+
+    l2_matrix = calculate_qp_l2_matrix(iw_hypers, rho_vector, dop_rho_vector, penalty_matrices,
+                                       s_vectors, penalty_type, special_qp_params)
+
+    iw_alpha = hypers['iw_alpha']
+    iw_beta = hypers['iw_beta']
+    outlier_p = hypers['outlier_p']
 
     if outlier_p is not None:
         outlier_t = np.ones(vmm.shape[0])
@@ -1484,7 +1659,7 @@ def initialize_weights(penalty_matrices, penalty_type, derivative_weights, rho_v
             # Solve the ridge problem with QP: optimize x
             # Multiply l2_matrix by 2 due to exponential prior
             w_diag = np.diag(est_weights)
-            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, 0, nonneg, special_qp_params)
+            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, 1e-4, nonneg, special_qp_params)
             x_overfit = np.array(list(cvx_result['x']))
             # print(x_overfit)
             # print(rm @ x_overfit)
@@ -1499,17 +1674,15 @@ def initialize_weights(penalty_matrices, penalty_type, derivative_weights, rho_v
 
             for j in range(5):
                 # Repeat weight calculation to allow outlier_t to converge
-                est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None,
-                                                          outlier_t=outlier_t, outlier_p=outlier_p)
+                est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None, outlier_t=outlier_t,
+                                                          outlier_p=outlier_p)
 
-        print('init outlier prob:', 1 - outlier_t)
+        # print('init outlier prob:', 1 - outlier_t)
 
     else:
-        cvx_result = solve_convex_opt(rv, rm, l2_matrix, 0, nonneg, special_qp_params)
+        cvx_result = solve_convex_opt(rv, rm, l2_matrix, 1e-4, nonneg, special_qp_params)
         x_overfit = np.array(list(cvx_result['x']))
-        est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None,
-                                                  outlier_p=outlier_p)
-
+        est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None, outlier_p=outlier_p)
 
     # Get global weight scale
     # Need to average variance, not weights
@@ -1529,6 +1702,40 @@ def initialize_weights(penalty_matrices, penalty_type, derivative_weights, rho_v
 
     return est_weights, init_weights, x_overfit, outlier_t
 
+
+def estimate_x_rp(hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector, s_vectors, rv, rm,
+                  nonneg, special_qp_params, l2_lambda_0=1e-4, l1_lambda_0=1e-3):
+    """
+    Estimate coefficients for Rp estimation
+    :param dop_rho_vector:
+    :param penalty_matrices:
+    :param penalty_type:
+    :param derivative_weights:
+    :param rho_vector:
+    :param s_vectors:
+    :param rv:
+    :param rm:
+    :param nonneg:
+    :param special_qp_params:
+    :param l2_lambda_0:
+    :param l1_lambda_0:
+    :return:
+    """
+    # Calculate L2 penalty matrix (SMS)
+    # Apply small penalty strength
+    rp_hypers = hypers.copy()
+    rp_hypers['l2_lambda_0'] = l2_lambda_0
+    if 'dop_l2_lambda_0' in hypers.keys():
+        dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
+        rp_hypers['dop_l2_lambda_0'] = dop_drt_ratio * l2_lambda_0
+
+    l2_matrix = calculate_qp_l2_matrix(rp_hypers, rho_vector, dop_rho_vector, penalty_matrices,
+                                       s_vectors, penalty_type, special_qp_params)
+
+    cvx_result = solve_convex_opt(rv, rm, l2_matrix, l1_lambda_0, nonneg, special_qp_params)
+    x_rp = np.array(list(cvx_result['x']))
+
+    return x_rp
 
 # def initialize_md_weights(penalty_matrices, derivative_weights, rho_diagonals, s_vectors, rv, rm,
 #                           vmm, l1_lambda_vector, nonneg, special_qp_params,

@@ -105,7 +105,7 @@ def get_sampled_chrono_data_list(chrono_data_list, sample_index_list):
     return sample_data_list
 
 
-def data_list_to_vector(data_list, data_type, op_mode):
+def data_list_to_vector(data_list, data_type, ctrl_mode):
     if data_type == 'eis':
         y_list = [get_data_tuple_item(data, 1) for data in data_list]
         y_list = [y for y in y_list if y is not None]
@@ -116,7 +116,7 @@ def data_list_to_vector(data_list, data_type, op_mode):
     elif data_type == 'chrono':
         iv_list = [(get_data_tuple_item(data, 1), get_data_tuple_item(data, 2))
                    for data in data_list if get_data_tuple_length(data) > 0]
-        y_list = [chrono.get_input_and_response(*iv, op_mode)[1] for iv in iv_list]
+        y_list = [chrono.get_input_and_response(iv[0], iv[1], ctrl_mode) for iv in iv_list]
         if len(y_list) > 0:
             y_vector = np.concatenate(y_list)
         else:

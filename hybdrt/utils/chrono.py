@@ -1,4 +1,5 @@
 import numpy as np
+from .validation import check_ctrl_mode
 
 
 def get_time_transforms(times, step_times):
@@ -7,18 +8,23 @@ def get_time_transforms(times, step_times):
     t_sample = np.min(np.diff(times))
     # print('t_sample', t_sample)
 
-    if step_times[0] > times[0]:
-        start_times = np.concatenate([times[0:1], step_times])
-    else:
-        start_times = step_times
+    # if step_times[0] > times[0]:
+    #     start_times = np.concatenate([times[0:1], step_times])
+    # else:
+    start_times = np.array(step_times)
 
-    trans_offsets = np.log(start_times[1:] - start_times[:-1]) - np.log(t_sample / 4)
+    trans_base = np.log(t_sample / 4)
+    trans_offsets = np.log(start_times[1:] - start_times[:-1]) - trans_base
     trans_offsets = np.concatenate([[0], np.cumsum(trans_offsets)])
 
     def fwd_transform(t):
         t = np.atleast_1d(t)
 
         tt = np.zeros_like(t, dtype=float)
+
+        # Prior to first step - linear
+        tt[t < start_times[0]] = t[t < start_times[0]] - start_times[0]
+
         for i, start_time in enumerate(start_times):
             if i == len(start_times) - 1:
                 end_time = np.inf
@@ -31,7 +37,7 @@ def get_time_transforms(times, step_times):
                 time_delta = np.maximum(t[step_index] - start_time, t_sample / 2)
                 # Transformed time for segment starts at offset.
                 # Subtract log(t_sample / 4) to ensure that segment starts after end of last segment
-                tt[step_index] = trans_offsets[i] + np.log(time_delta) - np.log(t_sample / 4)
+                tt[step_index] = trans_offsets[i] + np.log(time_delta) - trans_base
 
         return tt
 
@@ -39,6 +45,8 @@ def get_time_transforms(times, step_times):
         tt = np.atleast_1d(tt)
 
         t = np.zeros_like(tt, dtype=float)
+
+        t[tt < trans_offsets[0]] = tt[tt < trans_offsets[0]] + start_times[0]
 
         for i, start_tt in enumerate(trans_offsets):
             if i == len(trans_offsets) - 1:
@@ -49,30 +57,44 @@ def get_time_transforms(times, step_times):
             step_index = np.where((tt >= start_tt) & (tt <= end_tt))
             if len(step_index[0]) > 0:
                 # Reverse transform to time_delta
-                time_delta = np.exp(tt[step_index] - start_tt + np.log(t_sample / 4))
+                time_delta = np.exp(tt[step_index] - start_tt + trans_base)
                 # Add start time to recover original time
                 t[step_index] = time_delta + start_times[i]
 
         return t
 
-    return fwd_transform, rev_transform
+    return rev_transform, fwd_transform
 
 
-def get_input_and_response(i_signal, v_signal, op_mode):
-    if op_mode is not None:
-        if op_mode == 'galvanostatic':
+def get_input_and_response(i_signal, v_signal, ctrl_mode):
+    if ctrl_mode is not None:
+        check_ctrl_mode(ctrl_mode)
+        if ctrl_mode == 'galv':
             input_signal = i_signal
             response_signal = v_signal
-        elif op_mode == 'potentostatic':
+        else:
             input_signal = v_signal
             response_signal = i_signal
-        else:
-            raise ValueError(f'Invalid op_mode {op_mode}')
     else:
         input_signal = None
         response_signal = None
 
     return input_signal, response_signal
+
+
+def signals_to_tuple(times, input_signal, response_signal, ctrl_mode):
+    if ctrl_mode is not None:
+        check_ctrl_mode(ctrl_mode)
+        if ctrl_mode == 'galv':
+            # Input is current
+            chrono_tuple = (times, input_signal, response_signal)
+        else:
+            # Input is voltage
+            chrono_tuple = (times, response_signal, input_signal)
+    else:
+        chrono_tuple = None
+
+    return chrono_tuple
 
 
 

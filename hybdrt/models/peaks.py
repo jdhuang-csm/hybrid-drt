@@ -2,6 +2,8 @@ import numpy as np
 from scipy import signal
 from ..matrices import basis
 
+from .. import utils
+
 
 def find_slope_peak_pairs(fx, **kw):
     # Find pairs of positive and negative peaks in the 1st derivative
@@ -86,21 +88,38 @@ def find_peaks_compound(fx, fxx, order1_kw=None, order2_kw=None):
 
 
 def find_troughs(f, fxx, peak_indices):
+    # TODO: update this for signed distributions
+    # If left and right peaks have same sign, use existing logic (after accounting for sign)
+    # If left and right peaks have different signs, find zero between them
     trough_indices = []
     f_mix = -(f - fxx)
     peak_indices = sorted(peak_indices)
     for i, start_index in enumerate(peak_indices[:-1]):
         end_index = peak_indices[i + 1]
-        # If there is a local minimum between the peaks, use this as the trough
-        if np.min(f[start_index:end_index]) < min(f[start_index], f[end_index]):
-            trough_index = start_index + np.argmin(f[start_index:end_index])
-        # If no local minimum, use the max curvature to locate the trough
+
+        # Determine peak signs
+        left_sign = np.sign(f[start_index])
+        right_sign = np.sign(f[end_index])
+
+        if left_sign == right_sign:
+            # Both peaks are same sign
+            sign = left_sign
+            if np.min(sign * f[start_index:end_index]) < min(sign * f[start_index], sign * f[end_index]):
+                # If there is a local minimum between the peaks, use this as the trough
+                trough_index = start_index + np.argmin(sign * f[start_index:end_index])
+            else:
+                # If no local minimum, use the min of (f - fxx) curvature to locate the trough
+                trough_index = start_index + np.argmax(sign * f_mix[start_index:end_index])
+                # If max curvature is at an endpoint, go halfway between the max curvature and the midpoint of the peaks
+                if trough_index in (start_index, end_index):
+                    trough_index = int((start_index + end_index + 2 * trough_index) / 4)
         else:
-            trough_index = start_index + np.argmax(f_mix[start_index:end_index])
-            # If max curvature is at an endpoint, go halfway between the max curvature and the midpoint of the peaks
-            if trough_index in (start_index, end_index):
-                trough_index = int((start_index + end_index + 2 * trough_index) / 4)
+            # Sign changes. Set the trough at the zero between the peaks
+            zero_index = utils.array.nearest_index(f[start_index:end_index], 0)
+            trough_index = start_index + zero_index
+
         trough_indices.append(trough_index)
+
     return trough_indices
 
 

@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import warnings
 import pandas as pd
@@ -10,8 +11,10 @@ from .utils import validation
 from .preprocessing import identify_steps, estimate_rp
 
 
-def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatter',
-                transform_time=False, linear_time_axis=False, scale_prefix=None, **kw):
+def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
+                transform_time=False, trans_functions=None, linear_time_axis=False, display_linear_ticks=False,
+                linear_tick_kw=None, plot_i=True, plot_v=True, i_sign_convention=1,
+                scale_prefix=None, tight_layout=True, **kw):
     times, i_signal, v_signal = process_chrono_plot_data(data)
 
     if i_signal is None and v_signal is None:
@@ -20,11 +23,21 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         y_vals = [v_signal]
         y_label_parts = [('$v$', 'V')]
     elif v_signal is None:
-        y_vals = [i_signal]
+        y_vals = [i_signal * i_sign_convention]
         y_label_parts = [('$i$', 'A')]
     else:
-        y_vals = [i_signal, v_signal]
-        y_label_parts = [('$i$', 'A'), ('$v$', 'V')]
+        y_vals = []
+        y_label_parts = []
+        if plot_i:
+            if area is None:
+                y_vals.append(i_signal * i_sign_convention)
+                y_label_parts.append(('$i$', 'A'))
+            else:
+                y_vals.append(i_signal * i_sign_convention / area)
+                y_label_parts.append(('$j$', r'A$\cdot \mathrm{cm}^{-2}$'))
+        if plot_v:
+            y_vals.append(v_signal)
+            y_label_parts.append(('$v$', 'V'))
     num_col = len(y_vals)
 
     # Create figure and axes as needed
@@ -35,19 +48,20 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         axes = np.atleast_1d(axes)
         fig = axes[0].get_figure()
 
-    # Provide y-labels for expected column strings
-    column_labels = {'Im': '$i$ (A)', 'Vf': '$v$ (V)'}
-
     # Get x values
     if transform_time:
-        if op_mode is None and step_times is None:
-            raise ValueError('Either op_mode or step_times must be specified if transform_time=True')
-        if step_times is None:
-            # Get step times
-            input_signal, response_signal = get_input_and_response(i_signal, v_signal, op_mode)
-            step_indices = identify_steps(input_signal, allow_consecutive=False)
-            step_times = times[step_indices]
-        x, trans_functions = get_transformed_plot_time(times, step_times, linear_time_axis)
+        if trans_functions is not None:
+            x = trans_functions[1](times)
+        else:
+            if op_mode is None and step_times is None:
+                raise ValueError('One of trans_functions, chrono_mode, or step_times must be specified if '
+                                 'transform_time=True')
+            if step_times is None:
+                # Get step times
+                input_signal, response_signal = get_input_and_response(i_signal, v_signal, op_mode)
+                step_indices = identify_steps(input_signal, allow_consecutive=False)
+                step_times = times[step_indices]
+            x, trans_functions = get_transformed_plot_time(times, step_times)
     else:
         x = times
 
@@ -63,8 +77,10 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
     for ax, y_val, y_label_tuple in zip(axes, y_vals, y_label_parts):
         # Get scale for y_val
         if scale_prefix is None:
-            scale_prefix = get_scale_prefix(y_val)
-        scale_factor = get_factor_from_prefix(scale_prefix)
+            scale_prefix_y = get_scale_prefix(y_val)
+        else:
+            scale_prefix_y = scale_prefix
+        scale_factor = get_factor_from_prefix(scale_prefix_y)
 
         func = getattr(ax, plot_func)
         func(x, y_val / scale_factor, **defaults)
@@ -74,22 +90,29 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         else:
             ax.set_xlabel('$t$ (s)')
 
-        y_label = f'{y_label_tuple[0]} ({scale_prefix}{y_label_tuple[1]})'
+        y_label = f'{y_label_tuple[0]} ({scale_prefix_y}{y_label_tuple[1]})'
         ax.set_ylabel(y_label)
 
     # Add linear time axis
     if linear_time_axis and transform_time:
         for ax in axes:
-            axt = add_linear_time_axis(ax, step_times, trans_functions)
+            axt = add_linear_time_axis(ax, times, step_times, trans_functions)
 
-    fig.tight_layout()
+    if transform_time and display_linear_ticks:
+        if linear_tick_kw is None:
+            linear_tick_kw = {}
+        for ax in axes:
+            display_linear_time_ticks(ax, times, step_times, trans_functions, **linear_tick_kw)
+
+    if tight_layout:
+        fig.tight_layout()
 
     return axes
 
 
 def process_chrono_plot_data(data):
     times, i_signal, v_signal = None, None, None
-    if type(data) == tuple:
+    if type(data) in (list, tuple):
         if len(data) == 3:
             times, i_signal, v_signal = data
         else:
@@ -119,42 +142,100 @@ def process_chrono_plot_data(data):
     return times, i_signal, v_signal
 
 
-def get_transformed_plot_time(times, step_times, linear_time_axis):
-    # Transforms are not defined for times outside input times.
-    # Must pad times to prevent issues with transforms if making secondary x-axis
-    if linear_time_axis:
-        time_range = np.max(times) - np.min(times)
-        input_times = np.unique(
-            np.concatenate([
-                [times[0] - 0.05 * time_range],
-                times,
-                [times[-1] + 0.05 * time_range]
-            ])
-        )
-    else:
-        input_times = times
-    time2trans, trans2time = get_time_transforms(input_times, step_times)
+def get_transformed_plot_time(times, step_times):
+    trans2time, time2trans = get_time_transforms(times, step_times)
     x = time2trans(times)
     functions = (trans2time, time2trans)
 
     return x, functions
 
 
-def add_linear_time_axis(ax, step_times, trans_functions):
+def add_linear_time_axis(ax, times, step_times, trans_functions):
     axt = ax.secondary_xaxis('top', functions=trans_functions)
-    if len(step_times) > 1:
-        step_increment = np.mean(np.diff(step_times))
-    else:
-        step_increment = step_times[0]
-    t_ticks = np.round(np.concatenate([step_times, [step_times[-1] + step_increment]]), 2)
+    # if len(step_times) > 1:
+    #     step_increment = np.mean(np.diff(step_times))
+    # else:
+    #     step_increment = step_times[0]
+    t_ticks = np.insert(step_times, len(step_times), times[-1])
     # Don't exceed the number of ticks on the primary x-axis
     max_nticks = len(ax.get_xticks())
     factor = int(np.ceil(len(t_ticks) / max_nticks))
-    t_ticks = t_ticks[:: factor]
+    t_ticks = t_ticks[::factor]
     axt.set_xticks(t_ticks)
     axt.set_xlabel('$t$ (s)')
 
+    # axt = ax.twiny()
+    # print(ax.get_xlim(), axt.get_xlim())
+    # axt.set_xlim(ax.get_xlim())
+    # t_ticks = np.round(np.insert(step_times, len(step_times), times[-1]), 2)
+    # # Don't exceed the number of ticks on the primary x-axis
+    # max_nticks = len(ax.get_xticks())
+    # factor = int(np.ceil(len(t_ticks) / max_nticks))
+    # t_ticks = t_ticks[::factor]
+    #
+    # trans2time, time2trans = trans_functions
+    # print(t_ticks, time2trans(t_ticks))
+    # axt.set_xticks(time2trans(t_ticks))
+    # axt.set_xticklabels(t_ticks)
+    # print(ax.get_xlim(), axt.get_xlim())
+    # axt.set_xlabel('$t$ (s)')
+
     return axt
+
+
+def display_linear_time_ticks(ax, times, step_times, trans_functions, step_increment=1, ticks_per_step=9,
+                              major_tick_format='.1f'):
+    """
+    Display linear time ticks and labels on transformed time axis
+    :param ax:
+    :param times:
+    :param step_times:
+    :param trans_functions:
+    :return:
+    """
+    trans2time, time2trans = trans_functions
+
+    step_times = step_times[::step_increment]
+
+    major_ticks = np.insert(step_times, len(step_times), times[-1])
+    minor_ticks = np.concatenate(
+        [np.linspace(major_ticks[i], major_ticks[i + 1], ticks_per_step + 2)[1:-1]
+         for i in range(len(major_ticks) - 1)]
+    )
+    # minor_ticks = np.concatenate(
+    #     [major_ticks[i] + np.logspace(, major_ticks[i + 1], ticks_per_step + 2)[1:-1]
+    #      for i in range(len(major_ticks) - 1)]
+    # )
+    # print(major_ticks, minor_ticks)
+
+    major_trans = time2trans(major_ticks)
+    # minor_trans = [np.linspace(major_trans[i], major_trans[i + 1], ticks_per_step + 2)[1:-1]
+    #                 for i in range(len(major_trans) - 1)]
+    minor_trans = time2trans(minor_ticks)
+
+    # minor_times = [trans2time(mt) for mt in minor_trans]
+    # minor_deltas = [minor_times[i] - major_ticks[i] for i in range(len(minor_times))]
+    # print(minor_deltas)
+    # # Round to nearest integer power
+    # minor_delta_powers = [np.round(np.log10(md), 0).astype(int) for md in minor_deltas]
+    # minor_deltas = [10.0 ** mdp for mdp in minor_delta_powers]
+    # # recalculate times with rounded deltas
+    # minor_times = [minor_deltas[i] + major_ticks[i] for i in range(len(minor_deltas))]
+    # minor_times = np.concatenate(minor_times)
+    # minor_deltas = np.concatenate(minor_deltas)
+    # minor_delta_powers = np.concatenate(minor_delta_powers)
+    # print(minor_times)
+    #
+    # minor_trans = time2trans(minor_times)
+
+    ax.set_xticks(major_trans)
+    ax.set_xticklabels(['{:{}}'.format(mt, major_tick_format) for mt in major_ticks])
+
+    ax.xaxis.set_minor_locator(ticker.FixedLocator(minor_trans))
+    # ax.set_xticklabels(['$+10^{{{}}}$'.format(mdp) for mdp in minor_delta_powers], minor=True)
+
+    # Update axis label to reflect linear time tick values
+    ax.set_xlabel('$t$ (s)')
 
 
 # def plot_drt_result(data, drt, tau_plot=np.logspace(-7, 2, 200), axes=None):
@@ -200,7 +281,8 @@ def add_linear_time_axis(ax, step_times, trans_functions):
 #     return axes
 
 
-def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_by=None, return_info=False, **kw):
+def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_by=None,
+                      freq_axis=False, return_info=False, **kw):
     """
     Generic function for plotting a distribution as a function of tau in log space
     :param tau:
@@ -238,6 +320,14 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
     ax.set_xscale('log')
     ax.set_xlabel(r'$\tau$ (s)')
 
+    # Add frequency axis
+    if freq_axis:
+        def ft_trans(x):
+            return 1 / (2 * np.pi * x)
+
+        freq_ax = ax.secondary_xaxis('top', functions=(ft_trans, ft_trans))
+        freq_ax.set_xlabel('$f$ (Hz)')
+
     if return_info:
         return ax, (line, scale_prefix, scale_factor)
     else:
@@ -271,7 +361,7 @@ def process_eis_plot_data(data):
 
 
 def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_prefix=None, set_aspect_ratio=True,
-                 normalize=False, normalize_rp=None, draw_zero_line=True, **kw):
+                 normalize=False, normalize_rp=None, draw_zero_line=True, tight_layout=True, **kw):
     """
     Generate Nyquist plot.
 
@@ -337,14 +427,14 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
         raise ValueError(f'Invalid plot type {plot_func}. Options are scatter, plot')
 
     if area is not None:
-        ax.set_xlabel(f'$Z^\prime \ (\mathrm{{{scale_prefix}}}\Omega\cdot \mathrm{{cm}}^2$)')
-        ax.set_ylabel(f'$-Z^{{\prime\prime}} \ (\mathrm{{{scale_prefix}}}\Omega\cdot \mathrm{{cm}}^2$)')
+        ax.set_xlabel(fr'$Z^\prime$ ({scale_prefix}$\Omega\cdot \mathrm{{cm}}^2$)')
+        ax.set_ylabel(fr'$-Z^{{\prime\prime}}$ ({scale_prefix}$\Omega\cdot \mathrm{{cm}}^2$)')
     elif normalize:
-        ax.set_xlabel('$Z^\prime \, / \, R_p$')
-        ax.set_ylabel('$-Z^{\prime\prime} \, / \, R_p$')
+        ax.set_xlabel(r'$Z^\prime \, / \, R_p$')
+        ax.set_ylabel(r'$-Z^{\prime\prime} \, / \, R_p$')
     else:
-        ax.set_xlabel(f'$Z^\prime \ (\mathrm{{{scale_prefix}}}\Omega$)')
-        ax.set_ylabel(f'$-Z^{{\prime\prime}} \ (\mathrm{{{scale_prefix}}}\Omega$)')
+        ax.set_xlabel(fr'$Z^\prime$ ({scale_prefix}$\Omega$)')
+        ax.set_ylabel(fr'$-Z^{{\prime\prime}}$ ({scale_prefix}$\Omega$)')
 
     if label != '':
         ax.legend()
@@ -384,51 +474,117 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
             xmax = ax.get_xlim()[1]
         ax.set_xlim(xmin, xmax)
 
-        # get data range
-        yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
-        xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
+        # # get data range
+        # yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
+        # xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
+        #
+        # # get axis dimensions
+        # bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+        # width, height = bbox.width, bbox.height
+        #
+        # yscale = yrng / height
+        # xscale = xrng / width
+        #
+        # if yscale > xscale:
+        #     # expand the x axis
+        #     diff = (yscale - xscale) * width
+        #     xmin = max(0, ax.get_xlim()[0] - diff / 2)
+        #     mindelta = ax.get_xlim()[0] - xmin
+        #     xmax = ax.get_xlim()[1] + diff - mindelta
+        #
+        #     ax.set_xlim(xmin, xmax)
+        # elif xscale > yscale:
+        #     # expand the y axis
+        #     diff = (xscale - yscale) * height
+        #     if min(np.min(-df['Zimag']), ax.get_ylim()[0]) >= 0:
+        #         # if -Zimag doesn't go negative, don't go negative on y-axis
+        #         ymin = max(0, ax.get_ylim()[0] - diff / 2)
+        #         mindelta = ax.get_ylim()[0] - ymin
+        #         ymax = ax.get_ylim()[1] + diff - mindelta
+        #     else:
+        #         negrng = abs(ax.get_ylim()[0])
+        #         posrng = abs(ax.get_ylim()[1])
+        #         negoffset = negrng * diff / (negrng + posrng)
+        #         posoffset = posrng * diff / (negrng + posrng)
+        #         ymin = ax.get_ylim()[0] - negoffset
+        #         ymax = ax.get_ylim()[1] + posoffset
+        #
+        #     ax.set_ylim(ymin, ymax)
 
-        # get axis dimensions
-        bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-        width, height = bbox.width, bbox.height
-
-        yscale = yrng / height
-        xscale = xrng / width
-
-        if yscale > xscale:
-            # expand the x axis
-            diff = (yscale - xscale) * width
-            xmin = max(0, ax.get_xlim()[0] - diff / 2)
-            mindelta = ax.get_xlim()[0] - xmin
-            xmax = ax.get_xlim()[1] + diff - mindelta
-
-            ax.set_xlim(xmin, xmax)
-        elif xscale > yscale:
-            # expand the y axis
-            diff = (xscale - yscale) * height
-            if min(np.min(-df['Zimag']), ax.get_ylim()[0]) >= 0:
-                # if -Zimag doesn't go negative, don't go negative on y-axis
-                ymin = max(0, ax.get_ylim()[0] - diff / 2)
-                mindelta = ax.get_ylim()[0] - ymin
-                ymax = ax.get_ylim()[1] + diff - mindelta
-            else:
-                negrng = abs(ax.get_ylim()[0])
-                posrng = abs(ax.get_ylim()[1])
-                negoffset = negrng * diff / (negrng + posrng)
-                posoffset = posrng * diff / (negrng + posrng)
-                ymin = ax.get_ylim()[0] - negoffset
-                ymax = ax.get_ylim()[1] + posoffset
-
-            ax.set_ylim(ymin, ymax)
+        set_nyquist_aspect(ax, data=df)
 
         if draw_zero_line and ax.get_ylim()[0] < 0:
             ax.axhline(0, c='k', lw=0.5, zorder=-10, alpha=0.75)
 
+    if tight_layout:
+        fig.tight_layout()
+
     return ax
 
 
+def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
+    fig = ax.get_figure()
+
+    # get data range
+    yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
+    xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
+
+    # Center on the given coordinates
+    if center_coords is not None:
+        x_offset = center_coords[0] - (ax.get_xlim()[0] + 0.5 * xrng)
+        y_offset = center_coords[1] - (ax.get_ylim()[0] + 0.5 * yrng)
+        ax.set_xlim(*np.array(ax.get_xlim()) + x_offset)
+        ax.set_ylim(*np.array(ax.get_ylim()) + y_offset)
+
+    # get axis dimensions
+    bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    width, height = bbox.width, bbox.height
+
+    yscale = yrng / height
+    xscale = xrng / width
+
+    if set_to_axis is None:
+        if yscale > xscale:
+            set_to_axis = 'y'
+        else:
+            set_to_axis = 'x'
+    elif set_to_axis not in ['x', 'y']:
+        raise ValueError(f"If provided, set_to_axis must be either 'x' or 'y'. Received {set_to_axis}")
+
+    if set_to_axis == 'y':
+        # expand the x axis
+        diff = (yscale - xscale) * width
+        xmin = max(0, ax.get_xlim()[0] - diff / 2)
+        mindelta = ax.get_xlim()[0] - xmin
+        xmax = ax.get_xlim()[1] + diff - mindelta
+
+        ax.set_xlim(xmin, xmax)
+    else:
+        # expand the y axis
+        diff = (xscale - yscale) * height
+        if data is None:
+            data_min = 0
+        else:
+            data_min = np.min(-data['Zimag'])
+
+        if min(data_min, ax.get_ylim()[0]) >= 0:
+            # if -Zimag doesn't go negative, don't go negative on y-axis
+            ymin = max(0, ax.get_ylim()[0] - diff / 2)
+            mindelta = ax.get_ylim()[0] - ymin
+            ymax = ax.get_ylim()[1] + diff - mindelta
+        else:
+            negrng = abs(ax.get_ylim()[0])
+            posrng = abs(ax.get_ylim()[1])
+            negoffset = negrng * diff / (negrng + posrng)
+            posoffset = posrng * diff / (negrng + posrng)
+            ymin = ax.get_ylim()[0] - negoffset
+            ymax = ax.get_ylim()[1] + posoffset
+
+        ax.set_ylim(ymin, ymax)
+
+
 def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['Zmod', 'Zphz'], scale_prefix=None,
-              invert_phase=True, invert_Zimag=True, normalize=False, normalize_rp=None, **kw):
+              invert_phase=True, invert_Zimag=True, normalize=False, normalize_rp=None, tight_layout=True, **kw):
     """
     Generate Bode plots.
 
@@ -558,13 +714,15 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
         fmax = max(df['Freq'].max(), ax.get_xlim()[1] / 5)
         ax.set_xlim(fmin / 5, fmax * 5)
 
-    fig.tight_layout()
+    if tight_layout:
+        fig.tight_layout()
 
     return axes
 
 
 def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='scatter', scale_prefix=None,
-             bode_cols=['Zmod', 'Zphz'], set_aspect_ratio=True, normalize=False, normalize_rp=None, **kw):
+             bode_cols=['Zmod', 'Zphz'], set_aspect_ratio=True, normalize=False, normalize_rp=None,
+             tight_layout=True, **kw):
     """
     Plot eis data in Nyquist and/or Bode plot(s)
     Parameters
@@ -604,10 +762,12 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
 
     if plot_type == 'bode':
         axes = plot_bode(df, area=area, axes=axes, label=label, plot_func=plot_func, cols=bode_cols,
-                         scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, **kw)
+                         scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp,
+                         tight_layout=tight_layout, **kw)
     elif plot_type == 'nyquist':
         axes = plot_nyquist(df, area=area, ax=axes, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
-                            set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp, **kw)
+                            set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
+                            tight_layout=tight_layout, **kw)
     elif plot_type == 'all':
         if axes is None:
             fig, axes = plt.subplots(1, 3, figsize=(9, 2.75))
@@ -618,13 +778,15 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
 
         # Nyquist plot
         plot_nyquist(df, area=area, ax=ax1, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
-                     set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp, **kw)
+                     set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
+                     tight_layout=tight_layout, **kw)
 
         # Bode plots
         plot_bode(df, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols,
-                  scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, **kw)
+                  scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, tight_layout=tight_layout,
+                  **kw)
 
-        fig.tight_layout()
+        # fig.tight_layout()
     else:
         raise ValueError(f'Invalid plot_type {plot_type}. Options: all, bode, nyquist')
 

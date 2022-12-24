@@ -1,6 +1,6 @@
 import numpy as np
 
-prefix_map = {-2: '$\mu$', -1: 'm', 0: '', 1: 'k', 2: 'M', 3: 'G'}
+prefix_map = {-2: r'$\mu$', -1: 'm', 0: '', 1: 'k', 2: 'M', 3: 'G'}
 
 
 def get_scale_prefix(y):
@@ -33,7 +33,7 @@ def get_factor_from_prefix(prefix):
     return 10 ** (3 * pwr)
 
 
-def get_common_scale_prefix(y_list, aggregate='min'):
+def get_common_scale_prefix(y_list, aggregate='max'):
     """
     Get common unit scale for multiple datasets
     Parameters:

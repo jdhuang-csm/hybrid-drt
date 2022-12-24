@@ -2,9 +2,11 @@ import re
 import numpy as np
 import warnings
 from scipy.optimize import least_squares
-from scipy.special import loggamma, hyp2f1
+from scipy import special
 from scipy.integrate import cumtrapz
 import matplotlib.pyplot as plt
+
+from mitlef.pade_approx import create_approx_func, ml_pade_approx
 
 from .. import utils
 from . import peaks
@@ -14,10 +16,10 @@ from hybdrt.plotting import plot_distribution, plot_eis
 
 
 class DiscreteElementModel:
-    def __init__(self, model_string, chrono_step_model='ideal', chrono_mode='galvanostatic'):
+    def __init__(self, model_string, chrono_step_model='ideal', chrono_mode='galv'):
         self.model_string = model_string
 
-        utils.validation.check_op_mode(chrono_mode)
+        utils.validation.check_ctrl_mode(chrono_mode)
         utils.validation.check_step_model(chrono_step_model)
         self.chrono_mode = chrono_mode
         self.chrono_step_model = chrono_step_model
@@ -34,6 +36,7 @@ class DiscreteElementModel:
         self.parameter_indices = param_indices
 
         self.z_function = model_impedance_function(model_string)
+        self.v_function = model_voltage_function(model_string, chrono_step_model)
         self.gamma_function = model_distribution_function(model_string)
         self.mass_function = model_mass_function(model_string)
 
@@ -253,6 +256,23 @@ class DiscreteElementModel:
     # ---------------------
     # Utility methods
     # ---------------------
+    def get_parameter_values(self):
+        return self._parameter_values
+
+    def set_parameter_values(self, values):
+        if values is None:
+            self._parameter_values = values
+        else:
+            values = np.array(values)
+            if len(values) != self.num_parameters:
+                raise ValueError('Expected {} parameter values, but received {} values'.format(
+                    self.num_parameters, len(values)
+                ))
+            else:
+                self._parameter_values = values
+
+    parameter_values = property(get_parameter_values, set_parameter_values)
+
     @property
     def num_elements(self):
         return len(self.element_types)
@@ -515,7 +535,7 @@ class DiscreteElementModel:
 
             scaled_chrono_weights = chrono_weights * self.response_signal_scale
 
-            if self.chrono_mode == 'galvanostatic':
+            if self.chrono_mode == 'galv':
                 scaled_i_signal = self.scaled_input_signal.copy()
                 scaled_v_signal = self.scaled_response_signal.copy()
             else:
@@ -740,6 +760,22 @@ class DiscreteElementModel:
             x = self.parameter_values
         return self.z_function(freq, *x)
 
+    def predict_v(self, times, step_times, step_sizes, x=None):
+        if x is None:
+            x = self.parameter_values
+
+        if len(step_times) != len(step_sizes):
+            raise ValueError('step_times and step_sizes must have same length')
+
+        # Get response to each step
+        v_steps = np.zeros((len(step_times), len(times)))
+        for i, step_time in enumerate(step_times):
+            step_size = step_sizes[i]
+            time_delta = times - step_time
+            v_steps[i] = step_size * self.v_function(time_delta, *x)
+
+        return np.sum(v_steps, axis=0)
+
     def predict_r_tot(self):
         """
         Estimate total resistance
@@ -833,7 +869,7 @@ class DiscreteElementModel:
         if marginalize_weights:
             alpha_n = alpha_0 - 1 + len(z_err_flat) / 2
             beta_n = beta_0 + 0.5 * rss
-            llh = alpha_0 * np.log(beta_0) - alpha_n * np.log(beta_n) + loggamma(alpha_n) - loggamma(alpha_0)
+            llh = alpha_0 * np.log(beta_0) - alpha_n * np.log(beta_n) + special.loggamma(alpha_n) - special.loggamma(alpha_0)
         else:
             llh = -0.5 * rss
 
@@ -1284,6 +1320,12 @@ def element_parameters(element_type):
     elif element_type == 'R':
         parameter_types = ['R']
         parameter_bounds = [(0, np.inf)]
+    elif element_type == 'C':
+        parameter_types = ['Cinv']
+        parameter_bounds = [(0, np.inf)]
+    elif element_type == 'P':
+        parameter_types = ['P', 'nu']
+        parameter_bounds = [(0, np.inf), (-1, 1)]
     else:
         raise ValueError(f'Invalid element {element_type}')
 
@@ -1317,7 +1359,7 @@ def element_distribution_function(element_type):
                 out = np.zeros(len(tau))
                 out[np.log(tau) == ln_tau] = np.inf * np.sign(r)
                 return out
-    elif element_type in ('R', 'L'):
+    elif element_type in ('R', 'L', 'C', 'P'):
         def gamma(tau, *args):
             if np.isscalar(tau):
                 return 0
@@ -1397,7 +1439,7 @@ def element_distribution_integral_function(element_type):
                 out[y_array < 0] = (
                         factor * (np.exp(y_prestep) - 1) * np.exp(alpha * y_prestep)
                         * np.abs(np.exp(y_prestep) - 1) ** (-alpha)
-                        * hyp2f1(1, 1, alpha + 1, np.exp(y_prestep))
+                        * special.hyp2f1(1, 1, alpha + 1, np.exp(y_prestep))
                 )
                 out[y_array >= 0] = r
 
@@ -1494,10 +1536,109 @@ def element_impedance_function(element_type):
                 return r + 0j
             else:
                 return r * np.ones(len(freq), dtype=complex)
+    elif element_type == 'C':
+        def z_func(freq, c_inv):
+            omega = freq * 2 * np.pi
+            return 1j * c_inv / omega
+    elif element_type == 'P':
+        def z_func(freq, p, nu):
+            omega = freq * 2 * np.pi
+            return p * (1j * omega) ** nu
     else:
         raise ValueError(f'Invalid element {element_type}')
 
     return z_func
+
+
+def element_voltage_function(element_type, step_model='ideal'):
+    if step_model != 'ideal':
+        raise ValueError('Element voltage responses not implemented for non-ideal current steps')
+
+    if element_type == 'HN':
+        def v_func(times,  r, ln_tau, alpha, beta):
+            raise ValueError('Voltage response not implemented for HN elements')
+        # def v_func(times, r, ln_tau, alpha, beta):
+        #     t0 = np.exp(ln_tau)
+        #     omega = freq * 2 * np.pi
+        #     return r / (1 + (1j * omega * t0) ** beta) ** alpha
+    elif element_type == 'RQ':
+        def v_func(times, r, ln_tau, beta):
+            ml_func = create_approx_func(beta, beta + 1)
+            t0 = np.exp(ln_tau)
+            if np.isscalar(times):
+                if times > 0:
+                    t_ratio = times / t0
+                    return r * t_ratio ** beta * ml_func(-t_ratio ** beta)
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                t_ratio = times[times > 0] / t0
+                v_out[times > 0] = r * t_ratio ** beta * ml_func(-t_ratio ** beta)
+                return v_out
+    elif element_type == 'RC':
+        def v_func(times, r, ln_tau):
+            t0 = np.exp(ln_tau)
+            if np.isscalar(times):
+                if times > 0:
+                    t_ratio = times / t0
+                    return r * (1 - np.exp(-t_ratio))
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                t_ratio = times[times > 0] / t0
+                v_out[times > 0] = r * (1 - np.exp(-t_ratio))
+                return v_out
+    elif element_type == 'L':
+        def v_func(times, ln_induc):
+            if np.isscalar(times):
+                if times == 0:
+                    return 0  # np.inf
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                # v_out[times == 0] = np.inf
+                return v_out
+    elif element_type == 'R':
+        def v_func(times, r):
+            if np.isscalar(times):
+                if times > 0:
+                    return r
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                v_out[times > 0] = r
+                return v_out
+    elif element_type == 'C':
+        def v_func(times, c_inv):
+            if np.isscalar(times):
+                if times > 0:
+                    return c_inv * times
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                v_out[times > 0] = c_inv * times[times > 0]
+                return v_out
+    elif element_type == 'P':
+        def v_func(times, p, nu):
+            if np.isscalar(times):
+                if times > 0:
+                    return p * times ** -nu / special.gamma(-nu + 1)
+                else:
+                    return 0
+            else:
+                v_out = np.zeros(len(times))
+                v_out[times > 0] = p * times[times > 0] ** -nu / special.gamma(-nu + 1)
+                return v_out
+
+    else:
+        raise ValueError(f'Invalid element {element_type}')
+
+    return v_func
 
 
 def parse_element_string(element_string):
@@ -1546,6 +1687,19 @@ def model_impedance_function(model_string):
         return np.sum(z_vectors, axis=0)
 
     return z_model
+
+
+def model_voltage_function(model_string, step_model='ideal'):
+    el_names, el_types, param_types, param_names, param_bounds, param_indices = parse_model_string(model_string)
+    v_functions = [element_voltage_function(element, step_model) for element in el_types]
+
+    def v_model(times, *args):
+        v_vectors = np.array([
+            v_func(times, *args[param_indices[i][0]:param_indices[i][1]]) for i, v_func in enumerate(v_functions)
+        ])
+        return np.sum(v_vectors, axis=0)
+
+    return v_model
 
 
 def model_distribution_function(model_string):

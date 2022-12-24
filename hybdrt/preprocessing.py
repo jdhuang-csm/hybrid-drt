@@ -1,12 +1,14 @@
 import numpy as np
-from hybdrt.utils.array import unit_step
-from hybdrt.utils.validation import check_step_model, check_op_mode
+import warnings
 from scipy.optimize import least_squares
+
+from .utils.array import unit_step, nearest_index
+from .utils.validation import check_step_model, check_ctrl_mode
 
 
 # Chrono data preprocessing
 # -------------------------
-def identify_steps(y, allow_consecutive=True, rthresh=20):
+def identify_steps(y, allow_consecutive=True, rthresh=50):
     """
     Identify steps in signal
     :param ndarray y: signal
@@ -27,7 +29,7 @@ def identify_steps(y, allow_consecutive=True, rthresh=20):
     return step_idx
 
 
-def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=20):
+def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=50):
     """
     Get step times and sizes from signal
     :param ndarray times: measurement times
@@ -41,6 +43,7 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rth
     if offset_step_times:
         # Get minimum sample period
         t_sample = np.min(np.diff(times))
+        # print('t_sample:', t_sample)
         # Assume actual step time occurred 1 sample period before observed
         # Multiply by 0.999 to ensure that step time isn't exactly equal to previous sample time,
         # as this causes trouble with R_inf response (R_inf response at times >= step_time)
@@ -95,7 +98,7 @@ def get_step_sizes(times, y, step_times):
     return step_sizes
 
 
-def process_input_signal(times, input_signal, step_model, offset_steps, rthresh=20, fixed_tau_rise=None):
+def process_input_signal(times, input_signal, step_model, offset_steps, rthresh=50, fixed_tau_rise=None):
     check_step_model(step_model)
     if step_model == 'ideal':
         # If using ideal step model, model each real step as a series of ideal steps
@@ -173,64 +176,183 @@ def generate_model_signal(times, step_times, step_sizes, tau_rise, step_model):
     return signal
 
 
-def downsample_data(times, i_signal, v_signal, ideal_times, step_times=None, step_model=None,
-                    op_mode='galvanostatic', prestep_samples=25):
+def downsample_data(times, i_signal, v_signal, target_times=None, target_size=None, stepwise_sample_times=True,
+                    step_times=None, step_model=None, method='match',
+                    decimation_interval=10, decimation_factor=2, decimation_max_period=None,
+                    op_mode='galv', prestep_samples=20):
     """
     Downsample data to match desired sample times
+    :param stepwise_sample_times:
     :param times: measurement times
     :param i_signal: current signal
     :param v_signal: voltage signal
-    :param ideal_times: ideal (desired) sample times after each step
+    :param target_times: ideal (desired) sample times after each step
     :param step_times: list or array of step times. If not provided, determine from input signal
     :param step_model: Which step model to apply to the input signal. Ignored if step_times is provided
     :param op_mode: Operation mode. Options: galvanostatic, potentiostatic
     :param prestep_samples: number of samples to keep from pre-step period
     :return: sample_times, sample_i, sample_v
     """
-    check_op_mode(op_mode)
-    # Identify step times
-    if step_times is None:
-        check_step_model(step_model)
-        if step_model == 'ideal':
-            # If using ideal step model, model each real step as a series of ideal steps
-            allow_consecutive_steps = True
+
+    if stepwise_sample_times:
+        # Sample ideal_times from start of each step
+        check_ctrl_mode(op_mode)
+        # Identify step times
+        if step_times is None:
+            check_step_model(step_model)
+            if step_model == 'ideal':
+                # If using ideal step model, model each real step as a series of ideal steps
+                allow_consecutive_steps = True
+            else:
+                # If using non-ideal step model, apply step model to each real step
+                allow_consecutive_steps = False
+
+            if op_mode == 'galv':
+                step_indices = identify_steps(i_signal, allow_consecutive_steps)
+            else:
+                step_indices = identify_steps(v_signal, allow_consecutive_steps)
+
+            step_times = times[step_indices]
+            # print('Step times:', step_times)
         else:
-            # If using non-ideal step model, apply step model to each real step
-            allow_consecutive_steps = False
-        if op_mode == 'galvanostatic':
-            step_indices = identify_steps(i_signal, allow_consecutive_steps)
-        elif op_mode == 'potentiostatic':
-            step_indices = identify_steps(i_signal, allow_consecutive_steps)
-
-        step_times = times[step_indices]
-        # print('Step times:', step_times)
+            step_indices = get_step_indices_from_step_times(times, step_times)
     else:
-        step_indices = get_step_indices_from_step_times(times, step_times)
+        # Treat as a single step
+        step_times = [0]
+        step_indices = [0]
 
-    # Determine ideal post-step sample times
-    if ideal_times is not None:
-        ideal_times = np.unique(np.concatenate([ideal_times + ts for ts in step_times]))
+    if method == 'match':
+        # Determine matching post-step sample times
+        if target_times is not None:
+            # Apply target_times to each step
+            target_times = np.unique(np.concatenate([target_times + ts for ts in step_times]))
 
-        # Get sample times closest to ideal times
-        sample_index = np.array([[np.argmin(np.abs(times - ideal_times[i]))] for i in range(len(ideal_times))])
-        sample_index = np.unique(sample_index)
+            # Get sample times closest to ideal times
+            sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
+            sample_index = np.unique(sample_index)
+        else:
+            # If target_times is None, keep all post-step samples
+            sample_index = np.arange(step_indices[0], len(times), dtype=int)
+
+        # Keep some samples immediately prior to first step
+        if step_indices[0] > 0 and prestep_samples > 0:
+            num_prestep = step_indices[0]
+            prestep_samples = min(prestep_samples, num_prestep)
+            # prestep_index = np.arange(0, num_prestep, num_prestep // prestep_samples, dtype=int)  # uniformly spaced
+            prestep_index = np.arange(step_indices[0] - prestep_samples, step_indices[0], dtype=int)
+            sample_index = np.unique(np.concatenate((prestep_index, sample_index)))
+    elif method == 'decimate':
+        t_sample = np.min(np.diff(times))
+        if target_size is not None:
+            decimation_interval = -1
+            while decimation_interval == -1:
+                decimation_interval = select_decimation_interval(times, step_times, t_sample, prestep_samples,
+                                                                 decimation_factor, decimation_max_period,
+                                                                 target_size)
+        print(decimation_interval)
+        sample_index = get_decimation_index(times, step_times, t_sample, prestep_samples, decimation_interval,
+                                            decimation_factor, decimation_max_period)
     else:
-        # If ideal_time is None, keep all post-step samples
-        sample_index = np.arange(step_indices[0], len(times), dtype=int)
-
-    # Keep some samples immediately prior to first step
-    if step_indices[0] > 0 and prestep_samples > 0:
-        num_prestep = step_indices[0]
-        prestep_samples = min(prestep_samples, num_prestep)
-        # prestep_index = np.arange(0, num_prestep, num_prestep // prestep_samples, dtype=int)  # uniformly spaced
-        prestep_index = np.arange(step_indices[0] - prestep_samples, step_indices[0], dtype=int)
-        sample_index = np.concatenate((prestep_index, sample_index))
+        raise ValueError(f"Invalid downsample method {method}. Options: 'match', 'decimate'")
+    # else:
+    #     # Get sample times closest to ideal times
+    #     sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
+    #     sample_index = np.unique(sample_index)
 
     sample_times = times[sample_index].flatten()
     sample_i = i_signal[sample_index].flatten()
     sample_v = v_signal[sample_index].flatten()
 
     return sample_times, sample_i, sample_v, sample_index
+
+
+def select_decimation_interval(times, step_times, t_sample, prestep_points, decimation_factor, max_t_sample,
+                               target_size):
+    intervals = np.logspace(np.log10(2), np.log10(1000), 12).astype(int)
+    sizes = [len(get_decimation_index(times, step_times, t_sample, prestep_points,
+                                      interval, decimation_factor, max_t_sample)
+                 )
+             for interval in intervals]
+    if target_size > sizes[-1]:
+        warnings.warn(f'Cannot achieve target size of {target_size} with selected decimation factor of '
+                      f'{decimation_factor}. Decrease the decimation factor and/or decrease the maximum period')
+    if target_size < sizes[0]:
+        warnings.warn(f'Cannot achieve target size of {target_size} with selected decimation factor of '
+                      f'{decimation_factor}. Increase the decimation factor and/or increase the maximum period'
+                      )
+    return int(np.interp(target_size, sizes, intervals))
+
+
+def get_decimation_index(times, step_times, t_sample, prestep_points, decimation_interval, decimation_factor,
+                         max_t_sample):
+    # Get evenly spaced samples from pre-step period
+    prestep_times = times[times < np.min(step_times)]
+    prestep_index = np.linspace(0, len(prestep_times) - 1, prestep_points).round(0).astype(int)
+
+    # Determine index of first sample time after each step
+    def pos_delta(x, x0):
+        out = np.empty(len(x))
+        out[x < x0] = np.inf
+        out[x >= x0] = x[x >= x0] - x0
+        return out
+
+    step_index = [np.argmin(pos_delta(times, st)) for st in step_times]
+
+    # Limit sample interval to max_t_sample
+    if max_t_sample is None:
+        max_sample_interval = np.inf
+    else:
+        max_sample_interval = int(max_t_sample / t_sample)
+
+    # Build array of indices to keep
+    keep_indices = [prestep_index]
+    for i, start_index in enumerate(step_index):
+        # Decimate samples after each step
+        if start_index == step_index[-1]:
+            next_step_index = len(times)
+        else:
+            next_step_index = step_index[i + 1]
+
+        # Keep first decimation_interval points without decimation
+        undec_index = np.arange(start_index, min(start_index + decimation_interval + 1, next_step_index), dtype=int)
+
+        keep_indices.append(undec_index)
+        # sample_interval = 1
+        last_index = undec_index[-1]
+        j = 1
+        while last_index < next_step_index - 1:
+            # Increment sample_interval
+            # sample_interval = min(int(sample_interval * decimation_factor), max_sample_interval)
+            sample_interval = min(int(decimation_factor ** j), max_sample_interval)
+            # print('sample_interval:', sample_interval)
+
+            if sample_interval == max_sample_interval:
+                # Sample interval has reached maximum. Continue through end of step
+                interval_end_index = next_step_index - 1
+            else:
+                # Continue with current sampling rate until decimation_interval points acquired
+                interval_end_index = min(last_index + decimation_interval * sample_interval + 1,
+                                         next_step_index)
+
+            keep_index = np.arange(last_index + sample_interval, interval_end_index, sample_interval, dtype=int)
+
+            if len(keep_index) == 0:
+                # sample_interval too large - runs past end of step. Keep last sample
+                keep_index = [interval_end_index]
+
+            # If this is the final interval, ensure that last point before next step is included
+            if interval_end_index == next_step_index and keep_index[-1] < next_step_index - 1:
+                keep_index = np.append(keep_index, next_step_index - 1)
+
+            keep_indices.append(keep_index)
+
+            # Increment last_index
+            last_index = keep_index[-1]
+            j += 1
+
+    decimate_index = np.unique(np.concatenate(keep_indices))
+
+    return decimate_index
 
 
 def get_signal_scales(times, step_times, input_step_sizes, response_signal, step_model):
@@ -307,6 +429,9 @@ def get_input_signal_scale(times, step_times, input_step_sizes, step_model):
 
 def estimate_rp(times, step_times, input_step_sizes, response_signal, step_model, z):
     if times is not None:
+        # i_cum = np.cumsum(input_step_sizes)
+        # i_range = np.max(i_cum) - np.min(i_cum)
+        # v_range = np.percentile(response_signal, 99) - np.percentile(response_signal, 1)
         # Estimate R_min and R_max from chrono data
         if step_model == 'ideal':
             # Check for consecutive steps - only applies to ideal step model
@@ -333,7 +458,7 @@ def estimate_rp(times, step_times, input_step_sizes, response_signal, step_model
             out[x >= x0] = x[x >= x0] - x0
             return out
 
-        # Get
+        # Get apparent Rp for each step
         step_index = [np.argmin(pos_delta(times, st)) for st in step_times]
         step_r_min = np.zeros(len(step_index))
         step_r_max = np.zeros(len(step_index))
@@ -353,7 +478,7 @@ def estimate_rp(times, step_times, input_step_sizes, response_signal, step_model
             step_r_max[i] = np.max((step_response - pre_step_val) / input_step_sizes[i])
 
         r_min_chrono = np.mean(step_r_min)
-        r_max_chrono = np.mean(step_r_max)
+        r_max_chrono = np.percentile(step_r_max, 99)
     else:
         # Set limits such that they will not influence aggregate
         r_min_chrono = np.inf
@@ -373,6 +498,22 @@ def estimate_rp(times, step_times, input_step_sizes, response_signal, step_model
     r_max = max(r_max_chrono, r_max_eis)
 
     return r_max - r_min
+
+
+def get_quantile_limits(y, qr_size=0.5, qr_thresh=1.5):
+    q_lo = np.percentile(y, 50 - 100 * qr_size / 2)
+    q_hi = np.percentile(y, 50 + 100 * qr_size / 2)
+    qr = q_hi - q_lo
+    y_min = q_lo - qr * qr_thresh
+    y_max = q_hi + qr * qr_thresh
+
+    return y_min, y_max
+
+
+def identify_extreme_values(y, qr_size=0.5, qr_thresh=1.5):
+    y_min, y_max = get_quantile_limits(y, qr_size, qr_thresh)
+
+    return (y < y_min) | (y > y_max)
 
 
 # =======================
@@ -414,7 +555,7 @@ def get_time_ppd(times, step_times, aggregate=True):
         return ppds
 
 
-def get_time_since_step(times, step_times):
+def get_time_since_step(times, step_times, prestep_value=None):
     """
     Convert elapsed times to time delta since last step
     :param times:
@@ -427,6 +568,10 @@ def get_time_since_step(times, step_times):
         t_sample = np.min(np.diff(times))
     else:
         t_sample = times[0]
+
+    # Populate specified value for all times prior to first step
+    if prestep_value is not None:
+        time_deltas.append(np.tile(prestep_value, len(times[times < step_times[0]])))
 
     # For each step, get time delta from step time
     for i, start_time in enumerate(step_times):
@@ -474,7 +619,7 @@ def get_num_decades(frequencies, times, step_times):
     return num_decades
 
 
-def get_basis_tau(frequencies, times, step_times, ppd=10, extend_decades=1):
+def get_basis_tau(frequencies, times, step_times, ppd=10, extend_decades=1, tau_grid=None):
     # Get tau limits of measurement
     tau_min, tau_max = get_tau_lim(frequencies, times, step_times)
 
@@ -482,16 +627,22 @@ def get_basis_tau(frequencies, times, step_times, ppd=10, extend_decades=1):
     log_tau_min = np.log10(tau_min) - extend_decades
     log_tau_max = np.log10(tau_max) + extend_decades
 
-    # Determine number of basis points based on spacing
-    num_points_exact = (log_tau_max - log_tau_min) * ppd + 1
-    num_points = int(np.ceil(num_points_exact))
+    if tau_grid is not None:
+        # If tau_grid provided, select range from grid
+        left_index = nearest_index(tau_grid, 10 ** log_tau_min, constraint=-1)
+        right_index = nearest_index(tau_grid, 10 ** log_tau_max, constraint=1) + 1
+        return tau_grid[left_index:right_index]
+    else:
+        # Determine number of basis points based on spacing
+        num_points_exact = (log_tau_max - log_tau_min) * ppd + 1
+        num_points = int(np.ceil(num_points_exact))
 
-    # Extend the basis range to ensure exact spacing
-    add_decades = 0.5 * (num_points - num_points_exact) / ppd
-    log_tau_min -= add_decades
-    log_tau_max += add_decades
+        # Extend the basis range to ensure exact spacing
+        add_decades = 0.5 * (num_points - num_points_exact) / ppd
+        log_tau_min -= add_decades
+        log_tau_max += add_decades
 
-    return np.logspace(log_tau_min, log_tau_max, num_points)
+        return np.logspace(log_tau_min, log_tau_max, num_points)
 
 
 def get_epsilon_from_ppd(ppd, factor=1):

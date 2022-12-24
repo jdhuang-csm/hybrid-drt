@@ -13,11 +13,16 @@ module_dir = os.path.dirname(os.path.realpath(__file__))
 
 
 class DRTBase:
-    def __init__(self, fixed_basis_tau=None, tau_basis_type='gaussian', tau_epsilon=None, basis_tau_ppd=10,
-                 step_model='ideal', op_mode='galvanostatic', interpolate_integrals=True, chrono_tau_rise=None,
-                 fixed_basis_nu=None,
+    def __init__(self, fixed_basis_tau=None, tau_supergrid=None, tau_basis_type='gaussian', tau_epsilon=None,
+                 basis_tau_ppd=10,
+                 step_model='ideal', chrono_mode='galv', interpolate_integrals=True, chrono_tau_rise=None,
+                 fixed_basis_nu=None, fit_dop=False, normalize_dop=True, nu_basis_type='delta',
                  fit_inductance=True, time_precision=10, input_signal_precision=10, frequency_precision=10,
-                 print_diagnostics=False):
+                 print_diagnostics=False, warn=True):
+
+        if fixed_basis_tau is not None and tau_supergrid is not None:
+            warnings.warn('If fixed_basis_tau is provided, tau_supergrid will be ignored')
+
         self._recalc_chrono_fit_matrix = True
         self._recalc_chrono_prediction_matrix = True
         self._recalc_eis_fit_matrix = True
@@ -25,11 +30,12 @@ class DRTBase:
         self.fit_matrices = {}
         self.prediction_matrices = {}
         self.fixed_basis_tau = fixed_basis_tau
+        self.tau_supergrid = tau_supergrid
         self.basis_tau = None
         self.tau_basis_type = tau_basis_type
         self.tau_epsilon = tau_epsilon
         self.step_model = step_model
-        self.op_mode = op_mode
+        self.chrono_mode = chrono_mode
         self.frequency_precision = frequency_precision
         self.time_precision = time_precision
         self.input_signal_precision = input_signal_precision
@@ -51,18 +57,25 @@ class DRTBase:
         # Distribution of phasances
         self.fixed_basis_nu = fixed_basis_nu
         self.basis_nu = None
+        self.nu_basis_type = nu_basis_type
+        self.fit_dop = fit_dop
+        self.normalize_dop = normalize_dop
+        self.dop_scale_vector = None
 
         self.step_times = None
         self.step_sizes = None
         self.tau_rise = None
+        self.nonconsec_step_times = None
         self.raw_input_signal = None
         self.raw_response_signal = None
+        self.raw_response_background = None
         self.z_fit = None
         self.z_fit_scaled = None
         self.raw_prediction_input_signal = None
         self.scaled_input_signal = None
         self.scaled_response_signal = None
         self.scaled_response_offset = None
+        self.scaled_response_background = None
         self.input_signal_scale = 1.0
         self.response_signal_scale = 1.0
         self.coefficient_scale = 1.0
@@ -78,6 +91,13 @@ class DRTBase:
         self.map_sample_kw = None
 
         self.fit_kwargs = None
+        self.series_neg = None
+
+        # Outliers
+        self.eis_outlier_index = None
+        self.eis_outliers = None
+        self.chrono_outlier_index = None
+        self.chrono_outliers = None
 
         self._init_values = None
         self.stan_model_name = None
@@ -88,11 +108,15 @@ class DRTBase:
         self.fit_type = None
 
         self.print_diagnostics = print_diagnostics
+        self.warn = warn
 
         # Set tau_epsilon if not provided
         if self.tau_epsilon is None:
             if self.fixed_basis_tau is not None:
                 dlntau = np.mean(np.diff(np.log(self.fixed_basis_tau)))
+                self.tau_epsilon = 1 / dlntau
+            elif self.tau_supergrid is not None:
+                dlntau = np.mean(np.diff(np.log(self.tau_supergrid)))
                 self.tau_epsilon = 1 / dlntau
             elif basis_tau_ppd is not None:
                 self.tau_epsilon = pp.get_epsilon_from_ppd(basis_tau_ppd)
@@ -111,7 +135,7 @@ class DRTBase:
                                                                      zga_params=self.zga_params)
 
             print('Generating response integral lookups...')
-            response_lookup = basis.generate_response_lookup(self.tau_basis_type, self.op_mode, self.step_model,
+            response_lookup = basis.generate_response_lookup(self.tau_basis_type, self.chrono_mode, self.step_model,
                                                              self.tau_epsilon, 2000, chrono_tau_rise, self.zga_params)
 
             self.interpolate_lookups = {'z_real': zre_lookup, 'z_imag': zim_lookup, 'response': response_lookup}
@@ -222,21 +246,30 @@ class DRTBase:
         :return:
         """
         # Go one decade beyond self.basis_tau in each direction
-        log_tau_min = np.min(np.log10(self.basis_tau)) - 1
-        log_tau_max = np.max(np.log10(self.basis_tau)) + 1
+        if self.fixed_basis_tau is not None:
+            basis_tau = self.fixed_basis_tau
+        else:
+            basis_tau = self.basis_tau
+
+        if basis_tau is None:
+            raise ValueError('basis_tau must be set, either by specifying fixed_basis_tau or by fitting the '
+                             'DRT instanceto data, before using get_tau_eval')
+
+        log_tau_min = np.min(np.log10(basis_tau)) - 1
+        log_tau_max = np.max(np.log10(basis_tau)) + 1
         tau = np.logspace(log_tau_min, log_tau_max, int((log_tau_max - log_tau_min) * ppd) + 1)
 
         return tau
 
-    def process_chrono_signals(self, times, i_signal, v_signal, step_times, offset_steps, downsample, downsample_kw,):
+    def process_chrono_signals(self, times, i_signal, v_signal, step_times, offset_steps, downsample, downsample_kw):
         # TODO: move this to DRT1d
         # If chrono data provided, get input signal step information
         if times is not None:
             # Prepare to fit chrono data
-            # Determine input signal from op_mode
-            if self.op_mode == 'galvanostatic':
+            # Determine input signal from chrono_mode
+            if self.chrono_mode == 'galv':
                 input_signal = i_signal
-            elif self.op_mode == 'potentiostatic':
+            else:
                 input_signal = v_signal
 
             # Determine step times and sizes in input signal
@@ -249,6 +282,12 @@ class DRTBase:
                 step_sizes = pp.get_step_sizes(times, input_signal, step_times)
                 tau_rise = None
 
+            # Get non-consecutive steps for plotting functions
+            step_diff = np.diff(step_times)
+            t_sample = np.min(np.diff(times))
+            nonconsec_step_times = step_times[1:][step_diff > 1.1 * t_sample]
+            self.nonconsec_step_times = np.insert(nonconsec_step_times, 0, step_times[0])
+
             if self.print_diagnostics:
                 print('Step data:', step_times, step_sizes)
                 print('Got step data')
@@ -257,12 +296,11 @@ class DRTBase:
             if downsample:
                 if downsample_kw is None:
                     downsample_kw = {'prestep_samples': 10,
-                                     'ideal_times': None}  # np.concatenate(([0], np.logspace(-5, 0, 201)))}
+                                     'target_times': None}  # np.concatenate(([0], np.logspace(-5, 0, 201)))}
 
-                sample_times, sample_i, sample_v, sample_index = pp.downsample_data(times, i_signal, v_signal,
-                                                                                    step_times=step_times,
-                                                                                    op_mode=self.op_mode,
-                                                                                    **downsample_kw)
+                sample_times, sample_i, sample_v, sample_index = \
+                    pp.downsample_data(times, i_signal, v_signal, stepwise_sample_times=True,
+                                       step_times=self.nonconsec_step_times, op_mode=self.chrono_mode, **downsample_kw)
                 # Record sample_index for reference
                 self.sample_index = sample_index
                 if self.print_diagnostics:
@@ -277,10 +315,13 @@ class DRTBase:
             self.t_fit = sample_times
 
             # # Set input and response signals based on control mode
-            # if self.op_mode == 'galvanostatic':
+            input_signal, response_signal = utils.chrono.get_input_and_response(sample_i, sample_v, self.chrono_mode)
+            self.raw_input_signal = input_signal.copy()
+            self.raw_response_signal = response_signal.copy()
+            # if self.chrono_mode == 'galv':
             #     self.raw_input_signal = sample_i.copy()
             #     self.raw_response_signal = sample_v.copy()
-            # elif self.op_mode == 'potentiostatic':
+            # elif self.chrono_mode == 'pot':
             #     self.raw_input_signal = sample_v.copy()
             #     self.raw_response_signal = sample_i.copy()
         else:
@@ -299,95 +340,100 @@ class DRTBase:
 
         return sample_times, sample_i, sample_v, step_times, step_sizes, tau_rise
 
-    def scale_signal(self, times, i_signal, v_signal, step_times, step_sizes, apply_scaling, rp_scale):
-        """
-        *OBSOLETE - replaced by scale_data*
-        Scale the signal to a normalized scale for fitting
-        :param ndarray times: measurement times
-        :param ndarray i_signal: current signal values
-        :param ndarray v_signal: voltage signal values
-        :param ndarray step_times: array of step times
-        :param ndarray step_sizes: array of input signal step sizes
-        :param apply_scaling: if True, scale input and response signals to ensure consistent data and coefficient
-        scales. If False, set signal scales to 1 and return raw signals without applying scaling.
-        :return: array of scaled values
-        """
-        if self.op_mode == 'galvanostatic':
-            self.raw_input_signal = i_signal.copy()
-            self.raw_response_signal = v_signal.copy()
-        elif self.op_mode == 'potentiostatic':
-            self.raw_input_signal = v_signal.copy()
-            self.raw_response_signal = i_signal.copy()
+    # def scale_signal(self, times, i_signal, v_signal, step_times, step_sizes, apply_scaling, rp_scale):
+    #     """
+    #     *OBSOLETE - replaced by scale_data*
+    #     Scale the signal to a normalized scale for fitting
+    #     :param ndarray times: measurement times
+    #     :param ndarray i_signal: current signal values
+    #     :param ndarray v_signal: voltage signal values
+    #     :param ndarray step_times: array of step times
+    #     :param ndarray step_sizes: array of input signal step sizes
+    #     :param apply_scaling: if True, scale input and response signals to ensure consistent data and coefficient
+    #     scales. If False, set signal scales to 1 and return raw signals without applying scaling.
+    #     :return: array of scaled values
+    #     """
+    #     if self.chrono_mode == 'galv':
+    #         self.raw_input_signal = i_signal.copy()
+    #         self.raw_response_signal = v_signal.copy()
+    #     elif self.chrono_mode == 'pot':
+    #         self.raw_input_signal = v_signal.copy()
+    #         self.raw_response_signal = i_signal.copy()
+    #
+    #     if apply_scaling:
+    #         input_signal_scale, response_signal_scale = pp.get_signal_scales(times, step_times, step_sizes,
+    #                                                                          self.raw_response_signal, self.step_model)
+    #
+    #         # Scale input signal such that mean step size is 1
+    #         self.input_signal_scale = input_signal_scale
+    #
+    #         # Scale response signal to achieve desired Rp scale
+    #         self.response_signal_scale = response_signal_scale / rp_scale
+    #     else:
+    #         # No scaling
+    #         self.input_signal_scale = 1.0
+    #         self.response_signal_scale = 1.0
+    #
+    #     # Determine coefficient scale
+    #     # x_scaled = x / s_x; s_x = s_v / s_i
+    #     if self.chrono_mode == 'galv':
+    #         self.coefficient_scale = self.response_signal_scale / self.input_signal_scale
+    #     elif self.chrono_mode == 'pot':
+    #         self.coefficient_scale = self.input_signal_scale / self.response_signal_scale
+    #
+    #     self.scaled_input_signal = self.raw_input_signal / self.input_signal_scale
+    #     self.scaled_response_signal = self.raw_response_signal / self.response_signal_scale
+    #
+    #     if self.chrono_mode == 'galv':
+    #         scaled_i_signal = self.scaled_input_signal
+    #         scaled_v_signal = self.scaled_response_signal
+    #     elif self.chrono_mode == 'pot':
+    #         scaled_i_signal = self.scaled_response_signal
+    #         scaled_v_signal = self.scaled_input_signal
+    #
+    #     return scaled_i_signal, scaled_v_signal
 
-        if apply_scaling:
-            input_signal_scale, response_signal_scale = pp.get_signal_scales(times, step_times, step_sizes,
-                                                                             self.raw_response_signal, self.step_model)
-
-            # Scale input signal such that mean step size is 1
-            self.input_signal_scale = input_signal_scale
-
-            # Scale response signal to achieve desired Rp scale
-            self.response_signal_scale = response_signal_scale / rp_scale
-        else:
-            # No scaling
-            self.input_signal_scale = 1.0
-            self.response_signal_scale = 1.0
-
-        # Determine coefficient scale
-        # x_scaled = x / s_x; s_x = s_v / s_i
-        if self.op_mode == 'galvanostatic':
-            self.coefficient_scale = self.response_signal_scale / self.input_signal_scale
-        elif self.op_mode == 'potentiostatic':
-            self.coefficient_scale = self.input_signal_scale / self.response_signal_scale
-
-        self.scaled_input_signal = self.raw_input_signal / self.input_signal_scale
-        self.scaled_response_signal = self.raw_response_signal / self.response_signal_scale
-
-        if self.op_mode == 'galvanostatic':
-            scaled_i_signal = self.scaled_input_signal
-            scaled_v_signal = self.scaled_response_signal
-        elif self.op_mode == 'potentiostatic':
-            scaled_i_signal = self.scaled_response_signal
-            scaled_v_signal = self.scaled_input_signal
-
-        return scaled_i_signal, scaled_v_signal
-
-    def scale_impedance(self, z, rp_scale):
-        # Should be replaced by scale_data
-        if rp_scale is None:
-            # Match impedance scaling to time response scaling
-            self.impedance_scale = deepcopy(self.coefficient_scale)
-        else:
-            rp_est = np.max(z.real) - np.min(z.real)
-            self.impedance_scale = rp_est / rp_scale
-
-        return z / self.impedance_scale
+    # def scale_impedance(self, z, rp_scale):
+    #     # Should be replaced by scale_data
+    #     if rp_scale is None:
+    #         # Match impedance scaling to time response scaling
+    #         self.impedance_scale = deepcopy(self.coefficient_scale)
+    #     else:
+    #         rp_est = np.max(z.real) - np.min(z.real)
+    #         self.impedance_scale = rp_est / rp_scale
+    #
+    #     return z / self.impedance_scale
 
     def scale_data(self, times, i_signal, v_signal, step_times, step_sizes, z, apply_scaling, rp_scale):
         if apply_scaling:
-            # Estimate Rp with provided data (chrono, EIS, or both)
-            input_signal, response_signal = utils.chrono.get_input_and_response(i_signal, v_signal, self.op_mode)
-
+            input_signal, response_signal = utils.chrono.get_input_and_response(i_signal, v_signal, self.chrono_mode)
             rp_est = pp.estimate_rp(times, step_times, step_sizes, response_signal, self.step_model, z)
             if self.print_diagnostics:
-                print('Estimated Rp: {:.3f}'.format(rp_est))
-
-            if self.op_mode == 'galvanostatic':
-                self.coefficient_scale = rp_est / rp_scale
+                print('Estimated Rp: {:.4f}'.format(rp_est))
+            # if self.chrono_mode == 'galv':
+            self.coefficient_scale = rp_est / rp_scale
         else:
+            rp_est = 1.0
             self.coefficient_scale = 1.0
 
         if self.print_diagnostics:
-            print('Initial scale:', self.coefficient_scale)
+            print('Initial coefficient scale:', self.coefficient_scale)
 
         # Scale chrono data
         if times is not None:
             if apply_scaling:
                 # Scale input signal such that mean step size is 1
-                self.input_signal_scale = pp.get_input_signal_scale(times, step_times, step_sizes, self.step_model)
+                # self.input_signal_scale = pp.get_input_signal_scale(times, step_times, step_sizes, self.step_model)
+                # Scale to max step size
+                self.input_signal_scale = np.max(np.abs(step_sizes))
 
                 # Scale response signal to achieve desired Rp scale
                 self.response_signal_scale = self.input_signal_scale * rp_est / rp_scale
+
+                if self.print_diagnostics:
+                    print('Chrono input and response scales: {:.5f}, {:5f}'.format(
+                        self.input_signal_scale, self.response_signal_scale)
+                    )
 
             else:
                 # No scaling
@@ -395,23 +441,29 @@ class DRTBase:
                 self.response_signal_scale = 1.0
 
             # Set input and response signals based on control mode
-            input_signal, response_signal = utils.chrono.get_input_and_response(i_signal, v_signal, self.op_mode)
-            self.raw_input_signal = input_signal.copy()
-            self.raw_response_signal = response_signal.copy()
+            # input_signal, response_signal = utils.chrono.get_input_and_response(i_signal, v_signal, self.chrono_mode)
+            # self.raw_input_signal = input_signal.copy()
+            # self.raw_response_signal = response_signal.copy()
 
             self.scaled_input_signal = self.raw_input_signal / self.input_signal_scale
             self.scaled_response_signal = self.raw_response_signal / self.response_signal_scale
 
-            if self.op_mode == 'galvanostatic':
+            if self.chrono_mode == 'galv':
                 scaled_i_signal = self.scaled_input_signal.copy()
                 scaled_v_signal = self.scaled_response_signal.copy()
-            elif self.op_mode == 'potentiostatic':
+            else:
                 scaled_i_signal = self.scaled_response_signal.copy()
                 scaled_v_signal = self.scaled_input_signal.copy()
         else:
             # No chrono data provided
             scaled_i_signal = None
             scaled_v_signal = None
+            self.input_signal_scale = None
+            self.response_signal_scale = None
+            self.raw_input_signal = None
+            self.raw_response_signal = None
+            self.scaled_input_signal = None
+            self.scaled_response_signal = None
 
         # Scale EIS data
         if z is not None:
@@ -424,6 +476,8 @@ class DRTBase:
         else:
             # No EIS data provided
             z_scaled = None
+            self.z_fit = None
+            self.z_fit_scaled = None
 
         return scaled_i_signal, scaled_v_signal, z_scaled
 
@@ -438,13 +492,24 @@ class DRTBase:
             self.response_signal_scale /= factor
             self.scaled_response_offset *= factor
             self.scaled_response_signal *= factor
-        if self.op_mode == 'galvanostatic':
+
+        if self.z_fit_scaled is not None:
+            self.z_fit_scaled *= factor
+
+        if self.chrono_mode == 'galv':
             self.coefficient_scale /= factor
             self.impedance_scale /= factor
-        elif self.op_mode == 'potentiostatic':
+        elif self.chrono_mode == 'pot':
             # unclear how this would actually change...
             self.coefficient_scale *= factor
             self.impedance_scale /= factor
+
+    def _add_special_qp_param(self, name, nonneg, size=1):
+        options = ['R_inf', 'v_baseline', 'inductance', 'vz_offset', 'background_scale', 'x_dop']
+        if name not in options:
+            raise ValueError('Invalid special QP parameter {name}. Options: {options}')
+
+        self.special_qp_params[name] = {'index': self.get_qp_mat_offset(), 'nonneg': nonneg, 'size': size}
 
     def get_qp_mat_offset(self):
         """Get matrix offset for special QP params"""
@@ -474,7 +539,7 @@ class DRTBase:
 
             ax.legend()
 
-    def get_fit_times(self, return_none=False):
+    def get_fit_times(self, return_none=True):
         """Get times that were fitted"""
         if self._t_fit_subset_index is not None:
             # If times is subset of previously fitted dataset, get subset
@@ -487,7 +552,7 @@ class DRTBase:
 
         return times
 
-    def get_fit_frequencies(self, return_none=False):
+    def get_fit_frequencies(self, return_none=True):
         """Get frequencies that were fitted"""
         if self._f_fit_subset_index is not None:
             frequencies = self.f_fit[self._f_fit_subset_index]
@@ -501,6 +566,18 @@ class DRTBase:
 
     # Getters and setters to control matrix calculation
     # -------------------------------------------------
+    # def get_recalc_chrono_fit_matrix(self):
+    #     return self._recalc_chrono_fit_matrix
+    #
+    # def set_recalc_chrono_fit_matrix(self, status):
+    #     self._recalc_chrono_fit_matrix = status
+    #     if status:
+    #         # If matrices must be recalculated, overwrite t_fit
+    #         self.t_fit = self.get_fit_times()
+    #
+    # def get_recalc_chrono_prediction_matrix(self):
+    #     return self._recalc_chrono_prediction_matrix
+
     def get_basis_tau(self):
         return self._basis_tau
 
@@ -521,7 +598,7 @@ class DRTBase:
     def set_tau_basis_type(self, tau_basis_type):
         utils.validation.check_basis_type(tau_basis_type)
         if hasattr(self, 'tau_basis_type'):
-            if tau_basis_type != self.tau_basis_type:
+            if tau_basis_type != self.nu_basis_type:
                 self._recalc_chrono_fit_matrix = True
                 self._recalc_chrono_prediction_matrix = True
                 self._recalc_eis_fit_matrix = True
@@ -529,6 +606,15 @@ class DRTBase:
         self._tau_basis_type = tau_basis_type
 
     tau_basis_type = property(get_tau_basis_type, set_tau_basis_type)
+
+    def get_nu_basis_type(self):
+        return self._nu_basis_type
+
+    def set_nu_basis_type(self, nu_basis_type):
+        utils.validation.check_basis_type(nu_basis_type)
+        self._nu_basis_type = nu_basis_type
+
+    nu_basis_type = property(get_nu_basis_type, set_nu_basis_type)
 
     def get_tau_epsilon(self):
         return self._tau_epsilon
@@ -583,11 +669,11 @@ class DRTBase:
         return self._t_fit
 
     def set_t_fit(self, times):
-        if hasattr(self, 't_fit'):
+        if hasattr(self, 't_fit') and not self._recalc_chrono_fit_matrix:
             self._t_fit_subset_index = None
             # Check if times is the same as self.t_fit
             if not utils.array.check_equality(utils.array.rel_round(self._t_fit, self.time_precision),
-                                        utils.array.rel_round(times, self.time_precision)):
+                                              utils.array.rel_round(times, self.time_precision)):
                 # Check if times is a subset of self.t_fit
                 # If times is a subset of self.t_fit, we can use sub-matrices of the existing matrices
                 # In this case, we should not update self._t_fit
@@ -597,9 +683,11 @@ class DRTBase:
                 else:
                     # if times is not a subset of self.t_fit, must recalculate matrices
                     self._t_fit = times
+                    self._t_fit_subset_index = None
                     self._recalc_chrono_fit_matrix = True
         else:
             self._t_fit = times
+            self._t_fit_subset_index = None
             self._recalc_chrono_fit_matrix = True
 
     t_fit = property(get_t_fit, set_t_fit)
@@ -615,6 +703,7 @@ class DRTBase:
                     utils.array.rel_round(input_signal, self.input_signal_precision),
                     utils.array.rel_round(self.raw_input_signal[self._t_fit_subset_index], self.input_signal_precision)
             ):
+                # Input signal does not match stored input signal. Must recalculate matrices
                 self._raw_input_signal = deepcopy(input_signal)
                 self._t_fit = self.t_fit[self._t_fit_subset_index]
                 self._t_fit_subset_index = None
@@ -689,7 +778,7 @@ class DRTBase:
         return self._t_predict
 
     def set_t_predict(self, times):
-        if hasattr(self, 't_predict'):
+        if hasattr(self, 't_predict') and not self._recalc_chrono_prediction_matrix:
             self._t_predict_subset_index = ('', [])
             self._t_predict_eq_t_fit = False
             # Check if times is the same as self.t_fit
@@ -698,14 +787,12 @@ class DRTBase:
                 # self._t_predict = times
                 self._t_predict_eq_t_fit = True
                 # don't update recalc status here - another attribute change may have set this to True
-                # self._recalc_chrono_prediction_matrix = False
-                print('a')
+                # print('a')
             # Check if times is the same as self.t_predict
             elif utils.array.check_equality(utils.array.rel_round(self._t_predict, self.time_precision),
                                       utils.array.rel_round(times, self.time_precision)):
                 self._t_predict = times
-                # self._recalc_chrono_prediction_matrix = False
-                print('b')
+                # print('b')
             # Check if times is a subset of self.t_fit or self.t_predict
             else:
                 # If times is a subset of self.t_fit or self.t_predict, we can use sub-matrices of the existing matrices
@@ -715,8 +802,7 @@ class DRTBase:
                         'predict',
                         utils.array.get_subset_index(times, self.t_predict, self.time_precision)
                     )
-                    # self._recalc_chrono_prediction_matrix = False
-                    print('c')
+                    # print('c')
                 # In this case, we should not update self._t_predict
                 elif utils.array.is_subset(times, self.t_fit, self.time_precision):
                     # times is a subset of t_fit
@@ -724,18 +810,17 @@ class DRTBase:
                         'fit',
                         utils.array.get_subset_index(times, self.t_fit, self.time_precision)
                     )
-                    # self._recalc_chrono_prediction_matrix = False
-                    print('d')
+                    # print('d')
                 # In this case, we should not update self._t_predict
                 else:
                     # if times is not a subset of self.t_fit or self.t_predict, must calculate matrices
                     self._t_predict = times
                     self._recalc_chrono_prediction_matrix = True
-                    print('e')
+                    # print('e')
         else:
             self._t_predict = times
             self._recalc_chrono_prediction_matrix = True
-            print('f')
+            # print('f')
 
     t_predict = property(get_t_predict, set_t_predict)
 
@@ -852,7 +937,7 @@ class DRTBase:
         return self._f_fit
 
     def set_f_fit(self, frequencies):
-        if hasattr(self, 'f_fit'):
+        if hasattr(self, 'f_fit') and not self._recalc_eis_fit_matrix:
             self._f_fit_subset_index = None
             # Check if frequencies is the same as self.f_fit
             if not utils.array.check_equality(utils.array.rel_round(self._f_fit, self.frequency_precision),
@@ -863,13 +948,14 @@ class DRTBase:
                 if utils.array.is_subset(frequencies, self.f_fit):
                     self._f_fit_subset_index = utils.array.get_subset_index(frequencies, self.f_fit,
                                                                             self.frequency_precision)
-                # self._recalc_chrono_fit_matrix = False
                 else:
                     # if frequencies is not a subset of self.f_fit, must recalculate matrices
                     self._f_fit = frequencies
+                    self._f_fit_subset_index = None
                     self._recalc_eis_fit_matrix = True
         else:
             self._f_fit = frequencies
+            self._f_fit_subset_index = None
             self._recalc_eis_fit_matrix = True
 
     f_fit = property(get_f_fit, set_f_fit)
@@ -878,31 +964,32 @@ class DRTBase:
         return self._f_predict
 
     def set_f_predict(self, frequencies):
-        if hasattr(self, 'f_predict'):
+        if hasattr(self, 'f_predict') and not self._recalc_eis_prediction_matrix:
             self._f_predict_subset_index = ('', [])
             self._f_predict_eq_f_fit = False
             # Check if frequencies is the same as self.f_fit
             if utils.array.check_equality(utils.array.rel_round(self._f_fit, self.frequency_precision),
-                                    utils.array.rel_round(frequencies, self.frequency_precision)):
+                                          utils.array.rel_round(frequencies, self.frequency_precision)):
                 # self._f_predict = frequencies
                 self._f_predict_eq_f_fit = True
                 # don't update recalc status here - another attribute change may have set this to True
-                print('a')
+                # print('a')
             # Check if frequencies is the same as self.f_predict
             elif utils.array.check_equality(utils.array.rel_round(self._f_predict, self.frequency_precision),
                                       utils.array.rel_round(frequencies, self.frequency_precision)):
                 self._f_predict = frequencies
-                print('b')
+                # print('b')
             # Check if frequencies is a subset of self.f_fit or self.f_predict
             else:
-                # If frequencies is a subset of self.f_fit or self.f_predict, we can use sub-matrices of the existing matrices
+                # If frequencies is a subset of self.f_fit or self.f_predict,
+                # we can use sub-matrices of the existing matrices
                 if utils.array.is_subset(frequencies, self.f_predict):
                     # frequencies is a subset of f_predict
                     self._f_predict_subset_index = (
                         'predict',
                         utils.array.get_subset_index(frequencies, self.f_predict, self.frequency_precision)
                     )
-                    print('c')
+                    # print('c')
                 # In this case, we should not update self._f_predict
                 elif utils.array.is_subset(frequencies, self.f_fit):
                     # frequencies is a subset of f_fit
@@ -910,47 +997,47 @@ class DRTBase:
                         'fit',
                         utils.array.get_subset_index(frequencies, self.f_fit, self.frequency_precision)
                     )
-                    print('d')
+                    # print('d')
                 # In this case, we should not update self._f_predict
                 else:
                     # if frequencies is not a subset of self.f_fit or self.f_predict, must calculate matrices
                     self._f_predict = frequencies
                     self._recalc_eis_prediction_matrix = True
-                    print('e')
+                    # print('e')
         else:
             self._f_predict = frequencies
             self._recalc_eis_prediction_matrix = True
-            print('f')
+            # print('f')
 
     f_predict = property(get_f_predict, set_f_predict)
 
-    def get_op_mode(self):
-        return self._op_mode
+    def get_chrono_mode(self):
+        return self._chrono_mode
 
-    def set_op_mode(self, op_mode):
-        utils.validation.check_op_mode(op_mode)
-        if hasattr(self, 'op_mode'):
-            if op_mode != self.op_mode:
+    def set_chrono_mode(self, chrono_mode):
+        utils.validation.check_ctrl_mode(chrono_mode)
+        if hasattr(self, 'chrono_mode'):
+            if chrono_mode != self.chrono_mode:
                 self._recalc_chrono_fit_matrix = True
                 self._recalc_chrono_prediction_matrix = True
                 self._recalc_eis_fit_matrix = True
                 self._recalc_eis_prediction_matrix = True
-        self._op_mode = op_mode
+        self._chrono_mode = chrono_mode
 
-    op_mode = property(get_op_mode, set_op_mode)
+    chrono_mode = property(get_chrono_mode, set_chrono_mode)
 
-    def get_op_mode_predict(self):
-        return self._op_mode_predict
+    def get_chrono_mode_predict(self):
+        return self._chrono_mode_predict
 
-    def set_op_mode_predict(self, op_mode):
-        utils.validation.check_op_mode(op_mode)
-        if hasattr(self, 'op_mode'):
-            if op_mode != self.op_mode:
+    def set_chrono_mode_predict(self, chrono_mode):
+        utils.validation.check_ctrl_mode(chrono_mode)
+        if hasattr(self, 'chrono_mode'):
+            if chrono_mode != self.chrono_mode:
                 raise ValueError('Use of different operation modes for fitting and predicting is not supported')
                 # self._recalc_chrono_prediction_matrix = True
-        self._op_mode_predict = op_mode
+        self._chrono_mode_predict = chrono_mode
 
-    op_mode_predict = property(get_op_mode_predict, set_op_mode_predict)
+    op_mode_predict = property(get_chrono_mode_predict, set_chrono_mode_predict)
 
     def get_step_model(self):
         return self._step_model
@@ -961,9 +1048,9 @@ class DRTBase:
             if step_model != self.step_model:
                 self._recalc_chrono_fit_matrix = True
                 self._recalc_chrono_prediction_matrix = True
-        if hasattr(self, 'fit_inductance'):
-            if self.fit_inductance and step_model == 'ideal':
-                raise ValueError('step_model cannot be set to ideal when fit_inductance==True.')
+        # if hasattr(self, 'fit_inductance'):
+        #     if self.fit_inductance and step_model == 'ideal':
+        #         raise ValueError('step_model cannot be set to ideal when fit_inductance==True.')
         self._step_model = step_model
 
     step_model = property(get_step_model, set_step_model)

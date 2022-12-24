@@ -5,6 +5,7 @@ import numpy as np
 from hybdrt.utils.eis import polar_from_complex
 import calendar
 import time
+import re
 
 
 def get_file_source(file):
@@ -300,21 +301,109 @@ def read_eis(file, warn=True):
     return data
 
 
-def get_eis_data_tuple(df):
+def get_eis_tuple(df, min_freq=None, max_freq=None):
     """Convenience function - get frequency and Z from EIS DataFrame"""
-    freq = df['Freq'].values
-    z = df['Zreal'].values + 1j * df['Zimag'].values
+    freq = df['Freq'].values.copy()
+    z = df['Zreal'].values.copy() + 1j * df['Zimag'].values.copy()
+
+    if min_freq is not None:
+        index = freq >= min_freq
+        freq = freq[index]
+        z = z[index]
+
+    if max_freq is not None:
+        index = freq <= max_freq
+        freq = freq[index]
+        z = z[index]
 
     return freq, z
 
 
-def get_chrono_data_tuple(df):
+def get_chrono_tuple(df, start_time=None, end_time=None):
     if 'elapsed' in df.columns:
         time_col = 'elapsed'
     else:
         time_col = find_time_column(df)
-    times = df[time_col].values
-    i_signal = df['Im'].values
-    v_signal = df['Vf'].values
-    return (times, i_signal, v_signal)
+    times = df[time_col].values.copy()
+    i_signal = df['Im'].values.copy()
+    v_signal = df['Vf'].values.copy()
 
+    # Truncate to time range
+    if start_time is not None:
+        index = times >= start_time
+        times = times[index]
+        i_signal = i_signal[index]
+        v_signal = v_signal[index]
+
+    if end_time is not None:
+        index = times <= end_time
+        times = times[index]
+        i_signal = i_signal[index]
+        v_signal = v_signal[index]
+
+    return times, i_signal, v_signal
+
+
+def read_notes(file, parse=True):
+    with open(file) as f:
+        txt = f.read()
+
+    # Find start of notes block
+    notes_start = txt.find('NOTES')
+    notes_start += txt[notes_start:].find('\n') + 2
+
+    # Notes block is indented
+    regex = r"\n(?!\t)"
+    match = re.search(regex, txt[notes_start:])
+    notes = txt[notes_start:notes_start + match.start(0)]
+
+    # Parse into dict
+    if parse:
+        notes = {entry.split('\t')[0]: entry.split('\t')[1] for entry in notes.split('\n\t')}
+
+    return notes
+
+
+def read_curve(file):
+    """
+    Read generic CURVE data from Gamry DTA file
+    :param file:
+    :return:
+    """
+    try:
+        with open(file, 'r') as f:
+            txt = f.read()
+    except UnicodeDecodeError:
+        with open(file, 'r', encoding='latin1') as f:
+            txt = f.read()
+
+    # find start of curve data
+    cidx = txt.find('CURVE\tTABLE')
+
+    # preceding text
+    pretxt = txt[:cidx]
+
+    # curve data
+    ctable = txt[cidx:]
+
+    # column headers are next line after CURVE TABLE line
+    header_start = ctable.find('\n') + 1
+    header_end = header_start + ctable[header_start:].find('\n')
+    header = ctable[header_start:header_end].split('\t')
+
+    # # units are next line after column headers
+    # unit_end = header_end + 1 + ctable[header_end + 1:].find('\n')
+    # units = ctable[header_end + 1:unit_end].split('\t')
+
+    # determine # of rows to skip by counting line breaks in preceding text
+    skiprows = len(pretxt.split('\n')) + 2
+
+    # if table is indented, ignore empty left column
+    if header[0] == '':
+        usecols = header[1:]
+    else:
+        usecols = header
+    # read data to DataFrame
+    data = pd.read_csv(file, sep='\t', skiprows=skiprows, header=None, names=header, usecols=usecols)
+
+    return data

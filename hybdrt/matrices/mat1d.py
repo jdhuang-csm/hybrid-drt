@@ -16,14 +16,14 @@ def get_response_derivative_func(basis_type, op_mode, step_model):
     Get integrand function for derivative of response with respect to ln(t)
     Only used when dv_prior=True for ridge_fit. OBSOLETE
     :param str basis_type: type of basis function. Options: 'gaussian', 'Cole-Cole', 'Zic'
-    :param str op_mode: Operation mode ('galvanostatic' or 'potentiostatic')
+    :param str op_mode: Operation mode ('galv' or 'pot')
     :param str step_model: model for signal step to use. Options: 'ideal', 'expdecay'
     :return: integrand function
     """
-    utils.validation.check_op_mode(op_mode)
+    utils.validation.check_ctrl_mode(op_mode)
     f_basis = basis.get_basis_func(basis_type)
 
-    if op_mode == 'galvanostatic':
+    if op_mode == 'galv':
         if step_model == 'ideal':
             raise ValueError('Need to derive integrand function for ideal step')
             # def func(y, tau_m, t_n, epsilon, tau_rise):
@@ -44,7 +44,7 @@ def get_response_derivative_func(basis_type, op_mode, step_model):
 # -------------------
 def construct_response_matrix(basis_tau, times, step_model, step_times, step_sizes, basis_type='gaussian',
                               epsilon=0.975,
-                              tau_rise=None, op_mode='galvanostatic', integrate_method='trapz', integrate_points=1000,
+                              tau_rise=None, op_mode='galv', integrate_method='trapz', integrate_points=1000,
                               zga_params=None, interpolate_grids=None):
     """
     Construct matrix for time response calculation
@@ -56,17 +56,17 @@ def construct_response_matrix(basis_tau, times, step_model, step_times, step_siz
     :param basis_type:
     :param epsilon:
     :param tau_rise:
-    :param str op_mode: Operation mode ('galvanostatic' or 'potentiostatic')
+    :param str op_mode: Operation mode ('galv' or 'pot')
     :param str integrate_method: method for numerical evaluation of integrals. Options: 'trapz', 'quad'
     :param integrate_points:
     :return: matrix A, such that A@x gives the response
     """
     utils.validation.check_step_model(step_model)
-    utils.validation.check_op_mode(op_mode)
+    utils.validation.check_ctrl_mode(op_mode)
     utils.validation.check_basis_type(basis_type)
 
     # if derivative:
-    #     if not (op_mode == 'galvanostatic' and basis_type == 'gaussian'):
+    #     if not (chrono_mode == 'galv' and basis_type == 'gaussian'):
     #         raise ValueError('Time derivative function only available for galvanostatic mode and gaussian basis')
 
     A_layered = np.zeros([len(step_times), len(times), len(basis_tau)])
@@ -88,58 +88,63 @@ def construct_response_matrix(basis_tau, times, step_model, step_times, step_siz
 
     # Get response function
     # if derivative:
-    #     func = get_response_derivative_func(basis_type, op_mode, step_model)
+    #     func = get_response_derivative_func(basis_type, chrono_mode, step_model)
     if integrate_method == 'interp':
         if interpolate_grids is None:
             raise ValueError("interpolate_grids must be provided for integrate_method 'interp'")
         log_td_grid, response_grid = interpolate_grids
         func = None
     else:
+        log_td_grid, response_grid = None, None
         func = basis.get_response_func(basis_type, op_mode, step_model, zga_params)
 
     for k in range(len(step_times)):
         st = step_times[k]
         sa = step_sizes[k]
-        if op_mode == 'galvanostatic':
-            if basis_type == 'gaussian':
-                # all times before step are unaffected
-                # calculate integrals for times after step
-                # TODO: implement threshold on integral. Once (tn - st) / tau_m exceeds threshold, relaxation
-                #  can be assumed to be complete, so the value can be set to the final value (1) without performing the
-                #  integral
-                if integrate_method == 'trapz':
-                    y = np.linspace(-20, 20, integrate_points)
-                    A_layered[k, times > st] = [
-                        [np.trapz(func(y, tau_m, t_n - st, epsilon, tau_rise[k]), x=y) * sa for tau_m in basis_tau]
-                        for t_n in times[times > st]
-                    ]
-                elif integrate_method == 'quad':
-                    A_layered[k, times > st] = [
-                        [quad(func, -20, 20, args=(tau_m, t_n, epsilon, tau_rise[k]), epsabs=1e-4)[0] * sa
-                         for tau_m in basis_tau]
-                        for t_n in times[times > st]
-                    ]
-                elif integrate_method == 'interp':
-                    A_layered[k, times > st] = [
-                        [np.interp(np.log((t_n - st) / basis_tau), log_td_grid, response_grid) * sa
-                         for t_n in times[times > st]]
-                    ]
-            elif basis_type in ('Cole-Cole', 'zga'):
-                # Special case - analytical solution available
-                if step_model != 'ideal':
-                    raise ValueError('Non-ideal step_type not supported for Cole-Cole basis function')
-                # All times before step are unaffected
-                tau_mesh, t_mesh = np.meshgrid(basis_tau, times[times > st])
-                # Don't allow true zeros in t_delta - violates domain of ML approximation
-                # Set to very small values instead
-                # t_delta_mesh = np.maximum(t_mesh - st, 1e-10)
-                A_layered[k, times > st, :] = sa * func(tau_mesh, t_mesh - st, epsilon, ml_func)
+        # Only perform calculation if times exist after step time
+        if np.sum(times > st) > 0:
+            if op_mode == 'galv':
+                if basis_type in ('Cole-Cole', 'zga'):
+                    # Special case - analytical solution available
+                    if step_model != 'ideal':
+                        raise ValueError('Non-ideal step_type not supported for Cole-Cole basis function')
+                    # All times before step are unaffected
+                    tau_mesh, t_mesh = np.meshgrid(basis_tau, times[times > st])
+                    # Don't allow true zeros in t_delta - violates domain of ML approximation
+                    # Set to very small values instead
+                    # t_delta_mesh = np.maximum(t_mesh - st, 1e-10)
+                    A_layered[k, times > st, :] = sa * func(tau_mesh, t_mesh - st, epsilon, ml_func)
+                elif basis_type == 'delta':
+                    if step_model != 'ideal':
+                        raise ValueError('Non-ideal step_type not supported for delta basis function')
+                    tau_mesh, t_mesh = np.meshgrid(basis_tau, times[times > st])
+                    A_layered[k, times > st, :] = sa * func(tau_mesh, t_mesh - st)
+                else:
+                    # all times before step are unaffected
+                    # calculate integrals for times after step
+                    if integrate_method == 'trapz':
+                        y = np.linspace(-20, 20, integrate_points)
+                        A_layered[k, times > st] = [
+                            [np.trapz(func(y, tau_m, t_n - st, epsilon, tau_rise[k]), x=y) * sa for tau_m in basis_tau]
+                            for t_n in times[times > st]
+                        ]
+                    elif integrate_method == 'quad':
+                        A_layered[k, times > st] = [
+                            [quad(func, -20, 20, args=(tau_m, t_n, epsilon, tau_rise[k]), epsabs=1e-4)[0] * sa
+                             for tau_m in basis_tau]
+                            for t_n in times[times > st]
+                        ]
+                    elif integrate_method == 'interp':
+                        A_layered[k, times > st] = [
+                            [np.interp(np.log((t_n - st) / basis_tau), log_td_grid, response_grid) * sa
+                             for t_n in times[times > st]]
+                        ]
 
-        elif op_mode == 'potentiostatic':
-            # Basis function is delta function
-            mtau, mtimes = np.meshgrid(basis_tau, times)
-            A_layered[k] = np.exp(-(mtimes - st) / mtau) * utils.array.unit_step(mtimes, st) * sa
-            A_layered[k] = np.nan_to_num(A_layered[k], nan=0)
+            elif op_mode == 'pot':
+                # Basis function is delta function
+                mtau, mtimes = np.meshgrid(basis_tau, times)
+                A_layered[k] = np.exp(-(mtimes - st) / mtau) * utils.array.unit_step(mtimes, st) * sa
+                A_layered[k] = np.nan_to_num(A_layered[k], nan=0)
 
     A = np.sum(A_layered, axis=0)
 
@@ -232,6 +237,11 @@ def construct_integrated_derivative_matrix(basis_grid, basis_type='gaussian', or
             M = np.empty((len(basis_grid), len(basis_grid)))
             for n, x_n in enumerate(basis_grid):
                 M[n, :] = [func(x_n, x_m, epsilon) for x_m in basis_grid]
+    elif basis_type == 'delta':
+        if order == 0:
+            M = np.eye(len(basis_grid))
+        else:
+            raise ValueError('Derivatives of delta function are undefined')
     else:
         # Get discrete evaluation matrix (em @ x = vector of function values)
         em = basis.construct_func_eval_matrix(basis_grid, None, basis_type, epsilon, order, zga_params)
@@ -344,7 +354,7 @@ def construct_impedance_matrix(frequencies, part, tau=None, basis_type='gaussian
         # get function to integrate
         func = basis.get_impedance_func(part, basis_type, zga_params)
 
-    if basis_type in ('Cole-Cole', 'zga'):
+    if basis_type in ('Cole-Cole', 'zga', 'delta'):
         # Special case - analytical expression available
         if is_toeplitz:
             # only need to calculate 1st row and column
@@ -411,37 +421,63 @@ def construct_impedance_matrix(frequencies, part, tau=None, basis_type='gaussian
     return A
 
 
-def construct_phasor_z_matrix(frequencies, basis_nu):
-    omega = 2 * np.pi * frequencies
-    ww, nn = np.meshgrid(omega, basis_nu)
-    return basis.unit_phasor_impedance(ww, nn)
+# ===============
+# Phasors
+# ===============
+def construct_phasor_z_matrix(frequencies, basis_nu, nu_basis_type):
+    if nu_basis_type == 'delta':
+        omega = 2 * np.pi * frequencies
+        nn, ww = np.meshgrid(basis_nu, omega)
+        return basis.unit_phasor_impedance(ww, nn)
+    else:
+        raise ValueError('DOP is only implemented for delta basis function')
 
 
-def construct_phasor_v_matrix(times, basis_nu, step_model, step_times, step_sizes, op_mode='galvanostatic'):
-    if step_model != 'ideal':
-        raise ValueError('phasor response is only implemented for ideal current steps')
+def construct_phasor_v_matrix(times, basis_nu, nu_basis_type, step_model, step_times, step_sizes, op_mode='galv'):
+    if nu_basis_type == 'delta':
+        if step_model != 'ideal':
+            raise ValueError('phasor response is only implemented for ideal current steps')
 
-    A_layered = np.zeros((len(step_times), len(times), len(basis_nu)))
+        rm_layered = np.zeros((len(step_times), len(times), len(basis_nu)))
 
-    for k in range(len(step_times)):
-        st = step_times[k]
-        sa = step_sizes[k]
-        if op_mode == 'galvanostatic':
-            tt, nn = np.meshgrid(times[times > st], basis_nu)
-            A_layered[k, times > st] = sa * basis.unit_phasor_response(tt, nn)
-        else:
-            raise ValueError('phasor response is only implemented for galvanostatic mode')
+        for k in range(len(step_times)):
+            st = step_times[k]
+            sa = step_sizes[k]
+            if op_mode == 'galv':
+                nn, tt = np.meshgrid(basis_nu, times[times > st] - st)
+                rm_layered[k, times > st] = sa * basis.unit_phasor_voltage(tt, nn)
+            else:
+                raise ValueError('phasor response is only implemented for galvanostatic mode')
 
-    A = np.sum(A_layered, axis=0)
+        rm = np.sum(rm_layered, axis=0)
 
-    return A, A_layered
+        return rm, rm_layered
+    else:
+        raise ValueError('DOP is only implemented for delta basis function')
+
+
+def phasor_scale_vector(nu, basis_tau, nu_basis_type):
+    """
+    Get vector for scaling phasor coefficients
+    :param nu_basis_type:
+    :param nu:
+    :param basis_tau:
+    :return:
+    """
+    freq = 1 / (2 * np.pi * basis_tau)
+
+    zm = construct_phasor_z_matrix(freq, nu, nu_basis_type)
+
+    scale_vector = 1 / np.max(np.abs(zm), axis=0)
+
+    return scale_vector
 
 
 # inductance response vector
 def construct_inductance_response_vector(times, step_model, step_times, step_sizes, tau_rise,
-                                         op_mode='galvanostatic'):
+                                         op_mode='galv'):
     utils.validation.check_step_model(step_model)
-    utils.validation.check_op_mode(op_mode)
+    utils.validation.check_ctrl_mode(op_mode)
 
     # if step_model != 'expdecay':
     #     raise ValueError(f'Inductance response not supported for step_model {step_model}')
@@ -454,7 +490,7 @@ def construct_inductance_response_vector(times, step_model, step_times, step_siz
             st = step_times[k]
             sa = step_sizes[k]
             tr = tau_rise[k]
-            if op_mode == 'galvanostatic':
+            if op_mode == 'galv':
                 irv[times >= st] += (sa / tr) * np.exp(-(times[times >= st] - st) / tr)
             else:
                 raise ValueError('Inductance response vector not implemented for potentiostatic mode')
@@ -463,9 +499,9 @@ def construct_inductance_response_vector(times, step_model, step_times, step_siz
 
 
 def construct_inf_response_vector(times, step_model, step_times, step_sizes, tau_rise, input_signal, smooth,
-                                  op_mode='galvanostatic'):
+                                  op_mode='galv'):
     utils.validation.check_step_model(step_model)
-    utils.validation.check_op_mode(op_mode)
+    utils.validation.check_ctrl_mode(op_mode)
 
     # print('unprocessed input_signal:', input_signal)
     if smooth:
@@ -479,7 +515,7 @@ def construct_inf_response_vector(times, step_model, step_times, step_sizes, tau
         input_signal = input_signal - np.mean(prestep_signal)
     # print('processed input_signal:', input_signal)
 
-    if op_mode == 'galvanostatic':
+    if op_mode == 'galv':
         rv = input_signal
     else:
         raise ValueError('Inf response vector not implemented for potentiostatic mode')
@@ -507,8 +543,10 @@ def construct_chrono_var_matrix(times, step_times, vmm_epsilon, error_structure=
 
         # vmm = construct_func_eval_matrix(tt, epsilon=vmm_epsilon, order=0)
 
+        # by time
+        vmm = basis.construct_func_eval_matrix(times, epsilon=vmm_epsilon, order=0)
         # By index
-        vmm = basis.construct_func_eval_matrix(np.arange(len(times)), epsilon=vmm_epsilon, order=0)
+        # vmm = basis.construct_func_eval_matrix(np.arange(len(times)), epsilon=vmm_epsilon, order=0)
     elif error_structure == 'uniform':
         # Uniform errors
         vmm = np.ones((len(times), len(times)))

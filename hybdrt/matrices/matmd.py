@@ -153,7 +153,7 @@ def construct_md_inf_impedance_matrix(frequency_list):
 # Chronopotentiometry matrices
 # ====================================
 def construct_md_response_matrix(data_list, step_info_list, step_model, basis_tau,
-                                 basis_type, epsilon, special_parameters, op_mode='galvanostatic',
+                                 basis_type, epsilon, special_parameters, op_mode='galv',
                                  integrate_method='trapz', integrate_points=1000, zga_params=None,
                                  interpolate_grids=None, smooth_inf_response=True):
     num_obs = len(data_list)
@@ -177,7 +177,7 @@ def construct_md_response_matrix(data_list, step_info_list, step_model, basis_ta
             times, i_signal, v_signal = data
             step_times, step_sizes, tau_rise = step_info_list[i]
 
-            # Determine input and response from op_mode
+            # Determine input and response from chrono_mode
             input_signal, response_signal = utils.chrono.get_input_and_response(i_signal, v_signal, op_mode)
 
             # Calculate and insert DRT response matrix for observation i
@@ -211,7 +211,7 @@ def construct_md_response_matrix(data_list, step_info_list, step_model, basis_ta
 
 
 def construct_md_inductance_response_matrix(time_list, step_time_list, step_size_list, tau_rise_list, step_model,
-                                            op_mode='galvanostatic'):
+                                            op_mode='galv'):
     # Shouldn't need this anymore
     num_obs = len(time_list)
 
@@ -235,7 +235,7 @@ def construct_md_inductance_response_matrix(time_list, step_time_list, step_size
 
 
 def construct_md_inf_response_matrix(time_list, input_signal_list, step_time_list, step_size_list, tau_rise_list,
-                                     step_model, smooth, op_mode='galvanostatic'):
+                                     step_model, smooth, op_mode='galv'):
     # Shouldn't need this anymore
     num_obs = len(time_list)
 

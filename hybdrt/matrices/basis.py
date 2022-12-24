@@ -2,6 +2,7 @@ import cvxopt
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.special import erf, gamma
+from mitlef.pade_approx import create_approx_func
 
 from .. import utils
 
@@ -110,11 +111,51 @@ def get_basis_func(basis_type, zga_params=None):
         def phi(y, epsilon=None):
             """epsilon is ignored - included only for compatibility"""
             return utils.array.unit_step(y)
+    elif basis_type == 'delta':
+        def phi(y, epsilon):
+            if np.isscalar(y):
+                if y == 0:
+                    return 1
+                else:
+                    return 0
+            else:
+                out = np.zeros_like(y, dtype=np.float_)
+                out[y == 0] = 1
+                return out
     elif basis_type == 'Zic':
         def phi(y, epsilon=None):
             """epsilon is ignored - included only for compatibility"""
             return 2 * np.exp(y) / (1 + np.exp(2 * y))
-    elif basis_type == 'pw_linear':
+    elif basis_type == 'ramp':
+        # Ramp with constant slope starting at zero
+        def phi(y, epsilon):
+            # epsilon is slope
+            if np.shape(y) == ():
+                if y > 0:
+                    out = y * epsilon
+                else:
+                    out = 0
+            else:
+                out = np.zeros(y.shape)
+                out[y > 0] = y * epsilon
+            return out
+    elif basis_type == 'bounded_ramp':
+        # ramp from zero to one with width epsilon
+        def phi(y, epsilon):
+            width = 1 / epsilon
+            if np.shape(y) == ():
+                if y <= 0:
+                    out = 0
+                elif 0 < y < width:
+                    out = y * epsilon
+                else:
+                    out = 1
+            else:
+                out = np.zeros(y.shape)
+                out[(y > 0) & (y < width)] = y * epsilon
+                out[y >= width] = 1
+            return out
+    elif basis_type == 'pwl':
         # Piecewise linear
         def phi(y, epsilon):
             half_width = 1 / epsilon
@@ -159,6 +200,8 @@ def get_basis_func_derivative(basis_type, order, zga_params=None):
     """
     utils.validation.check_basis_type(basis_type)
 
+    func = None
+
     if order == 0:
         func = get_basis_func(basis_type, zga_params)
     elif basis_type == 'gaussian':
@@ -200,7 +243,7 @@ def get_basis_func_derivative(basis_type, order, zga_params=None):
             # epsilon ignored - included for compatibility only
             f_out = np.array([x_i * f_zarc(y + y_i, eps_zga) for x_i, y_i in zip(coef[1:], y_basis)])
             return np.sum(f_out, axis=0)
-    elif basis_type == 'pw_linear':
+    elif basis_type == 'pwl':
         # Not differentiable - use discrete differences
         phi = get_basis_func(basis_type)
 
@@ -215,7 +258,12 @@ def get_basis_func_derivative(basis_type, order, zga_params=None):
             def func(y, epsilon):
                 def dfdy(y, epsilon):
                     return discrete_diff(phi, y, epsilon)
+
                 return discrete_diff(dfdy, y, epsilon)
+
+    # CHeck if function defined
+    if func is None:
+        raise ValueError(f'Derivative of order {order} not implemented for basis type {basis_type}')
 
     return func
 
@@ -232,6 +280,9 @@ def get_basis_func_integral(basis_type, zga_params=None):
     if basis_type == 'gaussian':
         def phi(y, epsilon):
             return (np.pi ** 0.5 / (2 * epsilon)) * (1 + erf(epsilon * y))
+    elif basis_type == 'delta':
+        def phi(y, epsilon):
+            return utils.array.unit_step(y)
     else:
         # TODO: integrals for other basis types
         raise ValueError(f'Basis func integral not yet implemented for basis_type {basis_type}')
@@ -251,12 +302,12 @@ def get_basis_func_area(basis_type, epsilon, zga_params=None):
 
     if basis_type == 'gaussian':
         area = np.sqrt(np.pi) / epsilon
-    elif basis_type == 'Cole-Cole':
+    elif basis_type in ('Cole-Cole', 'delta'):
         area = 1
     elif basis_type == 'zga':
         # ZGA consists of N Cole-Cole elements. Area is simply number of elements
         area = len(zga_params[0])
-    elif basis_type == 'pw_linear':
+    elif basis_type == 'pwl':
         area = 1 / epsilon
     else:
         raise ValueError(f'Area undefined for basis_type {basis_type}')
@@ -360,8 +411,10 @@ def get_impedance_func(part, basis_type='gaussian', zga_params=None):
     basis : string, optional (default: 'gaussian')
         basis function
     """
+    # TODO: would be more efficient to return a complex function and then just get real and imag parts from result
     utils.validation.check_basis_type(basis_type)
 
+    func = None
     if basis_type == 'Cole-Cole':
         # Special case - analytical expression available
         if part == 'real':
@@ -370,6 +423,15 @@ def get_impedance_func(part, basis_type='gaussian', zga_params=None):
         elif part == 'imag':
             def func(w_n, t_m, epsilon):
                 return np.imag(1 / (1 + (1j * w_n * t_m) ** epsilon))
+    elif basis_type == 'delta':
+        # Special case (RC) - analytical expression available
+        # Include epsilon for compatibility only
+        if part == 'real':
+            def func(w_n, t_m, epsilon):
+                return 1 / (1 + (w_n * t_m) ** 2)
+        else:
+            def func(w_n, t_m, epsilon):
+                return -1j * w_n * t_m / (1 + (w_n * t_m) ** 2)
     elif basis_type == 'zga':
         # ZARC Gaussian approximation
         # Special case - analytical expression available
@@ -387,10 +449,10 @@ def get_impedance_func(part, basis_type='gaussian', zga_params=None):
 
         # y = ln (tau/tau_m)
         if part == 'real':
-            def func(y, w_n, t_m, epsilon=1):
+            def func(y, w_n, t_m, epsilon):
                 return basis_func(y, epsilon) / (1 + np.exp(2 * (y + np.log(w_n * t_m))))
         elif part == 'imag':
-            def func(y, w_n, t_m, epsilon=1):
+            def func(y, w_n, t_m, epsilon):
                 return -basis_func(y, epsilon) * np.exp(y) * w_n * t_m / (1 + np.exp(2 * (y + np.log(w_n * t_m))))
         else:
             raise ValueError(f'Invalid part {part}. Options: real, imag')
@@ -402,41 +464,65 @@ def get_response_func(basis_type, op_mode, step_model, zga_params=None):
     """
     Get integrand function for A matrix
     :param str basis_type: type of basis function. Options: 'gaussian', 'Cole-Cole', 'Zic'
-    :param str op_mode: Operation mode ('galvanostatic' or 'potentiostatic')
+    :param str op_mode: Operation mode ('galv' or 'pot')
     :param str step_model: model for signal step to use. Options: 'ideal', 'expdecay'
     :return: integrand function
     """
-    utils.validation.check_op_mode(op_mode)
+    utils.validation.check_ctrl_mode(op_mode)
     utils.validation.check_step_model(step_model)
     f_basis = get_basis_func(basis_type, zga_params)
 
-    if op_mode == 'galvanostatic':
-        if basis_type == 'Cole-Cole' and step_model == 'ideal':
-            # Special case - analytical expression available
-            def func(tau_m, t_n, epsilon, ml_func):
-                return (t_n / tau_m) ** epsilon * ml_func(-(t_n / tau_m) ** epsilon)
-        elif basis_type == 'zga' and step_model == 'ideal':
-            # Special case - analytical expression available
-            y_basis, coef, eps_zga = zga_params
-            f_zarc = get_response_func('Cole-Cole', op_mode, step_model)
+    func = None
+    if op_mode == 'galv':
+        if step_model == 'ideal':
+            if basis_type == 'Cole-Cole':
+                # Special case - analytical expression available
+                def func(tau_m, t_n, epsilon, ml_func):
+                    if ml_func is None:
+                        ml_func = create_approx_func(epsilon, epsilon + 1)
+                    return (t_n / tau_m) ** epsilon * ml_func(-(t_n / tau_m) ** epsilon)
+            elif basis_type == 'delta':
+                # Special case (RC) - analytical expression available
+                def func(tau_m, t_n):
+                    return 1 - np.exp(-t_n / tau_m)
+            elif basis_type == 'zga':
+                # Special case - analytical expression available
+                y_basis, coef, eps_zga = zga_params
+                f_zarc = get_response_func('Cole-Cole', op_mode, step_model)
 
-            def func(tau_m, t_n, epsilon, ml_func):
-                # Sum responses of all ZARCs used to approximate Gaussian RBF
-                # epsilon ignored - included for compatibility only
-                f_out = np.array(
-                    [x_i * f_zarc(tau_m * np.exp(y_i), t_n, eps_zga, ml_func) for x_i, y_i in zip(coef[1:], y_basis)]
-                )
-                return np.sum(f_out, axis=0)
-        elif step_model == 'ideal':
-            def func(y, tau_m, t_n, epsilon, tau_rise):
-                # tau_rise unused - included for compatibility only
-                return f_basis(y, epsilon) * (1 - np.exp(-t_n / (tau_m * np.exp(y))))
+                def func(tau_m, t_n, epsilon, ml_func):
+                    # Sum responses of all ZARCs used to approximate Gaussian RBF
+                    # epsilon ignored - included for compatibility only
+                    f_out = np.array(
+                        [x_i * f_zarc(tau_m * np.exp(y_i), t_n, eps_zga, ml_func) for x_i, y_i in zip(coef[1:], y_basis)]
+                    )
+                    return np.sum(f_out, axis=0)
+            else:
+                def func(y, tau_m, t_n, epsilon, tau_rise):
+                    # tau_rise unused - included for compatibility only
+                    return f_basis(y, epsilon) * (1 - np.exp(-t_n / (tau_m * np.exp(y))))
         elif step_model == 'expdecay':
-            def func(y, tau_m, t_n, epsilon, tau_rise):
-                a = 1 / (1 - np.exp(y) * tau_m / tau_rise)
-                return f_basis(y, epsilon) * (
-                        1 + a * np.exp(-t_n / tau_rise) - (1 + a) * np.exp(-t_n / (tau_m * np.exp(y)))
-                )
+            if basis_type == 'delta':
+                def func(tau_m, t_n, tau_rise):
+                    return (
+                            1 - np.exp(-t_n / tau_m)
+                            + (tau_rise / (tau_rise - tau_m)) * (
+                                    np.exp(-t_n / tau_m) - np.exp(-t_n / tau_rise)
+                            )
+                    )
+            else:
+                def func(y, tau_m, t_n, epsilon, tau_rise):
+                    # a = 1 / (1 - np.exp(y) * tau_m / tau_rise)
+                    # return f_basis(y, epsilon) * (
+                    #         1 + a * np.exp(-t_n / tau_rise) - (1 + a) * np.exp(-t_n / (tau_m * np.exp(y)))
+                    # )
+                    tau = np.exp(y) * tau_m
+                    return f_basis(y, epsilon) * (
+                            1 - np.exp(-t_n / tau)
+                            + (tau_rise / (tau_rise - tau)) * (
+                                np.exp(-t_n / tau) - np.exp(-t_n / tau_rise)
+                            )
+                    )
 
     return func
 
@@ -448,8 +534,8 @@ def unit_phasor_impedance(omega, nu):
     return (1j * omega) ** nu
 
 
-def unit_phasor_response(t, nu):
-    t ** nu / gamma(nu + 1)
+def unit_phasor_voltage(t, nu):
+    return t ** -nu / gamma(-nu + 1)
 
 
 # ---------------------------------------------
@@ -496,5 +582,4 @@ def generate_response_lookup(basis_type, op_mode, step_model, epsilon, grid_poin
 
     response_grid = np.array([np.trapz(response_func(y, 1, td, epsilon, tau_rise), x=y) for td in td_grid])
 
-    return (np.log(td_grid), response_grid)
-
+    return np.log(td_grid), response_grid
