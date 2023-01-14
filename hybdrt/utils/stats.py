@@ -114,7 +114,7 @@ def bic(k, n, llh):
 def bayes_factor(c1, c2, criterion='bic'):
     if criterion == 'bic':
         return np.exp(-0.5 * (c1 - c2))
-    elif criterion == 'lml':
+    elif criterion in ('lml', 'lml-bic'):
         return np.exp(c1 - c2)
     else:
         raise ValueError(f'Invalid criterion {criterion}')
@@ -124,7 +124,7 @@ def norm_bayes_factors(crit_values, criterion='bic'):
     if criterion == 'bic':
         best_value = np.min(crit_values)
         return np.exp(-0.5 * (crit_values - best_value))
-    elif criterion == 'lml':
+    elif criterion in ('lml', 'lml-bic'):
         best_value = np.max(crit_values)
         return np.exp(crit_values - best_value)
     else:
