@@ -6,6 +6,6 @@
 * Autonomous discrete model generation, comparison, and selection
 * Methods for scoring the accuracy of DRT estimates using regression, classification, and hybrid metrics
 
-New functionality will be added soon.
+Tutorials and new functionality will be added soon.
 
-*Disclaimer:* `hybrid-drt` is experimental and under active development. The code is provided to demonstrate several conceptual approaches to electrochemical analysis, but the details of the implementation are likely to change in the future.
+*Disclaimer:* `hybrid-drt` is experimental and under active development. The code is provided to demonstrate several conceptual approaches to electrochemical analysis, but the details of the implementation may change in the future.
