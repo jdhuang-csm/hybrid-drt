@@ -184,10 +184,20 @@ class DiscreteElementModel:
         # Get full list of initial values
         init_params = np.array(offset_params + sum(drt_params, []))
 
-        # Set bounds based on estimated values
+        # Get parameter bounds
+        element_names, element_types, param_types, param_names, param_bounds, param_indices = \
+            parse_model_string(model_string)
+
+        # Check for negative resistances and invert bounds
+        for i in range(len(param_names)):
+            if param_types[i] == 'R' and init_params[i] < 0:
+                lb, ub = param_bounds[i]
+                param_bounds[i] = (-ub, -lb)
+
         if set_bounds:
-            element_names, element_types, param_types, param_names, param_bounds, param_indices = parse_model_string(
-                model_string)
+            # Set bounds based on estimated values
+            # element_names, element_types, param_types, param_names, param_bounds, param_indices = parse_model_string(
+            #     model_string)
             new_bounds = param_bounds.copy()  # Default bounds
             # for i in range(len(element_names)):
             #     # param_types, _ = element_parameters(element_types[i])
@@ -215,18 +225,29 @@ class DiscreteElementModel:
                 # Otherwise, keep default bounds
                 limits = parameter_limits.get(param_types[i], None)
                 init_value = init_params[i]
+
                 if limits is not None and not np.isnan(init_value):
                     # Get default bounds. Don't allow new bounds to exceed default bounds
                     lb, ub = new_bounds[i]
                     if limits[0] == 'add':
                         new_bounds[i] = (max(lb, init_value + limits[1]), min(ub, init_value + limits[2]))
                     elif limits[0] == 'multiply':
-                        new_bounds[i] = (max(lb, init_value * limits[1]), min(ub, init_value * limits[2]))
+                        # Handle negative values
+                        if init_value < 0:
+                            nlb = init_value * limits[2]
+                            nub = init_value * limits[1]
+                        else:
+                            nlb = init_value * limits[1]
+                            nub = init_value * limits[2]
+                        new_bounds[i] = (max(lb, nlb), min(ub, nub))
                     else:
                         raise ValueError(f'Invalid limit type {limits[0]} for parameter type {param_types[i]}')
 
             # print('new bounds:', new_bounds)
             model.set_bounds(new_bounds)
+        else:
+            # Set to default bounds based on allowed values for param type
+            model.set_bounds(param_bounds)
 
         # Estimate weights
         # eis_sigma = drt.predict_sigma('eis')
@@ -736,6 +757,9 @@ class DiscreteElementModel:
                     def jac(x):
                         return weight_matrix @ f_jac(freq, *x)
 
+        # print('x0', x0)
+        # print('bounds', self.scaled_bounds)
+
         if fit_unbounded:
             if method is None:
                 method = 'lm'
@@ -973,7 +997,8 @@ class DiscreteElementModel:
     # ---------------------------
     # Plotting
     # ---------------------------
-    def plot_distribution(self, tau, x=None, ax=None, area=None, scale_prefix=None, mark_peaks=False,
+    def plot_distribution(self, tau, x=None, ax=None, area=None, scale_prefix=None,
+                          mark_peaks=False, limit_peak_heights=True,
                           mark_peaks_kw=None, normalize=False, show_singularities=True, singularity_scale=None,
                           return_line=False, y_offset=0, **kw):
 
@@ -1016,9 +1041,34 @@ class DiscreteElementModel:
             if mark_peaks_kw is None:
                 mark_peaks_kw = {}
 
+            # Get exact peak positions and heights
             peak_tau = self.get_time_constants()  # self.get_peak_tau(tau, find_peaks_kw={'prominence': 0})
-            peak_gamma = self.predict_distribution(peak_tau, x=x) + y_offset
-            ax.scatter(peak_tau, peak_gamma / scale_factor, **mark_peaks_kw)
+            # Evaluate just to the left of the peak to avoid infinite values in case of singularities
+            peak_gamma = self.predict_distribution(peak_tau * (1 - 1e-5), x=x)
+
+            if limit_peak_heights:
+                # Select tau locations from provided tau. Use height at selected location to mark peak
+                def get_peak_plot_tau(pt, pg):
+                    t1 = tau[utils.array.nearest_index(tau, pt, constraint=-1)]
+                    t2 = tau[utils.array.nearest_index(tau, pt, constraint=1)]
+                    g1 = self.predict_distribution(t1, x=x)
+                    g2 = self.predict_distribution(t2, x=x)
+                    if abs(pg - g1) < abs(pg - g2):
+                        return t1
+                    else:
+                        return t2
+
+                plot_peak_tau = np.array(
+                    [get_peak_plot_tau(pt, pg) for pt, pg in zip(peak_tau, peak_gamma)]
+                )
+                plot_peak_gamma = self.predict_distribution(plot_peak_tau, x=x)
+            else:
+                # Use the exact location and height to mark peaks
+                # May yield undesirable results for peaks with dispersion parameter (beta) close to 1
+                plot_peak_tau = peak_tau
+                plot_peak_gamma = peak_gamma
+
+            ax.scatter(plot_peak_tau, (plot_peak_gamma + y_offset) / scale_factor, **mark_peaks_kw)
 
         fig = ax.get_figure()
         fig.tight_layout()
@@ -1043,7 +1093,7 @@ class DiscreteElementModel:
 
     def plot_element_distributions(self, tau, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
                                    show_singularities=True, singularity_scale=None, return_lines=False,
-                                   y_offset=0, kw_list=None, **common_kw):
+                                   y_offset=0, kw_list=None, mark_peaks=False, mark_peaks_kw=None, **common_kw):
         plot_elements = [el_name for el_name, el_type in zip(self.element_names, self.element_types)
                          if element_has_distribution(el_type)]
 
@@ -1071,6 +1121,7 @@ class DiscreteElementModel:
         # Get common scale factor
         if scale_prefix is None:
             scale_prefix = utils.scale.get_common_scale_prefix(el_gammas)
+        scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
 
         # # Update the scale factor for area and/or R_p
         # if area is not None:
@@ -1089,12 +1140,12 @@ class DiscreteElementModel:
 
             el_gamma = el_gammas[i]
 
-            ax, info = plot_distribution(tau, el_gamma + y_offset, ax, area, scale_prefix, normalize_by, return_info=True,
-                                         **kw_list[i], **common_kw)
+            ax, info = plot_distribution(tau, el_gamma + y_offset, ax, area, scale_prefix, normalize_by,
+                                         return_info=True, **kw_list[i], **common_kw)
             line, _, _ = info
             lines.append(line)
 
-            if el_is_singular:
+            if el_is_singular and show_singularities:
                 # Format array for vertical line
                 r_sing, tau_sing = sing_info
 
@@ -1107,7 +1158,29 @@ class DiscreteElementModel:
                 if kw_list[i].get('c', kw_list[i].get('color', None)) is None:
                     kw_list[i]['color'] = line[0].get_color()
 
-                plot_distribution(sing_tau, sing_gamma + y_offset, ax, area, scale_prefix, normalize_by, **kw_list[i], **common_kw)
+                plot_distribution(sing_tau, sing_gamma + y_offset, ax, area, scale_prefix, normalize_by, **kw_list[i],
+                                  **common_kw)
+
+            # Mark peaks
+            if mark_peaks:
+                peak_index = np.argmax(np.abs(el_gamma))
+                peak_tau = tau[peak_index]
+                peak_gamma = el_gamma[peak_index]
+                # Get correct scaling factor
+                if area is not None:
+                    factor = area / scale_factor
+                else:
+                    factor = 1 / scale_factor
+                # Get kwargs
+                if mark_peaks_kw is None:
+                    mark_peaks_kw_i = dict(alpha=0.6, s=20)
+                    # If color provided in kw_list, use that color
+                    color = kw_list[i].get('c', kw_list[i].get('color', None))
+                    if color is not None:
+                        mark_peaks_kw_i['color'] = color
+                else:
+                    mark_peaks_kw_i = mark_peaks_kw
+                ax.scatter([peak_tau], [(peak_gamma + y_offset) * factor], **mark_peaks_kw_i)
 
         if normalize:
             y_label = fr'$\gamma \, / \, R_p$'
@@ -1189,36 +1262,47 @@ class DiscreteElementModel:
         if data_kw is None:
             data_kw = dict(s=10, alpha=0.5)
 
-        # Get data df if requested
-        if plot_data:
-            f_fit = self.f_fit
-            data_df = utils.eis.construct_eis_df(f_fit, self.z_fit)
-        else:
-            data_df = None
+        # # Get data df if requested
+        # if plot_data:
+        #     f_fit = self.f_fit
+        #     data_df = utils.eis.construct_eis_df(f_fit, self.z_fit)
+        # else:
+        #     data_df = None
 
         # Get model impedance
         if frequencies is None:
             frequencies = self.f_fit
         z_hat = self.predict_z(frequencies, **predict_kw)
-        df_hat = utils.eis.construct_eis_df(frequencies, z_hat)
+        # df_hat = utils.eis.construct_eis_df(frequencies, z_hat)
 
         # Get scale prefix
         if scale_prefix is None:
+            if area is None:
+                area_mult = 1
+            else:
+                area_mult = area
+            z_hat_concat = utils.eis.complex_vector_to_concat(z_hat) * area_mult
             if plot_data:
-                z_data_concat = np.concatenate([data_df['Zreal'], data_df['Zimag']])
-                z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
+                z_data_concat = utils.eis.complex_vector_to_concat(self.z_fit) * area_mult
                 scale_prefix = utils.scale.get_common_scale_prefix([z_data_concat, z_hat_concat])
             else:
-                z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
                 scale_prefix = utils.scale.get_scale_prefix(z_hat_concat)
+
+            # if plot_data:
+            #     z_data_concat = np.concatenate([data_df['Zreal'], data_df['Zimag']])
+            #     z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
+            #     scale_prefix = utils.scale.get_common_scale_prefix([z_data_concat, z_hat_concat])
+            # else:
+            #     z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
+            #     scale_prefix = utils.scale.get_scale_prefix(z_hat_concat)
 
         # Plot data if requested
         if plot_data:
-            axes = plot_eis(data_df, plot_type, axes=axes, scale_prefix=scale_prefix, label=data_label,
+            axes = plot_eis((self.f_fit, self.z_fit), plot_type, axes=axes, scale_prefix=scale_prefix, label=data_label,
                             bode_cols=bode_cols, area=area, **data_kw)
 
         # Plot fit
-        axes = plot_eis(df_hat, plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix,
+        axes = plot_eis((frequencies, z_hat), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix,
                         bode_cols=bode_cols, area=area, **kw)
 
         fig = np.atleast_1d(axes)[0].get_figure()
@@ -1307,19 +1391,19 @@ def element_has_distribution(element_type):
 def element_parameters(element_type):
     if element_type == 'HN':
         parameter_types = ['R', 'lntau', 'alpha', 'beta']
-        parameter_bounds = [(0, np.inf), (-np.inf, np.inf), (0, 1), (0, 1)]
+        parameter_bounds = [(-np.inf, np.inf), (-np.inf, np.inf), (0, 1), (0, 1)]
     elif element_type == 'RQ':
         parameter_types = ['R', 'lntau', 'beta']
-        parameter_bounds = [(0, np.inf), (-np.inf, np.inf), (0, 1)]
+        parameter_bounds = [(-np.inf, np.inf), (-np.inf, np.inf), (0, 1)]
     elif element_type == 'RC':
         parameter_types = ['R', 'lntau']
-        parameter_bounds = [(0, np.inf), (-np.inf, np.inf)]
+        parameter_bounds = [(-np.inf, np.inf), (-np.inf, np.inf)]
     elif element_type == 'L':
         parameter_types = ['lnL']
         parameter_bounds = [(-np.inf, np.inf)]
     elif element_type == 'R':
         parameter_types = ['R']
-        parameter_bounds = [(0, np.inf)]
+        parameter_bounds = [(-np.inf, np.inf)]
     elif element_type == 'C':
         parameter_types = ['Cinv']
         parameter_bounds = [(0, np.inf)]

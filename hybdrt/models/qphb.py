@@ -167,7 +167,7 @@ def get_default_hypers(eff_hp, fit_dop):
         derivative_weights=np.array([1.5, 1.0, 0.5]),
         sigma_ds=np.array([1, 1000, 1000]),
         l1_lambda_0=0,
-        l2_lambda_0=100,  # 284 * data_factor ** -1,
+        l2_lambda_0=142,  # 284 * data_factor ** -1,
         iw_alpha=iw_alpha,
         iw_beta=iw_beta,
         s_alpha=s_alpha,

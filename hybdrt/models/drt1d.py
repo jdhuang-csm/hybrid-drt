@@ -1911,7 +1911,7 @@ class DRT(DRTBase):
         return candidate_x, history, hypers
 
     def generate_candidates(self, s0_multiplier=4, s0_steps=2, weight_multiplier=0.5, weight_steps=3,
-                            include_qphb_history=True,
+                            include_qphb_history=True, fill=True, min_fill_num=None,
                             xtol=1e-2, max_iter=10, llh_kw=None, find_peaks_kw=None,
                             **kw):
         """
@@ -1940,6 +1940,8 @@ class DRT(DRTBase):
         # Suppress/promote peaks by decreasing/increasing s_0
         down_x, down_history, down_hypers = self._generate_candidates_weights(weight_multiplier, weight_steps,
                                                                               xtol, max_iter, **kw)
+        # down_x, down_history, down_hypers = self._generate_candidates_s0(s0_multiplier ** -1, s0_steps,
+        #                                                                       xtol, max_iter, **kw)
         up_x, up_history, up_hypers = self._generate_candidates_s0(s0_multiplier, s0_steps, xtol, max_iter, **kw)
 
         # Get relevant hyperparameters for default solution
@@ -1967,8 +1969,12 @@ class DRT(DRTBase):
         # TODO: for each peak (cluster), consider frequency of appearance and/or llh distribution?
         if find_peaks_kw is None:
             find_peaks_kw = {}
-        candidate_peak_tau = [self.find_peaks(x=self.extract_qphb_parameters(x)['x'], **find_peaks_kw)
-                              for x in candidate_x]
+        candidate_peak_results = [
+            self.find_peaks(x=self.extract_qphb_parameters(x)['x'], return_info=True, **find_peaks_kw)
+            for x in candidate_x
+        ]
+        candidate_peak_tau = [cpr[0] for cpr in candidate_peak_results]
+        candidate_peak_info = [cpr[3] for cpr in candidate_peak_results]
         candidate_num_peaks = np.array([len(pt) for pt in candidate_peak_tau])
 
         # # Don't include candidates with no peaks (usually from 1st iteration with low weights)
@@ -1985,6 +1991,7 @@ class DRT(DRTBase):
         self.candidate_dict = {
             'x': candidate_x,
             'peak_tau': candidate_peak_tau,
+            'peak_info': candidate_peak_info,
             'num_peaks': candidate_num_peaks,
             'llh': candidate_llh,
             'bic': candidate_bic,
@@ -2001,8 +2008,10 @@ class DRT(DRTBase):
             columns=['num_peaks', 'llh', 'bic', 'rel_llh', 'rel_bic']
         )
 
-        # Get best candidate for each num_peaks
+        # Identify discrete models
         unique_num_peaks = np.unique(candidate_num_peaks)
+
+        # Get best candidate for each num_peaks
         self.best_candidate_dict = {}
         best_indices = np.empty(len(unique_num_peaks), dtype=int)
         for i, num_peaks in enumerate(unique_num_peaks):
@@ -2015,9 +2024,72 @@ class DRT(DRTBase):
                 'llh': candidate_llh[best_index][0],
                 'bic': candidate_bic[best_index][0],
                 'peak_tau': candidate_peak_tau[best_index[0][0]],
+                'peak_info': candidate_peak_info[best_index[0][0]],
                 'history': candidate_history[best_index[0][0]],
                 'hypers': candidate_hypers[best_index[0][0]]
             }
+
+        # Fill in missing num_peaks
+        if fill:
+            new_candidates = {}
+
+            # Fill to the requested minimum number of peaks
+            if min_fill_num is None:
+                # Don't fill below simplest candidate
+                min_fill_num = unique_num_peaks[0]
+            elif min_fill_num < 0:
+                # Fill by the specified number below the simplest candidate
+                min_fill_num = max(1, unique_num_peaks[0] + min_fill_num)
+            if min_fill_num < unique_num_peaks[0]:
+                # Insert a dummy entry to force the below loop to fill in from min_fill_num
+                unique_num_peaks = np.insert(unique_num_peaks, 0, min_fill_num - 1)
+
+            fill_index = np.where(np.diff(unique_num_peaks) > 1)[0]
+            print('fill_index:', fill_index)
+            for fi in fill_index:
+                lo_num = unique_num_peaks[fi]
+                hi_num = unique_num_peaks[fi + 1]
+                # lo_peaks = self.best_candidate_dict[lo_num]['peak_tau']
+                hi_peaks = self.best_candidate_dict[hi_num]['peak_tau']
+                hi_peak_info = self.best_candidate_dict[hi_num]['peak_info']
+
+                # # Find peaks that are in hi_peaks but not in lo_peaks
+                # new_peak_index = peaks.find_new_peaks(np.log(hi_peaks), np.log(lo_peaks))
+                # new_peak_info = {k: v[new_peak_index] for k, v in self.best_candidate_dict[hi_num]['peak_info'].items()}
+
+                # Sort new peaks by min(prominence, height)
+                min_prom = np.minimum(hi_peak_info['prominences'], hi_peak_info['peak_heights'])
+                sort_index = np.argsort(min_prom)[::-1]
+
+                # # Start with the [lo_num] most prominent peaks in the hi_num candidate
+                # base_peaks = hi_peaks[sort_index[:lo_num]]
+
+                # Add peaks one at a time, starting from most prominent
+                for j in range(lo_num + 1, hi_num):
+                    # new_peak_tau = np.append(base_peaks, hi_peaks[sort_index[j]])
+                    new_peak_tau = hi_peaks[sort_index[:j]]
+                    new_peak_info = {
+                        k: v[sort_index[:j]] for k, v in self.best_candidate_dict[hi_num]['peak_info'].items()
+                    }
+
+                    # New candidate needs subsetted peak_tau and peak_info,
+                    # but will take all other info from hi_num candidate
+                    new_candidates[j] = {
+                        'x': self.best_candidate_dict[hi_num]['x'],
+                        'llh': self.best_candidate_dict[hi_num]['llh'],
+                        'bic': self.best_candidate_dict[hi_num]['bic'],
+                        'peak_tau': new_peak_tau,
+                        'peak_info': new_peak_info,
+                        'history': self.best_candidate_dict[hi_num]['history'],
+                        'hypers': self.best_candidate_dict[hi_num]['hypers'],
+                    }
+
+            # print('new candidates:', new_candidates)
+            self.best_candidate_dict.update(new_candidates)
+
+            # Sort by num_peaks
+            sorted_keys = sorted(list(self.best_candidate_dict.keys()))
+            self.best_candidate_dict = {k: self.best_candidate_dict[k] for k in sorted_keys}
 
         self.best_candidate_df = pd.DataFrame(
             np.vstack((candidate_num_peaks[best_indices], candidate_num_peaks[best_indices],
@@ -2103,25 +2175,33 @@ class DRT(DRTBase):
                 'llh': llh,
                 'bic': bic,
                 'lml': lml,
+                'lml-bic': 0.5 * (lml - 0.5 * bic),
                 'peak_tau': dem.get_peak_tau(),
                 'time_constants': dem.get_time_constants()
             }
 
         # Get best metrics across models
+        discrete_lb = 0.5 * (discrete_lml - 0.5 * discrete_bic)
         best_llh = np.max(discrete_llh)
         best_lml = np.max(discrete_lml)
         best_bic = np.min(discrete_bic)
+        best_lb = np.max(discrete_lb)
 
         # Fill in metrics relative to best
         for i, candidate in enumerate(candidates):
             self.discrete_candidate_dict[candidate]['rel_llh'] = discrete_llh[i] - best_llh
             self.discrete_candidate_dict[candidate]['rel_bic'] = discrete_bic[i] - best_bic
             self.discrete_candidate_dict[candidate]['rel_lml'] = discrete_lml[i] - best_lml
+            self.discrete_candidate_dict[candidate]['rel_lml-bic'] = discrete_lb[i] - best_lb
 
         self.discrete_candidate_df = pd.DataFrame(
-            np.vstack([candidates, np.array(candidates).astype(int), discrete_llh, discrete_bic, discrete_lml,
-                       discrete_llh - best_llh, discrete_bic - best_bic, discrete_lml - best_lml]).T,
-            columns=['model_id', 'num_peaks', 'llh', 'bic', 'lml', 'rel_llh', 'rel_bic', 'rel_lml']
+            np.vstack([
+                candidates, np.array(candidates).astype(int),
+                discrete_llh, discrete_bic, discrete_lml, discrete_lb,
+                discrete_llh - best_llh, discrete_bic - best_bic, discrete_lml - best_lml, discrete_lb - best_lb
+            ]).T,
+            columns=['model_id', 'num_peaks', 'llh', 'bic', 'lml', 'lml-bic',
+                     'rel_llh', 'rel_bic', 'rel_lml', 'rel_lml-bic']
         )
 
         if self.print_diagnostics:
@@ -2525,21 +2605,24 @@ class DRT(DRTBase):
         return test_models
 
     def plot_candidate_distribution(self, candidate_id, candidate_type, mark_peaks=False, mark_peaks_kw=None,
-                                    tau=None, **kw):
+                                    tau=None, ppd=20, **kw):
         candidate_info = self.get_candidate(candidate_id, candidate_type)
 
         if candidate_type == 'continuous':
             candidate_x = self.extract_qphb_parameters(candidate_info['x'])['x']
 
+            mark_peaks_default = {'peak_tau': candidate_info['peak_tau']}
             if mark_peaks_kw is None:
-                mark_peaks_kw = {'peak_tau': candidate_info['peak_tau']}
+                mark_peaks_kw = {}
+            mark_peaks_kw = dict(mark_peaks_default, **mark_peaks_kw)
+
             return self.plot_distribution(tau=tau, x=candidate_x, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw,
                                           **kw)
         else:
             dem = candidate_info['model']
 
             if tau is None:
-                tau = self.get_tau_eval(20)
+                tau = self.get_tau_eval(ppd)
 
             return dem.plot_distribution(tau, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw, **kw)
 
@@ -2567,7 +2650,8 @@ class DRT(DRTBase):
             dem = candidate_info['model']
             return dem.plot_eis_fit(**kw)
 
-    def evaluate_norm_bayes_factors(self, candidate_type, criterion=None, candidate_id=None):
+    def evaluate_norm_bayes_factors(self, candidate_type, criterion=None, candidate_id=None,
+                                    na_val=None):
         cand_df = self.get_candidate_df(candidate_type)
 
         if criterion is None:
@@ -2578,6 +2662,8 @@ class DRT(DRTBase):
         else:
             cand_index = np.where(cand_df['model_id'] == candidate_id)
             bf = stats.norm_bayes_factors(cand_df[criterion].values, criterion)
+            if na_val is not None and len(cand_index) == 0:
+                return na_val
             return bf[cand_index]
 
     def evaluate_bayes_factor(self, candidate_id_1, candidate_id_2, candidate_type='discrete', criterion=None):
@@ -2646,7 +2732,7 @@ class DRT(DRTBase):
                 except KeyError:
                     raise ValueError(f'No candidate with {candidate_num_peaks} peaks exists')
         else:
-            raise ValueError(f"Invalid candidate_type {candidate_type}. Options: 'continuous', 'discrete'")
+            raise ValueError(f"Invalid candidate_type {candidate_type}. Options: 'continuous', 'discrete', 'pfrt'")
 
     def get_best_candidate_id(self, candidate_type, criterion=None):
         candidate_types = ['discrete', 'continuous']
@@ -2655,7 +2741,8 @@ class DRT(DRTBase):
 
         criterion_directions = {
             'bic': -1,
-            'lml': 1
+            'lml': 1,
+            'lml-bic': 1
         }
 
         if criterion is not None:
@@ -2664,7 +2751,7 @@ class DRT(DRTBase):
 
         if candidate_type == 'discrete':
             if criterion is None:
-                criterion = 'bic'
+                criterion = 'lml-bic'
             model_df = self.discrete_candidate_df
         else:
             if criterion is None:
@@ -2672,7 +2759,12 @@ class DRT(DRTBase):
             model_df = self.best_candidate_df
 
         crit_direction = criterion_directions[criterion]
-        best_index = np.argmax(crit_direction * model_df[criterion].values)
+
+        # if criterion == 'bic-lml':
+        #     crit_values = (-0.5 * model_df['bic'] + model_df['lml']).values
+        # else:
+        crit_values = model_df[criterion].values
+        best_index = np.argmax(crit_direction * crit_values)
         best_id = model_df.loc[model_df.index[best_index], 'model_id']
 
         return best_id
@@ -2984,13 +3076,13 @@ class DRT(DRTBase):
             # Evaluate peak credibility
             # Get probability that a peak in the curvature exists at the identified location
             # peak_prob = 1 - 2 * stats.cdf_normal(0, min_prom, fxx_sigma[peak_index])
-            fxx_prob = 1 - stats.cdf_normal(0, min_prom, fxx_sigma[peak_index])
+            fxx_prob = 1 - 2 * stats.cdf_normal(0, min_prom, fxx_sigma[peak_index])
             # peak_prob = 1 - 2 * stats.cdf_normal(0, min_prom, 1)
             # peak_prob=1
 
             # Get probability that the height of the function (not curvature) is greater than zero
             peak_heights = f[peak_index]
-            f_prob = 1 - stats.cdf_normal(0, peak_heights * np.sign(peak_heights), f_sigma[peak_index])
+            f_prob = 1 - 2 * stats.cdf_normal(0, peak_heights * np.sign(peak_heights), f_sigma[peak_index])
 
             # Take the lower of the two probabilities (don't multiply - not independent)
             # peak_prob = fxx_prob * f_prob
@@ -3992,7 +4084,7 @@ class DRT(DRTBase):
         x = self.get_drt_params(x, sign)
 
         if normalize:
-            normalize_by = self.predict_r_p()
+            normalize_by = self.predict_r_p(x=x)
         else:
             normalize_by = 1
 
@@ -4376,7 +4468,7 @@ class DRT(DRTBase):
     # Peak finding
     # ----------------------------------------------------
     def find_peaks(self, tau=None, x=None, normalize=True, ppd=10, prominence=None, height=None, sign=1,
-                   return_index=False,
+                   return_info=False,
                    method='thresh', prob_thresh=None, p_matrix=None, fxx_var_floor=1e-5, extend_var=True,
                    **kw):
         method_options = ['thresh', 'prob']
@@ -4497,8 +4589,8 @@ class DRT(DRTBase):
 
             # peak_prob = 1 - 2 * stats.cdf_normal(0, min_prom, 1)
 
-        if return_index:
-            return tau[peak_indices], tau, peak_indices
+        if return_info:
+            return tau[peak_indices], tau, peak_indices, peak_info
         else:
             return tau[peak_indices]
 
@@ -4511,7 +4603,7 @@ class DRT(DRTBase):
         x = self.get_drt_params(x, sign)
 
         if peak_indices is None:
-            _, tau, peak_indices = self.find_peaks(x=x, return_index=True, sign=sign, **find_peaks_kw)
+            _, tau, peak_indices, _ = self.find_peaks(x=x, sign=sign, return_info=True, **find_peaks_kw)
 
         f = self.predict_distribution(tau, x=x, sign=sign)
         fxx = self.predict_distribution(tau, x=x, sign=sign, order=2)

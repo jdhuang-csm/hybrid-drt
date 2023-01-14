@@ -243,11 +243,11 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
 
             # 2. Estimate dispersion parameter for HN and ZARC elements
             if element_types[i] in ('HN', 'RQ'):
-                beta_k = (2 / np.pi) * np.arctan2(2 * np.pi * f[peak_index], r_k)
+                beta_k = (2 / np.pi) * np.arctan2(2 * np.pi * abs(f[peak_index]), abs(r_k))
 
                 if element_types[i] == 'HN':
-                    r_left = np.trapz(f[start_index:peak_index], x=np.log(tau[start_index:peak_index]))
-                    r_right = np.trapz(f[peak_index:end_index], x=np.log(tau[peak_index:end_index]))
+                    r_left = abs(np.trapz(f[start_index:peak_index], x=np.log(tau[start_index:peak_index])))
+                    r_right = abs(np.trapz(f[peak_index:end_index], x=np.log(tau[peak_index:end_index])))
                     if r_right >= r_left:
                         alpha_k = 0.99
                     else:
@@ -271,20 +271,22 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
     else:
         for i, f_peak in enumerate(f_peaks):
             # 1. Find maximum of f_peak
-            peak_index = np.argmax(f_peak)
+            peak_index = np.argmax(np.abs(f_peak))
             # peak_index = peak_indices[i]
 
             # 2. Integrate peak area to get R
             r_k = np.trapz(f_peak, x=np.log(tau))
             r_tot += r_k
+            # print('r:', r_k)
 
             # 3. Estimate dispersion parameter for HN and ZARC elements
             if element_types[i] in ('HN', 'RQ'):
-                beta_k = (2 / np.pi) * np.arctan2(2 * np.pi * f_peak[peak_index], r_k)
+                beta_k = (2 / np.pi) * np.arctan2(2 * np.pi * abs(f_peak[peak_index]), abs(r_k))
+                # print('beta:', beta_k)
 
                 if element_types[i] == 'HN':
-                    r_left = np.trapz(f_peak[:peak_index], x=np.log(tau[:peak_index]))
-                    r_right = np.trapz(f_peak[peak_index:], x=np.log(tau[peak_index:]))
+                    r_left = abs(np.trapz(f_peak[:peak_index], x=np.log(tau[:peak_index])))
+                    r_right = abs(np.trapz(f_peak[peak_index:], x=np.log(tau[peak_index:])))
                     if r_right >= r_left:
                         alpha_k = 0.99
                     else:
@@ -378,6 +380,9 @@ def find_new_peaks(new_peak_locations, base_peak_locations, distance_threshold=N
 def has_similar_peak(peak_location, compare_peak_locations, threshold=0.5, epsilon=1):
     sim_index = peak_similarity_index([peak_location], compare_peak_locations, epsilon)
     return sim_index[0] >= threshold
+
+
+# def evalute_peak_prob()
 
 
 
