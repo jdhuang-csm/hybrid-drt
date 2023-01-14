@@ -392,6 +392,8 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(3.5, 2.75))
+    else:
+        fig = ax.get_figure()
 
     if area is not None:
         # if area given, convert to ASR
@@ -439,9 +441,12 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
     if label != '':
         ax.legend()
 
+    # Apply tight_layout before setting aspect ratio
+    if tight_layout:
+        fig.tight_layout()
+
     if set_aspect_ratio:
         # make scale of x and y axes the same
-        fig = ax.get_figure()
 
         # if data extends beyond axis limits, adjust to capture all data
         ydata_range = df['Zimag'].max() - df['Zimag'].min()
@@ -513,11 +518,8 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
 
         set_nyquist_aspect(ax, data=df)
 
-        if draw_zero_line and ax.get_ylim()[0] < 0:
-            ax.axhline(0, c='k', lw=0.5, zorder=-10, alpha=0.75)
-
-    if tight_layout:
-        fig.tight_layout()
+    if draw_zero_line and ax.get_ylim()[0] < 0:
+        ax.axhline(0, c='k', lw=0.5, zorder=-10, alpha=0.75)
 
     return ax
 
