@@ -4360,7 +4360,7 @@ class DRT(DRTBase):
 
         return response
 
-    def predict_impedance(self, frequencies, include_vz_offset=True, x=None):
+    def predict_z(self, frequencies, include_vz_offset=True, x=None):
         # Get matrix
         zm, zm_dop = self._prep_impedance_prediction_matrix(frequencies)
 
@@ -5499,7 +5499,7 @@ class DRT(DRTBase):
         # Get model impedance
         if frequencies is None:
             frequencies = self.get_fit_frequencies()
-        z_hat = self.predict_impedance(frequencies, x=x, **predict_kw)
+        z_hat = self.predict_z(frequencies, x=x, **predict_kw)
 
         # Get rp for normalization
         if normalize:
@@ -5569,7 +5569,7 @@ class DRT(DRTBase):
         f_fit = self.get_fit_frequencies()
 
         # Get model impedance
-        y_hat = self.predict_impedance(f_fit, x=x, **predict_kw)
+        y_hat = self.predict_z(f_fit, x=x, **predict_kw)
 
         # Calculate residuals
         y_err = y_hat - self.z_fit
@@ -5587,7 +5587,7 @@ class DRT(DRTBase):
             f_out, z_out = self.eis_outliers
 
             # Calculate residuals
-            y_err_out = self.predict_impedance(f_out, x=x, **predict_kw) - z_out
+            y_err_out = self.predict_z(f_out, x=x, **predict_kw) - z_out
 
             # Plot residuals
             if outlier_kw is None:
