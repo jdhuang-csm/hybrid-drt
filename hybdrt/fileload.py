@@ -205,7 +205,7 @@ def concatenate_eis_data(files):
     return df_out
 
 
-def read_eis(file, warn=True):
+def read_eis(file, warn=True, return_tuple=False):
     """read EIS zcurve data from Gamry .DTA file"""
     try:
         with open(file, 'r') as f:
@@ -301,10 +301,13 @@ def read_eis(file, warn=True):
     return data
 
 
-def get_eis_tuple(df, min_freq=None, max_freq=None):
+def get_eis_tuple(data, min_freq=None, max_freq=None):
     """Convenience function - get frequency and Z from EIS DataFrame"""
-    freq = df['Freq'].values.copy()
-    z = df['Zreal'].values.copy() + 1j * df['Zimag'].values.copy()
+    if type(data) != pd.DataFrame:
+        data = read_eis(data)
+
+    freq = data['Freq'].values.copy()
+    z = data['Zreal'].values.copy() + 1j * data['Zimag'].values.copy()
 
     if min_freq is not None:
         index = freq >= min_freq
@@ -319,14 +322,17 @@ def get_eis_tuple(df, min_freq=None, max_freq=None):
     return freq, z
 
 
-def get_chrono_tuple(df, start_time=None, end_time=None):
-    if 'elapsed' in df.columns:
+def get_chrono_tuple(data, start_time=None, end_time=None):
+    if type(data) != pd.DataFrame:
+        data = read_chrono(data)
+
+    if 'elapsed' in data.columns:
         time_col = 'elapsed'
     else:
-        time_col = find_time_column(df)
-    times = df[time_col].values.copy()
-    i_signal = df['Im'].values.copy()
-    v_signal = df['Vf'].values.copy()
+        time_col = find_time_column(data)
+    times = data[time_col].values.copy()
+    i_signal = data['Im'].values.copy()
+    v_signal = data['Vf'].values.copy()
 
     # Truncate to time range
     if start_time is not None:
