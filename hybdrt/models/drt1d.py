@@ -7,14 +7,15 @@ from matplotlib import pyplot as plt
 import pandas as pd
 from scipy import signal
 from copy import deepcopy
+import pickle
 
-from hybdrt import utils, preprocessing as pp
+from .. import utils, preprocessing as pp
 from ..utils import stats
-from hybdrt.matrices import mat1d, basis
+from ..matrices import mat1d, basis
 from . import qphb, peaks, elements, pfrt, background
 from ..evaluation import get_similarity_function
-from .drtbase import DRTBase, format_chrono_weights, format_eis_weights
-from hybdrt.plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
+from .drtbase import DRTBase
+from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
 
 
 class DRT(DRTBase):
@@ -2100,7 +2101,7 @@ class DRT(DRTBase):
 
         return self.candidate_dict.copy()
 
-    def convert_candidate_to_discrete(self, candidate_num_peaks, model_init_kw=None,
+    def convert_candidate_to_discrete(self, candidate_num_peaks, model_init_kw=None, prior=True,
                                       **fit_kw):
         start = time.time()
 
@@ -2120,7 +2121,7 @@ class DRT(DRTBase):
         # dem.drt_estimates['eis_weights'] = utils.eis.complex_vector_to_concat(self.predict_sigma('eis')) ** -1
 
         if self.fit_type.find('eis') > -1:
-            dem.fit_eis(self.get_fit_frequencies(), self.z_fit, from_drt=True, **fit_kw)
+            dem.fit_eis(self.get_fit_frequencies(), self.z_fit, from_drt=True, prior=prior, **fit_kw)
         else:
             # TODO: implement fit_chrono and fit_hybrid methods for DiscreteElementModel
             raise ValueError('dual_fit is currently only implemented for EIS data')
@@ -3117,7 +3118,7 @@ class DRT(DRTBase):
         if normalize:
             tot_pfrt = tot_pfrt / np.max(tot_pfrt)
 
-        return tot_pfrt, step_pfrt, post_prob_eff, step_x, step_p_mat, factors, fxx_sigmas
+        return tot_pfrt  #, step_pfrt, post_prob_eff, step_x, step_p_mat, factors, fxx_sigmas
 
     def select_pfrt_candidates(self, start_thresh=0.99, end_thresh=0.01, peak_thresh=1e-6):
         target_peak_indices, step_indices = pfrt.select_candidates(
@@ -6414,7 +6415,7 @@ class DRT(DRTBase):
 
         self.t_predict = times
         self.raw_prediction_input_signal = input_signal.copy()
-        self.op_mode_predict = op_mode
+        self.chrono_mode_predict = op_mode
         # Final update of t_predict in case recalc status changed
         self.t_predict = times
 
@@ -6711,3 +6712,13 @@ class DRT(DRTBase):
     def set_attributes(self, att_dict):
         for k, v in att_dict.items():
             setattr(self, k, v)
+
+    def save_attributes(self, which, dest):
+        att_dict = self.get_attributes(which)
+        with open(dest, 'wb') as f:
+            pickle.dump(att_dict, f, pickle.DEFAULT_PROTOCOL)
+
+    def load_attributes(self, source):
+        with open(source, 'rb') as f:
+            att_dict = pickle.load(f)
+        self.set_attributes(att_dict)
