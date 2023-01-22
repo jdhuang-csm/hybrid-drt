@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 # from cmdstanpy import CmdStanModel
 from ..matrices import basis
 from hybdrt import preprocessing as pp
-from hybdrt.models import qphb
 from hybdrt import utils
 
 module_dir = os.path.dirname(os.path.realpath(__file__))
@@ -36,6 +35,7 @@ class DRTBase:
         self.tau_epsilon = tau_epsilon
         self.step_model = step_model
         self.chrono_mode = chrono_mode
+        self.chrono_mode_predict = chrono_mode
         self.frequency_precision = frequency_precision
         self.time_precision = time_precision
         self.input_signal_precision = input_signal_precision
@@ -1037,7 +1037,7 @@ class DRTBase:
                 # self._recalc_chrono_prediction_matrix = True
         self._chrono_mode_predict = chrono_mode
 
-    op_mode_predict = property(get_chrono_mode_predict, set_chrono_mode_predict)
+    chrono_mode_predict = property(get_chrono_mode_predict, set_chrono_mode_predict)
 
     def get_step_model(self):
         return self._step_model
@@ -1065,102 +1065,3 @@ class DRTBase:
         self._fit_inductance = fit_inductance
 
     fit_inductance = property(get_fit_inductance, set_fit_inductance)
-
-
-# ===============================================
-# 1d DRT
-# ===============================================
-
-
-# =======================================
-# 2d DRT
-# =======================================
-
-
-def format_chrono_weights(signal, weights):
-    """
-	Format weights for fit
-	:param weights:
-	:param signal:
-	:return:
-	"""
-    if type(weights) in (list, np.ndarray):
-        # Weights provided - check length and then pass through
-        if len(weights) != len(signal):
-            raise ValueError('If weights is an array, must match length of signal')
-        return np.array(weights)
-    elif type(weights) == str or weights is None:
-        # Determine weights from string
-        if weights is None or weights == 'unity':
-            weights = np.ones_like(signal)
-        elif weights == 'proportional':
-            weights = 1 / signal
-
-        # adjust mean weight to 1
-        weights /= np.mean(weights)
-    else:
-        # Broadcast scalar to vector
-        weights = np.ones(len(signal)) * weights
-
-    return weights
-
-
-def format_eis_weights(frequencies, z, weights, part):
-    """
-	Format real and imaginary weight vectors
-	Parameters:
-	-----------
-	weights : str or array (default: None)
-		Weights for fit. Standard weighting schemes can be specified by passing 'unity', 'modulus', or 'proportional'.
-		Custom weights can be passed as an array. If the array elements are real, the weights are applied to both the real and imaginary parts of the impedance.
-		If the array elements are complex, the real parts are used to weight the real impedance, and the imaginary parts are used to weight the imaginary impedance.
-		If None, all points are weighted equally.
-	part : str (default:'both')
-		Which part of impedance is being fitted. Options: 'both', 'real', or 'imag'
-	"""
-    if weights is None or weights == 'unity':
-        weights = np.ones_like(frequencies) * (1 + 1j)
-    elif type(weights) == str:
-        if weights == 'modulus':
-            weights = (1 + 1j) / np.sqrt(np.real(z * z.conjugate()))
-        elif weights == 'Orazem':
-            weights = (1 + 1j) / (np.abs(z.real) + np.abs(z.imag))
-        elif weights == 'proportional':
-            weights = 1 / np.abs(z.real) + 1j / np.abs(z.imag)
-        elif weights == 'prop_adj':
-            Zmod = np.real(z * z.conjugate())
-            weights = 1 / (np.abs(z.real) + np.percentile(Zmod, 25)) + 1j / (
-                    np.abs(z.imag) + np.percentile(Zmod, 25))
-        else:
-            raise ValueError(
-                f"Invalid weights argument {weights}. String options are 'unity', 'modulus', 'proportional', and 'prop_adj'")
-    elif np.shape(weights) == ():
-        # assign constant value
-        weights = np.ones_like(frequencies) * (1 + 1j) * weights
-    elif type(weights) == complex:
-        # assign constant value
-        weights = np.ones_like(frequencies) * weights
-    elif len(weights) != len(frequencies):
-        raise ValueError("Weights array must match length of data")
-
-    if part == 'both':
-        if np.min(np.isreal(weights)):
-            # if weights are real, apply to both real and imag parts
-            weights = weights + 1j * weights
-        else:
-            # if weights are complex, leave them
-            pass
-    elif part == 'real':
-        weights = np.real(weights) + 1j * np.ones_like(frequencies)
-    elif part == 'imag':
-        if np.min(np.isreal(weights)):
-            # if weights are real, apply to imag
-            weights = np.ones_like(frequencies) + 1j * weights
-        else:
-            # if weights are complex, leave them
-            pass
-    else:
-        raise ValueError(f"Invalid part {part}. Options are 'both', 'real', or 'imag'")
-
-    return weights
-

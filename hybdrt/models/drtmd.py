@@ -1,9 +1,11 @@
+import pickle
 import numpy as np
-from pathlib import Path
+from pathlib import Path, WindowsPath
 from copy import deepcopy
 from scipy import ndimage
-from scipy import signal
+import pandas as pd
 
+from .mapping import apply_filter, peak_prob_1d
 from .. import utils
 from .. import fileload as fl
 from ..matrices import basis
@@ -70,15 +72,17 @@ class DRTMD(object):
             self.obs_psi = np.zeros((0, len(self.psi_dim_names)))
         else:
             self.obs_psi = None
-        self.obs_fit_attr = []
-        self.obs_fit_status = np.zeros(0, dtype=bool)
         self.obs_data = []
-        self.obs_tau_indices = []
+        self.obs_group_id = []
+        self.obs_ignore_flag = np.zeros(0, dtype=bool)
         # self.obs_data_types = []
 
         # Fit parameters
         self.obs_x = np.zeros((0, *self.drt_param_shape()))
         self.obs_special = None
+        self.obs_fit_attr = []
+        self.obs_fit_status = np.zeros(0, dtype=bool)
+        self.obs_tau_indices = []
 
         # Precision
         self.frequency_precision = frequency_precision
@@ -93,7 +97,7 @@ class DRTMD(object):
     # --------------------------------------------------------------------
     # Data addition and fitting
     # --------------------------------------------------------------------
-    def add_observation(self, psi, chrono_data, eis_data, fit=False):
+    def add_observation(self, psi, chrono_data, eis_data, group_id=None, fit=False):
         psi = np.atleast_1d(psi).flatten()
 
         # Initialize obs_psi
@@ -110,6 +114,8 @@ class DRTMD(object):
         # Append to observation lists
         self.obs_psi = np.insert(self.obs_psi, self.num_obs, psi, axis=0)
         self.obs_data.append((chrono_data, eis_data))
+        self.obs_group_id.append(group_id)
+        self.obs_ignore_flag = np.insert(self.obs_ignore_flag, len(self.obs_ignore_flag), False)
         self.obs_fit_status = np.insert(self.obs_fit_status, len(self.obs_fit_status), False)
         self.obs_fit_attr.append(None)
         self.obs_tau_indices.append(None)
@@ -157,7 +163,7 @@ class DRTMD(object):
         # Update fit status
         self.obs_fit_status[obs_index] = True
 
-    def fit_all(self, refit=False):
+    def fit_all(self, refit=False, print_interval=None):
         if refit:
             # Fit all observations regardless of fit status
             fit_index = np.arange(self.num_obs)
@@ -166,7 +172,8 @@ class DRTMD(object):
             fit_index = np.where(~np.array(self.obs_fit_status))[0]
 
         num_to_fit = len(fit_index)
-        print_interval = int(np.ceil(num_to_fit / 10))
+        if print_interval is None:
+            print_interval = int(np.ceil(num_to_fit / 10))
         if self.print_progress:
             print(f'Found {num_to_fit} observations to fit')
 
@@ -182,13 +189,13 @@ class DRTMD(object):
         chrono_data, eis_data = self.obs_data[obs_index]
 
         # Load chrono data
-        if type(chrono_data) in (str, Path):
+        if type(chrono_data) in (str, Path, WindowsPath):
             chrono_data = self.chrono_reader(chrono_data)
         elif chrono_data is None:
             chrono_data = (None, None, None)
 
         # Load EIS data
-        if type(eis_data) in (str, Path):
+        if type(eis_data) in (str, Path, WindowsPath):
             eis_data = self.eis_reader(eis_data)
         elif eis_data is None:
             eis_data = (None, None)
@@ -220,12 +227,32 @@ class DRTMD(object):
         self.obs_x = np.zeros((self.num_obs, len(self.tau_supergrid)))
         self.obs_special = None
 
+    def clear_obs(self):
+        """
+        Remove all observations and fit information
+        """
+        if self.psi_dim_names is not None:
+            self.obs_psi = np.zeros((0, len(self.psi_dim_names)))
+        else:
+            self.obs_psi = None
+        self.obs_data = []
+        self.obs_group_id = []
+        self.obs_ignore_flag = np.zeros(0, dtype=bool)
+        self.obs_fit_attr = []
+        self.obs_fit_status = np.zeros(0, dtype=bool)
+        self.obs_tau_indices = []
+        self.obs_x = np.zeros((0, *self.drt_param_shape()))
+        self.obs_special = None
+
     # --------------------------------------------------------------------
     # Prediction
     # --------------------------------------------------------------------
-    def predict_r_p(self, psi=None, x=None, factor_index=None, **kw):
+    def predict_r_p(self, psi=None, x=None, factor_index=None, absolute=False, **kw):
         if x is None:
             x = self.predict_x(psi, factor_index=factor_index, **kw)
+
+        if absolute:
+            x = np.abs(x)
 
         return np.sum(x, axis=-1) * self.tau_basis_area
 
@@ -240,7 +267,7 @@ class DRTMD(object):
             x = None
 
         if normalize:
-            rp = self.predict_r_p(x=x)
+            rp = self.predict_r_p(x=x, absolute=True)
             x = x / rp[:, None]
 
         # Select specified factor level for PFRT fit
@@ -266,7 +293,7 @@ class DRTMD(object):
             x = self.predict_x(psi, factor_index=factor_index, normalize=False, **kw)
 
         if normalize:
-            rp = self.predict_r_p(psi=psi, x=x, factor_index=factor_index, normalize=False, **kw)
+            rp = self.predict_r_p(psi=psi, x=x, factor_index=factor_index, normalize=False, absolute=True, **kw)
             x = x / rp[:, None]
 
         if tau is None:
@@ -487,6 +514,28 @@ class DRTMD(object):
         psi = self.validate_psi(psi)
         return utils.array.row_match_index(self.obs_psi, psi, precision=8)
 
+    def get_group_index(self, group_id):
+        return np.where(np.array(self.obs_group_id) == group_id)
+
+    def filter_psi(self, dim_eq=None, dim_gt=None, dim_lt=None, return_index=True):
+        if dim_eq is None:
+            dim_eq = {}
+        if dim_gt is None:
+            dim_gt = {}
+        if dim_lt is None:
+            dim_lt = {}
+
+        psi_index = np.logical_and.reduce(
+            [self.obs_psi[:, self.psi_dim_names.index(k)] == v for k, v in dim_eq.items()] +
+            [self.obs_psi[:, self.psi_dim_names.index(k)] > v for k, v in dim_gt.items()] +
+            [self.obs_psi[:, self.psi_dim_names.index(k)] < v for k, v in dim_lt.items()]
+        )
+
+        if return_index:
+            return np.where(psi_index)
+        else:
+            return self.obs_psi[psi_index].copy()
+
     def get_tau_eval(self, ppd, extend_decades=1):
         """
         Get tau grid for DRT evaluation and plotting
@@ -499,6 +548,10 @@ class DRTMD(object):
         tau = np.logspace(log_tau_min, log_tau_max, int((log_tau_max - log_tau_min) * ppd) + 1)
 
         return tau
+
+    @property
+    def obs_psi_df(self):
+        return pd.DataFrame(self.obs_psi, columns=self.psi_dim_names)
 
     @property
     def tau_basis_area(self):
@@ -545,6 +598,73 @@ class DRTMD(object):
         elif self.fit_type == 'pfrt':
             return '_pfrt_fit_core'
 
+    # ------------------------
+    # Attribute management
+    # ------------------------
+    @property
+    def attribute_categories(self):
+        att = {
+            'config': [
+                'psi_dim_names', 'store_attr_categories',
+                'tau_supergrid', 'tau_basis_type', 'tau_epsilon', 'fit_inductance',
+                # Distribution of phasances
+                'fixed_basis_nu', 'nu_basis_type', 'fit_dop', 'normalize_dop',
+                # Chrono settings
+                'step_model', 'chrono_mode',
+                # Data readesr
+                # 'chrono_reader', 'eis_reader',
+                # Fit kwargs
+                'fit_type', 'fit_kw', 'pfrt_factors',
+                # Precision
+                'frequency_precision', 'time_precision', 'input_signal_precision',
+                # Diagnostics
+                'print_diagnostics', 'warn', 'print_progress'
+            ],
+            'obs_data': [
+                'obs_psi', 'obs_data', 'obs_group_id', 'obs_ignore_flag'
+            ],
+            'fit': [
+                'obs_fit_status', 'obs_fit_attr', 'obs_tau_indices', 'obs_x', 'obs_special',
+            ]
+        }
+
+        return att
+
+    def get_attributes(self, which):
+        att_names = None
+        if type(which) == str:
+            if which == 'all':
+                att_names = sum(list(self.attribute_categories.values()), [])
+            else:
+                which = [which]
+
+        if att_names is None:
+            try:
+                att_names = sum([self.attribute_categories[c] for c in which], [])
+            except KeyError:
+                raise ValueError('which argument contains an invalid attribute category. '
+                                 'Valid categories: {}'.format(['all'] + list(self.attribute_categories.keys())))
+
+        return {k: deepcopy(getattr(self, k)) for k in att_names}
+
+    def set_attributes(self, att_dict):
+        for k, v in att_dict.items():
+            setattr(self, k, v)
+
+        # If observations are provided without fit data, clear fits
+        if 'obs_psi' in att_dict.keys() and 'obs_x' not in att_dict.keys():
+            self.clear_fits()
+
+    def save_attributes(self, which, dest):
+        att_dict = self.get_attributes(which)
+        with open(dest, 'wb') as f:
+            pickle.dump(att_dict, f, pickle.DEFAULT_PROTOCOL)
+
+    def load_attributes(self, source):
+        with open(source, 'rb') as f:
+            att_dict = pickle.load(f)
+        self.set_attributes(att_dict)
+
     # ----------------------
     # Getters and setters
     # ----------------------
@@ -590,64 +710,3 @@ class DRTMD(object):
             setattr(self.drt1d, name, value)
 
 
-def apply_filter(x_in, filter_func, filter_kw):
-    if filter_kw is None:
-        if filter_func is None:
-            sigma = np.ones(np.ndim(x_in))
-            sigma[-1] = 0
-            filter_kw = {'sigma': sigma}
-        else:
-            filter_kw = None
-    if filter_func is None:
-        filter_func = ndimage.gaussian_filter
-
-    return filter_func(x_in, **filter_kw)
-
-
-def peak_prob_1d(arrays_1d, nonneg, sign, height, prominence):
-    # Unpack arrays
-    f, fxx, f_sigma, fxx_sigma = arrays_1d
-    if nonneg and sign != 0:
-        # This captures both the standard nonneg case and the series_neg case
-        # peak_indices = peaks.find_peaks_simple(fxx, order=2, height=0, prominence=prominence, **kw)
-        peak_indices, peak_info = signal.find_peaks(-sign * fxx, height=height, prominence=prominence)
-        # peak_indices = peaks.find_peaks_compound(fx, fxx, **kw)
-    else:
-        # Find positive and negative peaks separately
-        peak_index_list = []
-        peak_info_list = []
-        for peak_sign in [-1, 1]:
-            peak_index, peak_info = signal.find_peaks(-peak_sign * fxx, height=height, prominence=prominence)
-            # Limit to peaks that are positive in the direction of the current sign
-            pos_index = peak_sign * f[peak_index] > 0
-            # print(pos_index)
-            peak_index = peak_index[pos_index]
-            peak_info = {k: v[pos_index] for k, v in peak_info.items()}
-
-            peak_index_list.append(peak_index)
-            peak_info_list.append(peak_info)
-        # Concatenate pos and neg peaks
-        peak_indices = np.concatenate(peak_index_list)
-        peak_info = {k: np.concatenate([pi[k] for pi in peak_info_list]) for k in peak_info.keys()}
-
-        # Sort ascending
-        sort_index = np.argsort(peak_indices)
-        peak_indices = peak_indices[sort_index]
-        peak_info = {k: v[sort_index] for k, v in peak_info.items()}
-
-    # if prob_thresh is None:
-    #     prob_thresh = 0.25
-
-    # Use prominence or height, whichever is smaller
-    min_prom = np.minimum(peak_info['prominences'], peak_info['peak_heights'])
-
-    # Evaluate peak confidence
-    curv_prob = 1 - utils.stats.cdf_normal(0, min_prom, fxx_sigma[peak_indices])
-    f_prob = 1 - utils.stats.cdf_normal(0, np.sign(f[peak_indices]) * f[peak_indices], f_sigma[peak_indices])
-
-    probs = np.minimum(curv_prob, f_prob)
-
-    out = np.zeros(len(f))
-    out[peak_indices] = probs
-
-    return out

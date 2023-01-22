@@ -586,7 +586,8 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
 
 
 def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['Zmod', 'Zphz'], scale_prefix=None,
-              invert_phase=True, invert_Zimag=True, normalize=False, normalize_rp=None, tight_layout=True, **kw):
+              invert_phase=True, invert_Zimag=True, log_mod=True, normalize=False, normalize_rp=None,
+              tight_layout=True, **kw):
     """
     Generate Bode plots.
 
@@ -624,6 +625,8 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
                 'Zreal': {'units': '$\Omega$', 'label': '$Z^\prime$', 'scale': 'linear'},
                 'Zimag': {'units': '$\Omega$', 'label': '$Z^{\prime\prime}$', 'scale': 'linear'}
                 }
+    if not log_mod:
+        col_dict['Zmod']['scale'] = 'linear'
 
     # if type(axes) not in [list, np.ndarray, tuple] and axes is not None:
     #     axes = [axes]
@@ -724,7 +727,7 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
 
 def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='scatter', scale_prefix=None,
              bode_cols=['Zmod', 'Zphz'], set_aspect_ratio=True, normalize=False, normalize_rp=None,
-             tight_layout=True, **kw):
+             tight_layout=True, nyquist_kw=None, bode_kw=None, **kw):
     """
     Plot eis data in Nyquist and/or Bode plot(s)
     Parameters
@@ -762,14 +765,19 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
     # Process data
     df = process_eis_plot_data(data)
 
+    if nyquist_kw is None:
+        nyquist_kw = {}
+    if bode_kw is None:
+        bode_kw = {}
+
     if plot_type == 'bode':
         axes = plot_bode(df, area=area, axes=axes, label=label, plot_func=plot_func, cols=bode_cols,
                          scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp,
-                         tight_layout=tight_layout, **kw)
+                         tight_layout=tight_layout, **bode_kw, **kw)
     elif plot_type == 'nyquist':
         axes = plot_nyquist(df, area=area, ax=axes, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
                             set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
-                            tight_layout=tight_layout, **kw)
+                            tight_layout=tight_layout, **nyquist_kw, **kw)
     elif plot_type == 'all':
         if axes is None:
             fig, axes = plt.subplots(1, 3, figsize=(9, 2.75))
@@ -781,12 +789,12 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
         # Nyquist plot
         plot_nyquist(df, area=area, ax=ax1, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
                      set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
-                     tight_layout=tight_layout, **kw)
+                     tight_layout=tight_layout, **nyquist_kw, **kw)
 
         # Bode plots
         plot_bode(df, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols,
                   scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, tight_layout=tight_layout,
-                  **kw)
+                  **bode_kw, **kw)
 
         # fig.tight_layout()
     else:
