@@ -35,6 +35,8 @@ class DRT(DRTBase):
 
         self.pfrt_result = None
         self.pfrt_history = None
+        self.pfrt_candidate_df = None
+        self.pfrt_candidate_dict = None
 
         self._qp_matrices = None
 
@@ -6699,7 +6701,8 @@ class DRT(DRTBase):
                 'scaled_response_offset', 'impedance_scale', 'dop_scale_vector',
                 # dual fit attributes
                 'discrete_candidate_df', 'discrete_candidate_dict',
-                'best_candidate_df', 'best_candidate_dict', 'discrete_reordered_candidates'
+                'best_candidate_df', 'best_candidate_dict', 'discrete_reordered_candidates',
+                'pfrt_candidate_df', 'pfrt_candidate_dict'
             ],
             'fit_detail': [
                 'qphb_params', 'cvx_result', 'qphb_history', 'pfrt_history', 'interpolate_lookups', 'fit_matrices'
