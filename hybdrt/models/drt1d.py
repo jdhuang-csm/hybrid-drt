@@ -1060,6 +1060,26 @@ class DRT(DRTBase):
 
     def fit_eis(self, frequencies, z, nonneg=True, scale_data=True, update_scale=False,
                 error_structure=None, vmm_epsilon=0.25, vmm_reim_cor=0.25, **kwargs):
+        """
+        Perform a conventional DRT fit of EIS data.
+        :param ndarray frequencies: array of frequencies
+        :param ndarray z: complex array of impedance values
+        :param bool nonneg: if True, constrain the DRT to be non-negative. If False, allow negative DRT values
+        :param bool scale_data: if True, scale the impedance prior to fitting. If set to False, the model tuning will
+        not work as intended and may yield unexpected results.
+        :param bool update_scale: if True, update the data scale during solution iterations. Setting this to False
+        provides more stable performance, but setting this to True can be helpful if your data is truncated or contains
+        outliers
+        :param str error_structure: error structure to use for the data. If None, a flexible error structure based on
+        residual filtering is used. If 'uniform', a uniform error structure is assumed
+        :param float vmm_epsilon: inverse scale parameter for flexible error structure filter. Larger values will allow
+        greater local variations in error scale
+        :param float vmm_reim_cor: correlation factor between real and imaginary error structures. A value of 1 forces
+        the reak and imaginary error structures to be the same, while a value of 0 corresponds to completely independent
+        real and imaginary error structures
+        :param kwargs: additional keyword args passed to _qphb_fit_core
+        :return:
+        """
 
         self._qphb_fit_core(None, None, None, frequencies, z, nonneg=nonneg, scale_data=scale_data,
                             update_scale=update_scale, eis_error_structure=error_structure, eis_vmm_epsilon=vmm_epsilon,
@@ -6676,16 +6696,18 @@ class DRT(DRTBase):
                 'pfrt_result',
                 # These are necessary for extract_qphb_parameters
                 'coefficient_scale', 'inductance_scale', 'input_signal_scale', 'response_signal_scale',
-                'scaled_response_offset', 'impedance_scale', 'dop_scale_vector'
+                'scaled_response_offset', 'impedance_scale', 'dop_scale_vector',
+                # dual fit attributes
+                'discrete_candidate_df', 'discrete_candidate_dict',
+                'best_candidate_df', 'best_candidate_dict', 'discrete_reordered_candidates'
             ],
             'fit_detail': [
-                'qphb_params', 'cvx_result', 'qphb_history', 'pfrt_history', 'interpolate_lookups'
+                'qphb_params', 'cvx_result', 'qphb_history', 'pfrt_history', 'interpolate_lookups', 'fit_matrices'
             ],
             'data': [
                 't_fit', 'raw_input_signal', 'raw_response_signal', 'scaled_input_signal', 'scaled_response_signal',
                 'raw_response_background', 'step_times', 'step_sizes', 'tau_rise',
                 'f_fit', 'z_fit', 'z_fit_scaled',
-                'fit_matrices',
                 'chrono_outlier_index', 'chrono_outliers', 'eis_outlier_index', 'eis_outliers'
             ],
         }
