@@ -481,7 +481,7 @@ def is_converged(x_in, x_out, x_atol, x_rtol):
         return False
 
 
-def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_t,
+def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, out_tvt,
                  rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
                  hypers, eff_hp,
                  xmx_norms, dop_xmx_norms, fixed_x_index, fixed_x_values, curvature_constraint,
@@ -804,7 +804,8 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
     # END DOP
 
     # Estimate weights
-    weights, outlier_t = estimate_weights(x, rv, vmm, rm, est_weights, None, None, outlier_t, outlier_p)
+    weights, outlier_t, out_tvt = estimate_weights(x, rv, vmm, rm, est_weights, None, None,
+                                                   out_tvt, outlier_p)
     # print(weights[0], est_weights[0])
 
     # Calculate cost for diagnostics
@@ -837,7 +838,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
     x_atol = np.mean(x_in) * 1e-3  # absolute tolerance
     converged = is_converged(x_in, x, x_atol, x_rtol)
 
-    return x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged
+    return x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, out_tvt, cvx_result, converged
 
 
 # def iterate_qphb2(x_in, s_vectors, rho_vector, rv, weights, est_weights, outlier_t,
@@ -1544,7 +1545,7 @@ def solve_outlier_variance(s_base, resid, alpha, beta):
     return s_out
 
 
-def solve_outlier_t(vmm, t_in, resid, outlier_p):
+def solve_outlier_t(vmm, resid, outlier_p):
     """
     Solve for outlier t vector. outlier_t = 1 - outlier_probability
     :param vmm: variance estimation matrix
@@ -1553,17 +1554,17 @@ def solve_outlier_t(vmm, t_in, resid, outlier_p):
     :param outlier_p: prior probability of any point being an outlier (Bernoulli)
     :return:
     """
-    tvt = outlier_tvt(vmm, t_in)
+    # tvt = outlier_tvt(vmm, t_in)
 
-    s_bar = tvt @ resid ** 2
+    s_bar = vmm @ resid ** 2
 
     pdf_in = pdf_normal(resid, 0, np.sqrt(s_bar))
     pdf_out = pdf_normal(resid, 0, np.abs(resid))
-    t_new = 1 - outlier_p * pdf_out / ((1 - outlier_p) * pdf_in + outlier_p * pdf_out)
-    # Don't consider points with *smaller* residuals than expected by s_bar to be treated as outliers
-    t_new[np.sqrt(s_bar) > np.abs(resid)] = 1
+    t_out = 1 - outlier_p * pdf_out / ((1 - outlier_p) * pdf_in + outlier_p * pdf_out)
+    # Don't allow points with *smaller* residuals than expected by s_bar to be treated as outliers
+    t_out[np.sqrt(s_bar) > np.abs(resid)] = 1
 
-    t_out = t_new
+    # t_out = t_new
     # t_out = t_in * t_new
 
     return t_out
@@ -1576,33 +1577,41 @@ def outlier_tvt(vmm, outlier_t):
     :param outlier_t:
     :return:
     """
-    sqrt_t_diag = np.diag(outlier_t ** 0.5)
-    t_diag = np.diag(1 - outlier_t)
-    tvt = sqrt_t_diag @ vmm @ sqrt_t_diag + t_diag
-    # Normalize? shouldn't be necessary
-    # tvt_rowsum = np.sum(tvt, axis=1)
-    # tvt /= tvt_rowsum[:, None]
+    # sqrt_t_diag = np.diag(outlier_t ** 0.5)
+    # t_diag = np.diag(1 - outlier_t)
+    # tvt = sqrt_t_diag @ vmm @ sqrt_t_diag + t_diag
+
+    # Broadcast multiplication - equivalent to above, but 5x faster
+    sqrt_t = outlier_t ** 0.5
+    tvt = np.multiply(np.multiply(sqrt_t[:, None], vmm), sqrt_t[None, :])
+    tvt += np.diag(1 - outlier_t)
+
     return tvt
 
 
 # Chrono weight estimation
 # ---------------------------
+# TODO: replace with 1d filter if data is uniformly spaced or RSS if error_structure=='uniform'
+#  Requires splitting hybrid data vector into EIS and chrono vectors
 def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
-                     outlier_t=None, outlier_p=None, var_floor=None):
+                     out_tvt=None, outlier_p=None, var_floor=None):
     resid = rm @ x - y
 
     # Get outlier_t vector
     if outlier_p is not None:
-        outlier_t = solve_outlier_t(vmm, outlier_t, resid, outlier_p)
-        vmm = outlier_tvt(vmm, outlier_t)
+        outlier_t = solve_outlier_t(vmm, resid, outlier_p)
+        out_tvt = outlier_tvt(vmm, outlier_t)
+        vmm_eff = out_tvt
     else:
         outlier_t = np.ones(len(y))
+        out_tvt = None
+        vmm_eff = vmm
 
     # Estimate error variance vector from weighted mean of residuals
     if var_floor is None:
         var_floor = np.var(y) * 1e-7
         # print('var floor:', var_floor)
-    s_hat = vmm @ resid ** 2
+    s_hat = vmm_eff @ resid ** 2
     s_hat[s_hat < var_floor] = var_floor
 
     # Convert variance to weights
@@ -1630,7 +1639,19 @@ def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
         # w_beta = w_0 ** 2 * (w_alpha - 1.5)
         w_hat = w_hat * solve_init_weight_scale(w_scale, w_alpha, w_beta) / w_scale
 
-    return w_hat, outlier_t
+    return w_hat, outlier_t, out_tvt
+
+
+# def _estimate_weights(resid, error_structure, outlier_t, uniform_spacing):
+#     if error_structure == 'uniform':
+#         # Inlier contribution
+#         s_hat = np.sum((outlier_t * resid) ** 2) / len(resid)
+#         s_hat = np.ones(len(resid)) *
+#
+#         # Add outlier contribution
+#         s_hat += (1 - outlier_t) * resid ** 2
+#
+#         w_hat = s_hat ** -0.5
 
 
 def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector, s_vectors, rv, rm,
@@ -1654,8 +1675,9 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
     if outlier_p is not None:
         outlier_t = np.ones(vmm.shape[0])
         est_weights = np.ones(vmm.shape[0])
+        out_tvt = outlier_tvt(vmm, outlier_t)
         # Repeat the initial weights calculation to remove outliers
-        for i in range(5):
+        for i in range(2):
             # Solve the ridge problem with QP: optimize x
             # Multiply l2_matrix by 2 due to exponential prior
             w_diag = np.diag(est_weights)
@@ -1672,17 +1694,19 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
                 vmm_base /= vm_rowsum[:, None]
                 vmm = vmm_base
 
-            for j in range(5):
+            for j in range(2):
                 # Repeat weight calculation to allow outlier_t to converge
-                est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None, outlier_t=outlier_t,
-                                                          outlier_p=outlier_p)
+                est_weights, outlier_t, out_tvt = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None,
+                                                                  out_tvt=out_tvt,
+                                                                  outlier_p=outlier_p)
 
         # print('init outlier prob:', 1 - outlier_t)
 
     else:
         cvx_result = solve_convex_opt(rv, rm, l2_matrix, 1e-4, nonneg, special_qp_params)
         x_overfit = np.array(list(cvx_result['x']))
-        est_weights, outlier_t = estimate_weights(x_overfit, rv, vmm, rm, est_weights=None, outlier_p=outlier_p)
+        est_weights, outlier_t, out_tvt = estimate_weights(x_overfit, rv, vmm, rm,
+                                                           est_weights=None, outlier_p=outlier_p)
 
     # Get global weight scale
     # Need to average variance, not weights

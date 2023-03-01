@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
-from scipy import signal
+from scipy import signal, ndimage
 from copy import deepcopy
 import pickle
 
@@ -339,9 +339,6 @@ class DRT(DRTBase):
 
         # Subtract chrono background
         if subtract_background and times is not None:
-            if background_corr_power is None and background_type != 'static':
-                    background_corr_power = 2  # Default: penalty for dynamic background
-
             if estimate_background_kw is None:
                 estimate_background_kw = {}
             estimate_background_defaults = {
@@ -357,6 +354,17 @@ class DRT(DRTBase):
             drt_bkg, bkg_gps, y_bkg = self.estimate_chrono_background(times, i_signal, v_signal, copy_self=True,
                                                                       **estimate_background_kw)
             y_pred_bkg = drt_bkg.predict_response()
+
+            if background_corr_power is None and background_type != 'static':
+                bkg_std = np.std(y_bkg)
+                v_std = np.std(y_pred_bkg)
+                std_ratio = bkg_std / v_std
+                print('std ratio:', std_ratio)
+                # background_corr_power = 1.1 * np.exp(-5 * std_ratio)
+                # background_corr_power = 1.25 * np.exp(-10 * std_ratio) + 0.25
+                background_corr_power = np.log(0.02 / std_ratio + 1) + 0.25
+                print('background_corr_power:', background_corr_power)
+                # background_corr_power = 1  # Default: penalty for dynamic background
 
             self.background_gp = bkg_gps[0]
             if background_type == 'static':
@@ -397,21 +405,21 @@ class DRT(DRTBase):
         # Define special parameters included in quadratic programming parameter vector
         self.special_qp_params = {}
 
-        # DOP replaces R_inf and L
-        if not self.fit_dop:
-            self._add_special_qp_param('R_inf', True)
-
         if times is not None:
             self._add_special_qp_param('v_baseline', False)
-
-        if self.fit_inductance and not self.fit_dop:
-            self._add_special_qp_param('inductance', True)
 
         if vz_offset and data_type == 'hybrid':
             self._add_special_qp_param('vz_offset', False)
 
         if subtract_background and background_type == 'scaled':
             self._add_special_qp_param('background_scale', True)
+
+        # DOP replaces R_inf and L
+        if not self.fit_dop:
+            self._add_special_qp_param('R_inf', True)
+
+        if self.fit_inductance and not self.fit_dop:
+            self._add_special_qp_param('inductance', True)
 
         if self.fit_dop:
             if self.fixed_basis_nu is None:
@@ -788,6 +796,12 @@ class DRT(DRTBase):
 
         weights = init_weights.copy()
 
+        # Initialize outlier tvt
+        if kw.get('outlier_p', None) is not None:
+            outlier_tvt = qphb.outlier_tvt(vmm, outlier_t)
+        else:
+            outlier_tvt = None
+
         if self.print_diagnostics:
             if chrono_init_weights is not None:
                 print('Est chrono weight:', np.mean(chrono_est_weights))
@@ -882,12 +896,11 @@ class DRT(DRTBase):
                 self.update_data_scale(scale_factor)
 
             # Perform actual QPHB operation
-            x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged = \
-                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rzv, weights, est_weights, outlier_t,
-                                  rzm, vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp,
-                                  xmx_norms, dop_xmx_norms,
-                                  None, None, curvature_constraint, nonneg, self.special_qp_params, xtol, 1,
-                                  self.qphb_history)
+            x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, outlier_tvt, cvx_result, converged = \
+                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rzv, weights, est_weights, outlier_tvt,
+                                  rzm, vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers,
+                                  eff_hp, xmx_norms, dop_xmx_norms, None, None, curvature_constraint, nonneg,
+                                  self.special_qp_params, xtol, 1, self.qphb_history)
 
             # Normalize to ordinary ridge solution
             if it == 0:
@@ -1043,8 +1056,99 @@ class DRT(DRTBase):
         self.fit_parameters['z_sigma_tot'] = z_sigma
         self.fit_parameters['vz_offset_eps'] = vz_offset_eps
         self.fit_parameters['p_matrix'] = p_matrix
+        self.fit_parameters['q_vector'] = q_vector
 
         self.fit_type = f'qphb_{data_type}'
+
+    def get_offset_pq(self, weights=None, filter_weights=False, unscale=False):
+        # Get necessary matrices/vectors
+        rzm = self.qphb_params['rm'].copy()
+        rzv = self.qphb_params['rv'].copy()
+        penalty_matrices = deepcopy(self.qphb_params['penalty_matrices'])
+        penalty_type = self.fit_kwargs['penalty_type']
+        qphb_hypers = self.qphb_params['hypers']
+        l1_lambda_vector = self.qphb_params['l1_lambda_vector'].copy()
+        rho_vector = self.qphb_params['rho_vector']
+        dop_rho_vector = self.qphb_params['dop_rho_vector']
+        s_vectors = self.qphb_params['s_vectors'].copy()
+
+        if weights is None:
+            scaled_weights = self.qphb_params['weights']
+            # print(np.mean(scaled_weights))
+
+            # TODO: compare and determine how to simplify weights. Seems like mean of all weights is safest...
+
+            if filter_weights:
+                num_chrono = self.num_chrono
+                chrono_weights = scaled_weights[:num_chrono]
+                eis_weights = scaled_weights[num_chrono:]
+                # chrono_weights = ndimage.median_filter(chrono_weights, size=5, mode='reflect')
+                # eis_weights = ndimage.median_filter(eis_weights, size=5, mode='reflect')
+                chrono_weights = np.ones_like(chrono_weights) * np.mean(chrono_weights)
+                eis_weights = np.ones_like(eis_weights) * np.mean(eis_weights)
+                scaled_weights = np.concatenate([chrono_weights, eis_weights])
+            else:
+                scaled_weights = np.ones_like(scaled_weights) * np.mean(scaled_weights)
+        else:
+            scaled_weights = weights
+
+        if unscale:
+            # rzv = rzv * self.coefficient_scale
+            scaled_weights = scaled_weights / self.coefficient_scale
+            for key in list(penalty_matrices.keys()):
+                mat = penalty_matrices[key]
+                penalty_matrices[key] = mat / self.coefficient_scale ** 2
+
+        # Get raw parameter values
+        x_raw = np.array(list(self.cvx_result['x']))
+
+        # For each offset parameter, add its influence to the data vector
+        del_index = []
+        for name in ['v_baseline', 'vz_offset']:
+            if name in self.special_qp_params.keys():
+                index = self.special_qp_params[name]['index']
+                val = x_raw[index]
+                rzv -= rzm[:, index] * val
+
+                del_index.append(index)
+
+        if len(del_index) > 0:
+            # After accounting for offsets, delete the corresponding matrix/vector entries
+            # Response matrix - delete columns
+            rzm = np.delete(rzm, del_index, axis=1)
+
+            # Penalty matrices - delete rows and columns
+            for key in list(penalty_matrices.keys()):
+                mat = penalty_matrices[key]
+                penalty_matrices[key] = np.delete(np.delete(mat, del_index, axis=0), del_index, axis=1)
+
+            # Vectors - delete entries
+            l1_lambda_vector = np.delete(l1_lambda_vector, del_index)
+            for i, sv in enumerate(s_vectors):
+                s_vectors[i] = np.delete(sv, del_index)
+
+            # Remove entries from special_qp dict
+            special_qp = deepcopy(self.special_qp_params)
+            for name in ['v_baseline', 'vz_offset']:
+                if name in special_qp.keys():
+                    del special_qp[name]
+
+            # Shift indices of remaining special params
+            for key in list(special_qp.keys()):
+                index = special_qp[key]['index']
+                shift = np.sum([1 if di < index else 0 for di in del_index])
+                special_qp[key]['index'] = index - shift
+
+            p_matrix, q_vector = qphb.calculate_pq(rzm, rzv, penalty_matrices, penalty_type, qphb_hypers,
+                                                   l1_lambda_vector,
+                                                   rho_vector, dop_rho_vector, s_vectors, scaled_weights,
+                                                   special_qp)
+        else:
+            # No offsets to remove
+            p_matrix = self.fit_parameters['p_matrix'].copy()
+            q_vector = self.fit_parameters['q_vector'].copy()
+
+        return p_matrix, q_vector
 
     def fit_chrono(self, times, i_signal, v_signal, step_times=None,
                    nonneg=True, scale_data=True, update_scale=False,
@@ -1740,6 +1844,12 @@ class DRT(DRTBase):
             rzm_vz = None
             vz_strength_vec = 1
 
+        # Initialize outlier_tvt
+        if qphb_hypers.get('outlier_p', None) is not None:
+            outlier_tvt = qphb.outlier_tvt(vmm, outlier_t)
+        else:
+            outlier_tvt = None
+
         while it < max_iter:
 
             x_in = x.copy()
@@ -1771,11 +1881,11 @@ class DRT(DRTBase):
                 self.update_data_scale(scale_factor)
 
             # Perform actual QPHB operation
-            x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged = \
-                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_t, rm,
-                                  vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp,
-                                  xmx_norms, dop_xmx_norms,
-                                  None, None, None, nonneg, self.special_qp_params, xtol, 1, continue_history)
+            x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, outlier_tvt, cvx_result, converged = \
+                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_tvt, rm,
+                                  vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp, xmx_norms,
+                                  dop_xmx_norms, None, None, None, nonneg, self.special_qp_params, xtol, 1,
+                                  continue_history)
 
             # Update vz_offset column
             if self.fit_type.find('hybrid') > -1 and 'vz_offset' in self.special_qp_params.keys():
@@ -1977,6 +2087,7 @@ class DRT(DRTBase):
         candidate_x = np.array(qphb_x + up_x + down_x)
 
         # Evaluate llh
+        # TODO: incorporate outlier_t into llh calculation
         if llh_kw is None:
             llh_kw = {}
         cand_weights = [
@@ -2901,8 +3012,9 @@ class DRT(DRTBase):
             step_x.append(new_history[-1]['x'])
 
             # Get weights estimate based only on current x for llh calculation
-            weights, _ = qphb.estimate_weights(new_history[-1]['x'], self.qphb_params['rv'], self.qphb_params['vmm'],
-                                               self.qphb_params['rm'])
+            # TODO: incorporate outlier_t into pfrt_fit LLH
+            weights, _, _ = qphb.estimate_weights(new_history[-1]['x'], self.qphb_params['rv'], self.qphb_params['vmm'],
+                                                  self.qphb_params['rm'])
 
             step_llh.append(self.evaluate_llh(weights, x=step_x[-1], marginalize_weights=True))
 
@@ -5386,7 +5498,7 @@ class DRT(DRTBase):
                 outlier_kw = {'s': s, 'alpha': alpha, 'c': 'r', 'label': 'Outliers'}
             # ax.scatter(x_out, y_err_out / scale_factor, **outlier_kw)
 
-            plot_tuple = utils.chrono.signals_to_tuple(times, None, y_err_out, self.chrono_mode)
+            plot_tuple = utils.chrono.signals_to_tuple(t_out, None, y_err_out, self.chrono_mode)
             plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False,
@@ -6477,7 +6589,7 @@ class DRT(DRTBase):
                                                                       op_mode)
             else:
                 induc_rv = np.zeros(len(times))
-            self.prediction_matrices = {'response': rm.copy(), 'inductance_response': induc_rv.copy()}
+            self.prediction_matrices.update({'response': rm.copy(), 'inductance_response': induc_rv.copy()})
 
             # With prediction matrices calculated, set recalc flag to False
             self._recalc_chrono_prediction_matrix = False
@@ -6652,7 +6764,7 @@ class DRT(DRTBase):
 
     def estimate_chrono_background(self, times, i_signal, v_signal, bkg_iter=1,
                                    gp=None, kernel_type='gaussian', length_scale_bounds=(0.01, 1),
-                                   periodicity_bounds=(1e-3, 1e3),
+                                   periodicity_bounds=(1e-3, 1e3), noise_level_bounds=(0.1, 10),
                                    kernel_size=1, n_restarts=1, kernel_scale_factor=1, y_err_thresh=1e-3,
                                    linear_downsample=True, linear_sample_interval=None, copy_self=False,
                                    **fit_kw):
@@ -6668,11 +6780,13 @@ class DRT(DRTBase):
                                                            gp=gp, kernel_type=kernel_type,
                                                            length_scale_bounds=length_scale_bounds,
                                                            periodicity_bounds=periodicity_bounds,
+                                                           noise_level_bounds=noise_level_bounds,
                                                            kernel_size=kernel_size, n_restarts=n_restarts,
                                                            kernel_scale_factor=kernel_scale_factor,
                                                            y_err_thresh=y_err_thresh,
                                                            linear_downsample=linear_downsample,
                                                            linear_sample_interval=linear_sample_interval, fit_kw=fit_kw)
+
         if copy_self:
             return drt_bkg, gps, y_bkg
         else:
@@ -6685,7 +6799,7 @@ class DRT(DRTBase):
     def attribute_categories(self):
         att = {
             'config': [
-                'fixed_basis_tau', 'basis_tau', 'tau_basis_type', 'tau_epsilon',
+                'fixed_basis_tau', 'basis_tau', 'tau_basis_type', 'tau_epsilon', 'tau_supergrid',
                 'fixed_basis_nu', 'basis_nu', 'nu_basis_type',  # 'nu_epsilon',
                 'series_neg', 'fit_dop', 'normalize_dop', 'fit_inductance',
                 'step_model', 'chrono_mode',
@@ -6711,7 +6825,8 @@ class DRT(DRTBase):
                 't_fit', 'raw_input_signal', 'raw_response_signal', 'scaled_input_signal', 'scaled_response_signal',
                 'raw_response_background', 'step_times', 'step_sizes', 'tau_rise',
                 'f_fit', 'z_fit', 'z_fit_scaled',
-                'chrono_outlier_index', 'chrono_outliers', 'eis_outlier_index', 'eis_outliers'
+                'chrono_outlier_index', 'chrono_outliers', 'eis_outlier_index', 'eis_outliers',
+                '_t_fit_subset_index', '_f_fit_subset_index'
             ],
         }
 

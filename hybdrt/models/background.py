@@ -7,7 +7,7 @@ from .. import preprocessing as pp
 
 
 def estimate_background(x_meas, y_meas, y_pred, gp=None, kernel_type='gaussian',
-                        length_scale_bounds=(0.01, 10), periodicity_bounds=(1e-3, 1e3),
+                        length_scale_bounds=(0.01, 10), periodicity_bounds=(1e-3, 1e3), noise_level_bounds=(0.1, 10),
                         kernel_size=1, n_restarts=1, kernel_scale_factor=1):
     # Get residuals
     y_err = y_meas - y_pred
@@ -15,7 +15,7 @@ def estimate_background(x_meas, y_meas, y_pred, gp=None, kernel_type='gaussian',
     # Set up GP
     if gp is None:
         # Constraint noise level to within a factor of 10 of the apparent error variance
-        kernel = WhiteKernel(noise_level=1, noise_level_bounds=(0.1, 10))
+        kernel = WhiteKernel(noise_level=1, noise_level_bounds=noise_level_bounds)
 
         if kernel_type == 'gaussian':
             # Initialize each RBF at a different length scale
@@ -66,6 +66,7 @@ def estimate_background(x_meas, y_meas, y_pred, gp=None, kernel_type='gaussian',
 
 def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=None, kernel_type='gaussian',
                                length_scale_bounds=(0.01, 10), periodicity_bounds=(1e-3, 1e3),
+                               noise_level_bounds=(0.1, 10),
                                kernel_size=1, n_restarts=1, kernel_scale_factor=1, y_err_thresh=1e-3,
                                linear_downsample=True, linear_sample_interval=None,
                                fit_kw=None):
@@ -121,6 +122,7 @@ def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=No
         gp_i, y_bkg_i = estimate_background(x_gp, y_meas_gp, y_pred_gp, gp=gp, kernel_type=kernel_type,
                                             length_scale_bounds=length_scale_bounds,
                                             periodicity_bounds=periodicity_bounds,
+                                            noise_level_bounds=noise_level_bounds,
                                             kernel_size=kernel_size, n_restarts=n_restarts,
                                             kernel_scale_factor=kernel_scale_factor)
 
@@ -173,9 +175,13 @@ def get_background_matrix(gps, X_pred, y_drt=None, corr_power=0):
         cor = np.corrcoef(bkg_y, rowvar=False)
         # Last row: correlation between each column of bkg_mat and y_drt
         cross_cor = np.abs(cor[-1, :-1])
+        factor = (1 - cross_cor)
+        # print(np.max(factor))
+        # factor /= np.max(factor)
+
         # print(cross_cor.shape)
         # print(cross_cor_norm)
         # Multiply each row of bkg_mat by 1 minus its correlation with y_drt
-        bkg_mat = bkg_mat @ np.diag((1 - cross_cor) ** corr_power)
+        bkg_mat = bkg_mat @ np.diag(factor ** corr_power)
 
     return bkg_mat

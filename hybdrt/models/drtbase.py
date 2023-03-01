@@ -484,7 +484,6 @@ class DRTBase:
     def update_data_scale(self, factor):
         """
         Update response signal scale by factor
-        :param ndarray scaled_response_signal: response signal scaled to current scale
         :param float factor: factor by which to multiply data to obtain desired scale
         :return:
         """
@@ -563,6 +562,23 @@ class DRTBase:
             frequencies = None
 
         return frequencies
+
+    @property
+    def num_chrono(self):
+        """Number of chrono data points"""
+        if self._t_fit_subset_index is not None:
+            # If times is subset of previously fitted dataset, get subset
+            return len(self._t_fit_subset_index)
+        else:
+            return len(self.t_fit)
+
+    @property
+    def num_eis(self):
+        """Number of EIS data points"""
+        if self._f_fit_subset_index is not None:
+            return len(self._f_fit_subset_index)
+        else:
+            return len(self.f_fit)
 
     # Getters and setters to control matrix calculation
     # -------------------------------------------------
