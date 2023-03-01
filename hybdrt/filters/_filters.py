@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import ndimage
 
-from ._filters import empty_gaussian_filter1d, empty_gaussian_filter, gaussian_laplace1d, laplace1d
+from ._scifilters import empty_gaussian_filter1d, empty_gaussian_filter, gaussian_laplace1d
 
 
 def rms_filter(a, size, empty=False, **kw):

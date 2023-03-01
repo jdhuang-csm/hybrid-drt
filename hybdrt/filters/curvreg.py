@@ -27,6 +27,7 @@ def min_projection_distance(u, domain_index, curv_type='gc'):
     u_ij = u[i, j]
 
     if curv_type == 'gc':
+        # Gaussian curvature
         d1 = 0.5 * (u[i - 1, j] + u[i + 1, j]) - u_ij
 
         d2 = 0.5 * (u[i, j - 1] + u[i, j + 1]) - u_ij
@@ -45,6 +46,7 @@ def min_projection_distance(u, domain_index, curv_type='gc'):
 
         distances = np.stack([d1, d2, d3, d4, d5, d6, d7, d8], axis=0)
     elif curv_type == 'mc':
+        # Mean curvature
         d1 = (5 / 16) * (u[i - 1, j] + u[i + 1, j]) \
              + (5 / 8) * u[i, j + 1] \
              - (1 / 8) * (u[i - 1, j + 1] + u[i + 1, j + 1]) \
