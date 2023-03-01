@@ -45,8 +45,8 @@ def construct_eis_df(frequencies, z):
     return df
 
 
-def complex_vector_to_concat(z):
-    return np.concatenate([z.real, z.imag])
+def complex_vector_to_concat(z, axis=-1):
+    return np.concatenate([z.real, z.imag], axis=axis)
 
 
 def concat_vector_to_complex(z):

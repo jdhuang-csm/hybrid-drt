@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.core.multiarray import normalize_axis_index
 
+
 # Utility functions
 # -----------------
 def check_equality(a, b):
@@ -401,3 +402,19 @@ def apply_along_axis_multi(func1d, axis, arrays, *args, **kwargs):
         # matrices have to be transposed first, because they collapse dimensions!
         out_arr = np.transpose(buff, buff_permute)
         return res.__array_wrap__(out_arr)
+
+
+def group_values(a, group_indices, sort=True):
+    """
+    Group array values
+    :param a: array to group
+    :param group_indices: indices of groups
+    :param sort: whether to sort values. Only set to False if a and group_indices are already sorted by group index
+    :return:
+    """
+    if sort:
+        sort_index = np.argsort(group_indices)
+        a = a[sort_index]
+        group_indices = group_indices[sort_index]
+
+    return np.split(a, np.unique(group_indices, return_index=True)[1][1:])

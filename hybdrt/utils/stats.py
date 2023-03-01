@@ -100,6 +100,14 @@ def std_normal_quantile(quantiles):
     return s
 
 
+def robust_std(x):
+    """Estimate standard deviation from interquartile range"""
+    q1 = np.percentile(x, 25)
+    q3 = np.percentile(x, 75)
+
+    return (q3 - q1) / 1.349
+
+
 def bic(k, n, llh):
     """
     Bayesian information criterion
