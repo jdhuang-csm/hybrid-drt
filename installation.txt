@@ -3,11 +3,11 @@ First, download or clone the hybrid-drt repository to your machine. Also make su
 Anaconda/Conda users:
 Do NOT install with pip (pip and conda don't mix). *I would strongly recommend creating a clean conda environment configured to install all packages from the conda-forge channel (see instructions at bottom).* Then:
 1. Launch Anaconda Prompt (Windows) or Terminal (Mac) and activate the environment in which you want to install the package.
-2. Install required packages:
-	conda install --file requirements.txt
-3. Manually install the mittag-leffler package: navigate to the top-level mittag-leffler directory that containts the setup.py file, then install it with:
+2. Manually install the mittag-leffler package: navigate to the top-level mittag-leffler directory that containts the setup.py file, then install it with:
 	conda develop .
-4. Navigate to the top-level hybrid-drt directory that contains the setup.py file, then install hybrid-drt with:
+3. Navigate to the top-level hybrid-drt directory that contains the setup.py file, then install required packages:
+	conda install --file requirements.txt
+4. Finally, install hybrid-drt with:
 	conda develop .
 
 Pip users:

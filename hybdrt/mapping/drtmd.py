@@ -5,7 +5,9 @@ from copy import deepcopy
 from scipy import ndimage
 import pandas as pd
 
-from .mapping import apply_filter, peak_prob_1d
+from hybdrt.mapping.ndx import resample
+from ..mapping.curvature import peak_prob_1d
+from hybdrt.filters import apply_filter
 from .. import utils
 from .. import fileload as fl
 from ..matrices import basis
@@ -79,9 +81,11 @@ class DRTMD(object):
 
         # Fit parameters
         self.obs_x = np.zeros((0, *self.drt_param_shape()))
+        self.obs_drt_var = np.zeros((0, *self.drt_param_shape()))
         self.obs_special = None
         self.obs_fit_attr = []
         self.obs_fit_status = np.zeros(0, dtype=bool)
+        self.obs_fit_errors = []
         self.obs_tau_indices = []
 
         # Precision
@@ -94,10 +98,39 @@ class DRTMD(object):
         self.warn = warn
         self.print_progress = print_progress
 
+    @classmethod
+    def from_source(cls, source):
+        if type(source) != dict:
+            with open(source, 'rb') as f:
+                att_dict = pickle.load(f)
+        else:
+            att_dict = source
+
+        # Initialize with required/essential arguments
+        config_keys = ['tau_supergrid', 'psi_dim_names', 'store_attr_categories',  'tau_basis_type', 'tau_epsilon']
+        init_kw = {k: att_dict.get(k, None) for k in config_keys}
+        init_kw = {k: v for k, v in init_kw.items() if v is not None}
+        drtmd = cls(**init_kw)
+
+        # Load all attributes
+        drtmd.set_attributes(att_dict)
+
+        return drtmd
+
     # --------------------------------------------------------------------
     # Data addition and fitting
     # --------------------------------------------------------------------
     def add_observation(self, psi, chrono_data, eis_data, group_id=None, fit=False):
+        """
+        Add an observation with or without fitting it
+        :param ndarray psi: psi array defining the observation conditions/coordinates
+        :param tuple or path chrono_data: Either a path to a data file or a formatted tuple of chronopotentiometry data
+        :param tuple or path eis_data: Either a path to a data file or a formatted tuple of EIS data
+        :param str group_id: Optional group identifier for the observation
+        :param bool fit: if True, fit the observation immediately. If False, just add the observation data; the
+        observation can be fitted later with fit_observation or fit_all
+        :return:
+        """
         psi = np.atleast_1d(psi).flatten()
 
         # Initialize obs_psi
@@ -117,12 +150,15 @@ class DRTMD(object):
         self.obs_group_id.append(group_id)
         self.obs_ignore_flag = np.insert(self.obs_ignore_flag, len(self.obs_ignore_flag), False)
         self.obs_fit_status = np.insert(self.obs_fit_status, len(self.obs_fit_status), False)
+        self.obs_fit_errors.append(None)
         self.obs_fit_attr.append(None)
         self.obs_tau_indices.append(None)
         self.obs_x = np.insert(self.obs_x, len(self.obs_x), np.zeros(self.drt_param_shape()), axis=0)
+        self.obs_drt_var = np.insert(self.obs_drt_var, len(self.obs_drt_var), np.zeros(self.drt_param_shape()), axis=0)
 
         if self.obs_special is not None:
-            for key in self.drt1d.special_qp_params.keys():
+            # Expand existing special arrays
+            for key in list(self.obs_special.keys()):
                 key_shape = self.special_param_shape(key)
                 self.obs_special[key] = np.insert(self.obs_special[key], self.num_obs - 1, np.zeros(key_shape), axis=0)
 
@@ -130,46 +166,71 @@ class DRTMD(object):
             obs_index = self.num_obs - 1
             self.fit_observation(obs_index)
 
-    def fit_observation(self, obs_index):
+    def fit_observation(self, obs_index, ignore_errors=False,
+                        use_arg_data=False, chrono_data=None, eis_data=None):
         # Get data
-        chrono_data, eis_data = self.get_obs_data(obs_index)
+        if not use_arg_data:
+            chrono_data, eis_data = self.get_obs_data(obs_index)
 
         # Fit data
-        getattr(self.drt1d, self._fit_func_name)(*chrono_data, *eis_data, **self.fit_kw)
+        try:
+            getattr(self.drt1d, self._fit_func_name)(*chrono_data, *eis_data, **self.fit_kw)
 
-        # Store result
-        self.obs_fit_attr[obs_index] = self.drt1d.get_attributes(which=self.store_attr_categories)
+            # Store result
+            self.obs_fit_attr[obs_index] = self.drt1d.get_attributes(which=self.store_attr_categories)
 
-        # Determine tau indices used for fit
-        left_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[0])
-        right_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[-1]) + 1
-        # print(self.drt1d.basis_tau[0], self.drt1d.basis_tau[-1])
-        # print(self.tau_supergrid[left_index], self.tau_supergrid[right_index - 1])
-        self.obs_tau_indices[obs_index] = (left_index, right_index)
+            # Determine tau indices used for fit
+            left_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[0])
+            right_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[-1]) + 1
+            # print(self.drt1d.basis_tau[0], self.drt1d.basis_tau[-1])
+            # print(self.tau_supergrid[left_index], self.tau_supergrid[right_index - 1])
+            self.obs_tau_indices[obs_index] = (left_index, right_index)
 
-        # drt1d.special_qp_params will be set once first fit is complete. Initialize obs_special after fitting
-        if self.obs_special is None:
-            self.initialize_obs_special()
+            # drt1d.special_qp_params will be set once first fit is complete. Initialize obs_special after fitting
+            if self.obs_special is None:
+                self.initialize_obs_special()
 
-        # Format parameters and insert into arrays
-        x_drt, x_special = self.format_1d_params(self.drt1d, left_index, right_index)
-        self.obs_x[obs_index] = x_drt
+            # Format parameters and insert into arrays
+            x_drt, x_special = self.format_1d_params(self.drt1d, left_index, right_index)
+            self.obs_x[obs_index] = x_drt
 
-        # print(obs_index)
-        # print(self.obs_special, x_special)
-        for key in self.drt1d.special_qp_params.keys():
-            self.obs_special[key][obs_index] = x_special[key]
+            # Get DRT variance
+            drt_cov = self.drt1d.estimate_distribution_cov(tau=self.tau_supergrid, extend_var=True)
+            self.obs_drt_var[obs_index] = np.diag(drt_cov)
 
-        # Update fit status
-        self.obs_fit_status[obs_index] = True
+            # print(obs_index)
+            # print(self.obs_special, x_special)
+            for key in self.drt1d.special_qp_params.keys():
+                # Initialize array if key is new
+                if key not in list(self.obs_special.keys()):
+                    self.obs_special[key] = np.zeros((self.num_obs, *self.special_param_shape(key)))
+                self.obs_special[key][obs_index] = x_special[key]
 
-    def fit_all(self, refit=False, print_interval=None):
+            # Update fit status
+            self.obs_fit_status[obs_index] = True
+
+            # TODO: REMOVE
+            p, q = self.drt1d.get_offset_pq()
+            
+        except Exception as err:
+            if ignore_errors:
+                print(f'Error encountered at obs_index {obs_index} (printed below). This observation will be ignored.'
+                      f'\n{err}')
+                self.obs_fit_status[obs_index] = False
+                self.obs_ignore_flag[obs_index] = True
+                self.obs_fit_errors[obs_index] = err
+            else:
+                raise err
+
+    # def fit_group(self, group_id):
+
+    def fit_all(self, refit=False, print_interval=None, ignore_errors=False):
         if refit:
             # Fit all observations regardless of fit status
             fit_index = np.arange(self.num_obs)
         else:
             # Only fit unfitted observations
-            fit_index = np.where(~np.array(self.obs_fit_status))[0]
+            fit_index = np.where(~np.array(self.obs_fit_status) & ~np.array(self.obs_ignore_flag))[0]
 
         num_to_fit = len(fit_index)
         if print_interval is None:
@@ -178,7 +239,7 @@ class DRTMD(object):
             print(f'Found {num_to_fit} observations to fit')
 
         for i, index in enumerate(fit_index):
-            self.fit_observation(index)
+            self.fit_observation(index, ignore_errors=ignore_errors)
             if self.print_progress and ((i + 1) % print_interval == 0 or i == num_to_fit - 1):
                 print(f'{i + 1} / {num_to_fit}')
 
@@ -191,12 +252,16 @@ class DRTMD(object):
         # Load chrono data
         if type(chrono_data) in (str, Path, WindowsPath):
             chrono_data = self.chrono_reader(chrono_data)
+        elif type(chrono_data) == pd.DataFrame:
+            chrono_data = fl.get_chrono_tuple(chrono_data)
         elif chrono_data is None:
             chrono_data = (None, None, None)
 
         # Load EIS data
         if type(eis_data) in (str, Path, WindowsPath):
             eis_data = self.eis_reader(eis_data)
+        elif type(eis_data) == pd.DataFrame:
+            eis_data = fl.get_eis_tuple(eis_data)
         elif eis_data is None:
             eis_data = (None, None)
 
@@ -223,8 +288,10 @@ class DRTMD(object):
         """
         self.obs_fit_attr = [None] * self.num_obs
         self.obs_fit_status = np.zeros(self.num_obs, dtype=bool)
+        self.obs_fit_errors = [None] * self.num_obs
         self.obs_tau_indices = [None] * self.num_obs
-        self.obs_x = np.zeros((self.num_obs, len(self.tau_supergrid)))
+        self.obs_x = np.zeros((self.num_obs, *self.drt_param_shape()))
+        self.obs_drt_var = np.zeros((self.num_obs, *self.drt_param_shape()))
         self.obs_special = None
 
     def clear_obs(self):
@@ -240,8 +307,10 @@ class DRTMD(object):
         self.obs_ignore_flag = np.zeros(0, dtype=bool)
         self.obs_fit_attr = []
         self.obs_fit_status = np.zeros(0, dtype=bool)
+        self.obs_fit_errors = []
         self.obs_tau_indices = []
         self.obs_x = np.zeros((0, *self.drt_param_shape()))
+        self.obs_drt_var = np.zeros((0, *self.drt_param_shape()))
         self.obs_special = None
 
     # --------------------------------------------------------------------
@@ -257,14 +326,22 @@ class DRTMD(object):
         return np.sum(x, axis=-1) * self.tau_basis_area
 
     def predict_x(self, psi, factor_index=None, percentile=None, normalize=False, ndfilter=False, filter_func=None,
+                  resample_dims=None,
                   filter_kw=None):
         self.validate_psi(psi)
 
         psi_index = self.get_psi_index(psi)
         if np.min(psi_index) > -1:
-            x = self.obs_x[psi_index]
+            # All requested coordinates are contained in observations
+            x = self.obs_x[psi_index].copy()
         else:
-            x = None
+            # Some or all requested coordinates were not observed. Resample (interpolate) from observations
+            # TODO: need to provide resample dimensions
+            if resample_dims is None:
+                resample_dims = self.psi_dim_names
+            resample_dim_index = [self.psi_dim_names.index(d) for d in resample_dims]
+            x = resample(psi[:, resample_dim_index], self.obs_psi[np.ix_(self.obs_fit_status, resample_dim_index)],
+                         self.obs_x[self.obs_fit_status])
 
         if normalize:
             rp = self.predict_r_p(x=x, absolute=True)
@@ -308,16 +385,22 @@ class DRTMD(object):
         cov_matrices = []
         obs_index = np.atleast_1d(obs_index)
         for index in obs_index:
-            drt = self.get_fit(index)
-            if self.fit_type == 'pfrt':
-                if factor_index is not None:
-                    p_mat = drt.pfrt_result['step_p_mat'][factor_index]
-                    cov = drt.estimate_param_cov(p_matrix=p_mat)
+            if self.obs_fit_status[index]:
+                drt = self.get_fit(index)
+                if self.fit_type == 'pfrt':
+                    if factor_index is not None:
+                        p_mat = drt.pfrt_result['step_p_mat'][factor_index]
+                        cov = drt.estimate_param_cov(p_matrix=p_mat)
+                    else:
+                        # Calculate for all factors
+                        cov = np.array(
+                            [drt.estimate_param_cov(p_matrix=p_mat) for p_mat in drt.pfrt_result['step_p_mat']]
+                        )
                 else:
-                    # Calculate for all factors
-                    cov = np.array([drt.estimate_param_cov(p_matrix=p_mat) for p_mat in drt.pfrt_result['step_p_mat']])
+                    cov = drt.estimate_param_cov()
             else:
-                cov = drt.estimate_param_cov()
+                # Observation not fitted
+                cov = None
 
             cov_matrices.append(cov)
 
@@ -332,15 +415,23 @@ class DRTMD(object):
         x_cov = np.zeros((len(cov), *self.drt_param_shape(factor_index), len(self.tau_supergrid)))
         # print(x_cov.shape)
         for i, index in enumerate(obs_index):
-            left_index, right_index = self.obs_tau_indices[index]
-            if self.fit_type == 'pfrt' and factor_index is None:
-                x_cov[i, :, left_index:right_index, left_index:right_index] = \
-                    cov[i][:, self.drt1d.get_qp_mat_offset():, self.drt1d.get_qp_mat_offset():]
+            if cov[i] is None:
+                x_cov[i] = np.nan
             else:
-                x_cov[i, left_index:right_index, left_index:right_index] = \
-                    cov[i][self.drt1d.get_qp_mat_offset():, self.drt1d.get_qp_mat_offset():]
+                left_index, right_index = self.obs_tau_indices[index]
+                drt = self.get_fit(index)
+                if self.fit_type == 'pfrt' and factor_index is None:
+                    x_cov[i, :, left_index:right_index, left_index:right_index] = \
+                        cov[i][:, drt.get_qp_mat_offset():, drt.get_qp_mat_offset():]
+                else:
+                    x_cov[i, left_index:right_index, left_index:right_index] = \
+                        cov[i][drt.get_qp_mat_offset():, drt.get_qp_mat_offset():]
 
         return x_cov
+
+    def predict_x_var(self, obs_index, factor_index=None):
+        x_cov = self.predict_x_cov(obs_index, factor_index)
+        return np.array([np.diag(cov) for cov in x_cov])
 
     def predict_drt_cov(self, obs_index, tau=None, x_cov=None, order=0, factor_index=None, extend_var=False):
         obs_index = np.atleast_1d(obs_index)
@@ -358,22 +449,23 @@ class DRTMD(object):
         # Extend variance beyond measurement bounds
         if extend_var:
             for i in range(len(obs_index)):
-                # Get tau data limits (basis goes one decade beyond data)
-                tau_indices = self.obs_tau_indices[obs_index[i]]
-                t_left = self.tau_supergrid[tau_indices[0]] * 10
-                t_right = self.tau_supergrid[tau_indices[1]] / 10
+                if not np.any(np.isnan(drt_cov[i])):
+                    # Get tau data limits (basis goes one decade beyond data)
+                    tau_indices = self.obs_tau_indices[obs_index[i]]
+                    t_left = self.tau_supergrid[tau_indices[0]] * 10
+                    t_right = self.tau_supergrid[tau_indices[1]] / 10
 
-                left_index = utils.array.nearest_index(tau, t_left) + 1
-                right_index = utils.array.nearest_index(tau, t_right)
-                var = np.diag(drt_cov[i]).copy()
-                # Set the variance outside the measurement bounds to the variance at the corresponding bound
-                var[:left_index] = np.maximum(var[:left_index], var[left_index])
-                var[right_index:] = np.maximum(var[right_index:], var[right_index])
-                drt_cov[i, np.diag_indices(drt_cov[i].shape[0])] = var
+                    left_index = utils.array.nearest_index(tau, t_left) + 1
+                    right_index = utils.array.nearest_index(tau, t_right)
+                    var = np.diag(drt_cov[i]).copy()
+                    # Set the variance outside the measurement bounds to the variance at the corresponding bound
+                    var[:left_index] = np.maximum(var[:left_index], var[left_index])
+                    var[right_index:] = np.maximum(var[right_index:], var[right_index])
+                    drt_cov[i, np.diag_indices(drt_cov[i].shape[0])] = var
 
         return drt_cov
 
-    def predict_drt_var(self, obs_index, tau=None, x_cov=None, order=0, factor_index=None, extend_var=False,
+    def predict_drt_var(self, obs_index, tau=None, x_cov=None, order=0, factor_index=None, extend_var=True,
                         ndfilter=False, filter_func=None, filter_kw=None):
         drt_cov = self.predict_drt_cov(obs_index, tau, x_cov, order, factor_index, extend_var)
         drt_var = np.array([np.diag(cov) for cov in drt_cov])
@@ -384,7 +476,7 @@ class DRTMD(object):
 
         return drt_var
 
-    def predict_peak_prob(self, psi, x=None, f_var=None, fxx_var=None, tau=None, factor_index=None, extend_var=False,
+    def predict_peak_prob(self, psi, x=None, f_var=None, fxx_var=None, tau=None, factor_index=None, extend_var=True,
                           prominence=5e-3, height=1e-3, peak_spread_sigma=None,
                           ndfilter=False, filter_func=None, filter_kw=None, sign=1):
 
@@ -399,6 +491,8 @@ class DRTMD(object):
         fxx = self.predict_drt(psi, tau=tau, x=x, order=2, factor_index=factor_index)
 
         # Get DRT std
+        # TODO: replace with std filter values?
+        # TODO: consider fxx in both dimensions?
         if f_var is None:
             f_var = self.predict_drt_var(self.get_psi_index(psi), tau=tau, order=0, factor_index=factor_index,
                                          extend_var=extend_var, ndfilter=ndfilter, filter_func=filter_func,
@@ -423,7 +517,49 @@ class DRTMD(object):
             factor = 1 / utils.stats.pdf_normal(0, 0, peak_spread_sigma)
             peak_prob = ndimage.gaussian_filter(peak_prob, sigma=sigma) * factor
 
-        return peak_prob
+        return peak_prob * np.sign(f)
+
+    def predict_curv_prob(self, psi=None, x=None, f_var=None, fxx_var=None, tau=None, factor_index=None,
+                          extend_var=True,
+                          ndfilter=False, filter_func=None, filter_kw=None):
+
+        # Calculate probability of negative curvature and f > 0
+        if psi is None and (x is None or f_var is None or fxx_var is None):
+            raise ValueError('If psi is not provided, all of x, f_var, and fxx_var must be provided')
+
+        if tau is None:
+            tau = self.get_tau_eval(10)
+
+        # Get drt and curvature
+        f = self.predict_drt(psi=psi, tau=tau, order=0, x=x, factor_index=factor_index,
+                             ndfilter=ndfilter, filter_func=filter_func, filter_kw=filter_kw)
+        fxx = self.predict_drt(psi=psi, tau=tau, order=2, x=x, factor_index=factor_index,
+                               ndfilter=ndfilter, filter_func=filter_func, filter_kw=filter_kw)
+
+        # Get variance
+        if psi is not None:
+            obs_index = self.get_psi_index(psi)
+
+            if f_var is None:
+                f_var = self.predict_drt_var(obs_index, order=0, tau=tau, factor_index=factor_index,
+                                             extend_var=extend_var,
+                                             ndfilter=ndfilter, filter_func=filter_func, filter_kw=filter_kw)
+
+            if fxx_var is None:
+                fxx_var = self.predict_drt_var(obs_index, order=2, tau=tau,
+                                               factor_index=factor_index, extend_var=extend_var,
+                                               ndfilter=ndfilter, filter_func=filter_func, filter_kw=filter_kw)
+
+        f_sigma = f_var ** 0.5
+        fxx_sigma = fxx_var ** 0.5
+
+        f_prob = 1 - utils.stats.cdf_normal(0, -np.sign(fxx) * f, f_sigma)
+        curv_prob = 1 - utils.stats.cdf_normal(0, -np.sign(f) * fxx, fxx_sigma)
+        f_prob = 2 * np.maximum(f_prob - 0.5, 0)
+        curv_prob = 2 * np.maximum(curv_prob - 0.5, 0)
+        fc_prob = np.minimum(f_prob, curv_prob) * np.sign(f)
+
+        return fc_prob
 
     # def get_drt_params(self, obs_index=None, return_psi=False):
     #     if obs_index is None:
@@ -515,7 +651,10 @@ class DRTMD(object):
         return utils.array.row_match_index(self.obs_psi, psi, precision=8)
 
     def get_group_index(self, group_id):
-        return np.where(np.array(self.obs_group_id) == group_id)
+        if type(group_id) == str:
+            return np.where(np.array(self.obs_group_id) == group_id)[0]
+        else:
+            return np.where(np.isin(np.array(self.obs_group_id), group_id))[0]
 
     def filter_psi(self, dim_eq=None, dim_gt=None, dim_lt=None, return_index=True):
         if dim_eq is None:
@@ -550,6 +689,19 @@ class DRTMD(object):
         return tau
 
     @property
+    def obs_dtype(self):
+        def get_dtype(data):
+            cp_data, eis_data = data
+            if cp_data is None:
+                return 'eis'
+            elif eis_data is None:
+                return 'chrono'
+            else:
+                return 'hybrid'
+
+        return [get_dtype(od) for od in self.obs_data]
+
+    @property
     def obs_psi_df(self):
         return pd.DataFrame(self.obs_psi, columns=self.psi_dim_names)
 
@@ -579,7 +731,15 @@ class DRTMD(object):
             return [len(self.tau_supergrid)]
 
     def special_param_shape(self, key):
-        size = self.drt1d.special_qp_params[key].get('size', 1)
+        if key in list(self.drt1d.special_qp_params.keys()):
+            size = self.drt1d.special_qp_params[key].get('size', 1)
+        else:
+            arr = self.obs_special[key]
+            if np.ndim(arr) == 1:
+                size = 1
+            else:
+                size = arr.shape[-1]
+
         if size == 1:
             if self.fit_type == 'pfrt':
                 return [len(self.pfrt_factors)]
@@ -624,13 +784,20 @@ class DRTMD(object):
                 'obs_psi', 'obs_data', 'obs_group_id', 'obs_ignore_flag'
             ],
             'fit': [
-                'obs_fit_status', 'obs_fit_attr', 'obs_tau_indices', 'obs_x', 'obs_special',
+                'obs_fit_status', 'obs_fit_errors', 'obs_fit_attr', 'obs_tau_indices', 'obs_x', 'obs_special',
+                'obs_drt_var'
             ]
         }
 
         return att
 
     def get_attributes(self, which):
+        """
+        Get instance attributes by category
+        :param str which: category of attributes to return. See attribute_categories for a dict of categories
+        and corresponding attributes
+        :return: dict of attribute names and values
+        """
         att_names = None
         if type(which) == str:
             if which == 'all':
@@ -648,6 +815,11 @@ class DRTMD(object):
         return {k: deepcopy(getattr(self, k)) for k in att_names}
 
     def set_attributes(self, att_dict):
+        """
+        Set instance attributes from dict
+        :param dict att_dict: dict with attribute names and values
+        :return:
+        """
         for k, v in att_dict.items():
             setattr(self, k, v)
 
@@ -656,14 +828,61 @@ class DRTMD(object):
             self.clear_fits()
 
     def save_attributes(self, which, dest):
+        """
+        Save instance attributes to file using pickle
+        :param str which: category of attributes to save. See attribute_categories for a dict of categories
+        and corresponding attributes
+        :param dest: destination file
+        :return:
+        """
         att_dict = self.get_attributes(which)
         with open(dest, 'wb') as f:
             pickle.dump(att_dict, f, pickle.DEFAULT_PROTOCOL)
 
     def load_attributes(self, source):
+        """
+        Set instance attributes from a file. Note that this will overwrite observations and fits if the corresponding
+        attributes are contained in the source file!
+        :param source: source file
+        :return:
+        """
         with open(source, 'rb') as f:
             att_dict = pickle.load(f)
         self.set_attributes(att_dict)
+
+    def load_observations(self, source, append=True):
+        """
+        Load observations from a source file to the DRTMD instance. Does not overwrite configuration attributes.
+        :param source: source file
+        :param bool append: If True, append observations in source to existing instance observations.
+        If False, overwrite instance observations with observations in source
+        :return:
+        """
+        with open(source, 'rb') as f:
+            att_dict = pickle.load(f)
+
+        if append and self.num_obs > 0:
+            # Append observations in source to existing observations
+            for category in ['obs_data', 'fit']:
+                for name in self.attribute_categories[category]:
+                    existing = getattr(self, name)
+                    new = att_dict[name]
+                    if name == 'obs_special':
+                        new_dict = {}
+                        for k, v in existing.items():
+                            new_dict[k] = np.concatenate([existing[k], new[k]])
+                        self.obs_special = new_dict
+                    elif type(existing) == list:
+                        setattr(self, name, existing + new)
+                    elif type(existing) == np.ndarray:
+                        setattr(self, name, np.concatenate([existing, new]))
+                    else:
+                        raise ValueError(f'Attribute {name} has unexpected type {type(existing)}')
+        else:
+            # Overwrite existing observations with those from source
+            names = sum([self.attribute_categories[k] for k in ['obs_data', 'fit']], [])
+            obs_dict = {k: att_dict[k] for k in names}
+            self.set_attributes(obs_dict)
 
     # ----------------------
     # Getters and setters
@@ -708,5 +927,3 @@ class DRTMD(object):
             'print_diagnostics', 'warn'
         ]:
             setattr(self.drt1d, name, value)
-
-
