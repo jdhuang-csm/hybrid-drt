@@ -98,6 +98,22 @@ def find_time_column(df):
     return np.intersect1d(['Time', 'T'], df.columns)[0]
 
 
+def read_header(file):
+    try:
+        with open(file, 'r') as f:
+            txt = f.read()
+    except UnicodeDecodeError:
+        with open(file, 'r', encoding='latin1') as f:
+            txt = f.read()
+
+    # find start of curve data
+    table_index = txt.upper().find('\nCURVE\tTABLE')
+    if table_index == -1:
+        table_index = txt.upper().find('\nZCURVE\tTABLE')
+
+    return txt[:table_index + 1]
+
+
 def read_chrono(file):
     """
     Read chronopotentiometry data from Gamry .DTA file

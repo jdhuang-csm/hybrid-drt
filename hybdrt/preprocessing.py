@@ -1,9 +1,12 @@
 import numpy as np
 import warnings
 from scipy.optimize import least_squares
+from scipy.ndimage import median_filter
 
+from .utils import stats
 from .utils.array import unit_step, nearest_index
 from .utils.validation import check_step_model, check_ctrl_mode
+from .filters import nonuniform_gaussian_filter1d, masked_filter
 
 
 # Chrono data preprocessing
@@ -27,6 +30,23 @@ def identify_steps(y, allow_consecutive=True, rthresh=50):
         step_idx = step_idx[idx_diff > 1]
 
     return step_idx
+
+
+def split_steps(x, step_index):
+    """
+    Split x by step indices
+    :param ndarray x: array to split
+    :param ndarray step_index: step indices
+    :return:
+    """
+    step_index = np.array(step_index)
+    # Add start and end indices
+    if step_index[0] > 0:
+        step_index = np.insert(step_index, 0, 0)
+    if step_index[-1] < len(x):
+        step_index = np.append(step_index, len(x))
+
+    return [x[start:end] for start, end in zip(step_index[:-1], step_index[1:])]
 
 
 def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=50):
@@ -134,7 +154,7 @@ def get_step_indices_from_step_times(times, step_times):
     :param step_times:
     :return:
     """
-    # Deterimine step index by getting measurement time closest to step time
+    # Determine step index by getting measurement time closest to step time
     # Each step_index must start at or after step time - cannot start before
     def pos_delta(x, x0):
         out = np.empty(len(x))
@@ -264,6 +284,67 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     sample_v = v_signal[sample_index].flatten()
 
     return sample_times, sample_i, sample_v, sample_index
+
+
+def filter_chrono_signal(times, y, sigma_factor=0.01, max_sigma=None, step_index=None,
+                         remove_outliers=False, outlier_kw=None, median_prefilter=False, **kw):
+    if step_index is None:
+        step_index = identify_steps(y)
+
+    if remove_outliers:
+        # Find outliers with difference from empty filtered signal
+        # Use median prefilter to avoid spread of outliers
+        y_empty = filter_chrono_signal(times, y, sigma_factor, max_sigma, step_index, remove_outliers=False,
+                                       empty=False, median_prefilter=True, **kw)
+        if outlier_kw is None:
+            outlier_kw = {}
+
+        outlier_flag = flag_chrono_outliers(y, y_empty, **outlier_kw)
+        print(np.where(outlier_flag))
+
+        # Set outliers to filtered value
+        y = y.copy()
+        # y[outlier_flag] = np.nan
+        y[outlier_flag] = y_empty[outlier_flag]
+
+    y_steps = split_steps(y, step_index)
+    t_steps = split_steps(times, step_index)
+    t_sample = np.median(np.diff(times))
+
+    if max_sigma is None:
+        max_sigma = sigma_factor / t_sample
+
+    y_filt = []
+    for t_step, y_step in zip(t_steps, y_steps):
+        # Ideal sigma from inverse sqrt of maximum curvature of RC relaxation
+        sigma_ideal = np.exp(1) * (t_step - (t_step[0] - t_sample)) / 2
+        sigmas = sigma_factor * (sigma_ideal / t_sample)
+        sigmas[sigmas > max_sigma] = max_sigma
+        print(np.min(sigmas), np.max(sigmas))
+
+        if median_prefilter:
+            y_in = median_filter(y_step, 3)
+        else:
+            y_in = y_step
+
+        if np.any(np.isnan(y_in)):
+            nan_mask = (~np.isnan(y_step)).astype(float)
+            yf = masked_filter(np.nan_to_num(y_in), nan_mask, nonuniform_gaussian_filter1d, sigma=sigmas, **kw)
+        else:
+            yf = nonuniform_gaussian_filter1d(y_in, sigmas, **kw)
+
+        y_filt.append(yf)
+
+    return np.concatenate(y_filt)
+
+
+def flag_chrono_outliers(y_raw, y_filt, thresh=0.75, p_prior=0.01):
+    dev = y_filt - y_raw
+    std = stats.robust_std(dev)
+    sigma_out = np.maximum(np.abs(dev), 0.01 * std)
+    p_out = outlier_prob(dev, 0, std, sigma_out, p_prior)
+
+    return p_out > thresh
 
 
 def select_decimation_interval(times, step_times, t_sample, prestep_points, decimation_factor, max_t_sample,
@@ -514,6 +595,25 @@ def identify_extreme_values(y, qr_size=0.5, qr_thresh=1.5):
     y_min, y_max = get_quantile_limits(y, qr_size, qr_thresh)
 
     return (y < y_min) | (y > y_max)
+
+
+def outlier_prob(x, mu_in, sigma_in, sigma_out, p_prior):
+    """
+    Estimate outlier probability using a Bernoulli prior
+    :param ndarray x: data
+    :param ndarray mu_in: mean of inlier distribution
+    :param ndarray sigma_in: standard deviation of inlier distribution
+    :param ndarray sigma_out: standard deviation of outlier distribution
+    :param float p_prior: prior probability of any point being an outlier
+    :return:
+    """
+    pdf_in = stats.pdf_normal(x, mu_in, sigma_in)
+    pdf_out = stats.pdf_normal(x, mu_in, sigma_out)
+    p_out = p_prior * pdf_out / ((1 - p_prior) * pdf_in + p_prior * pdf_out)
+    dev = np.abs(x - mu_in)
+    # Don't consider data points with smaller deviations than sigma_in to be outliers
+    p_out[dev <= sigma_in] = 0
+    return p_out
 
 
 # =======================
@@ -777,5 +877,3 @@ def get_ocv_index(times, step_times, step_sizes, input_signal, samples_per_step=
                                 for i in ocv_step_index[0]])
 
     return ocv_index
-
-
