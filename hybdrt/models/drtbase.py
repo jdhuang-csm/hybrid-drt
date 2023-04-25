@@ -658,8 +658,8 @@ class DRTBase:
 
         # Optimize parameters for best RBF approximation
         x_basis, coef, eps = basis.get_basis_approx_params('gaussian', 'Cole-Cole', self.tau_epsilon,
-                                                                          approx_func_epsilon, num_bases, basis_extent,
-                                                                          curvature_penalty, nonneg)
+                                                           approx_func_epsilon, num_bases, basis_extent,
+                                                           curvature_penalty, nonneg)
         # Store ZGA parameters
         self._zga_params = (x_basis, coef, eps)
         self._recalc_chrono_fit_matrix = True
@@ -799,14 +799,14 @@ class DRTBase:
             self._t_predict_eq_t_fit = False
             # Check if times is the same as self.t_fit
             if utils.array.check_equality(utils.array.rel_round(self._t_fit, self.time_precision),
-                                    utils.array.rel_round(times, self.time_precision)):
+                                          utils.array.rel_round(times, self.time_precision)):
                 # self._t_predict = times
                 self._t_predict_eq_t_fit = True
                 # don't update recalc status here - another attribute change may have set this to True
                 # print('a')
             # Check if times is the same as self.t_predict
             elif utils.array.check_equality(utils.array.rel_round(self._t_predict, self.time_precision),
-                                      utils.array.rel_round(times, self.time_precision)):
+                                            utils.array.rel_round(times, self.time_precision)):
                 self._t_predict = times
                 # print('b')
             # Check if times is a subset of self.t_fit or self.t_predict
@@ -913,23 +913,41 @@ class DRTBase:
         # Check if the input signal matches the corresponding t_predict subset
         if self._t_predict_eq_t_fit:
             if not utils.array.check_equality(utils.array.rel_round(input_signal, self.input_signal_precision),
-                                        utils.array.rel_round(self.raw_input_signal, self.input_signal_precision)):
+                                              utils.array.rel_round(self.raw_input_signal,
+                                                                    self.input_signal_precision)):
                 self._raw_prediction_input_signal = deepcopy(input_signal)
                 self._recalc_chrono_prediction_matrix = True
         elif self._t_predict_subset_index[0] == 'fit':
             if not utils.array.check_equality(utils.array.rel_round(input_signal, self.input_signal_precision),
-                                        utils.array.rel_round(self.raw_input_signal[self._t_predict_subset_index[1]],
-                                                        self.input_signal_precision)
-                                        ):
+                                              utils.array.rel_round(
+                                                  self.raw_input_signal[self._t_predict_subset_index[1]],
+                                                  self.input_signal_precision)
+                                              ):
                 self._raw_prediction_input_signal = deepcopy(input_signal)
                 self._t_predict_subset_index = ('', [])
                 self._recalc_chrono_prediction_matrix = True
         elif self._t_predict_subset_index[0] == 'predict':
-            if not utils.array.check_equality(utils.array.rel_round(input_signal, self.input_signal_precision),
-                                        utils.array.rel_round(
-                                            self.raw_prediction_input_signal[self._t_spredict_subset_index[1]],
-                                            self.input_signal_precision)
-                                        ):
+            # TODO: This logic is somewhat wonky for cases in which input_signal represents a different array of times
+            #  than the prediction times. Handled below by checking for length matches.
+            #  Long-term, best solution would be to check step_times and step_sizes
+            #  rather than the input signal vector itself
+
+            # Verify that input_signal matches length of t_predict
+            len_match = len(input_signal) == len(self._t_predict_subset_index[1])
+            # Verify that t_predict subset is a valid subset of raw_prediction_input_signal
+            index_match = self._t_predict_subset_index[1][-1] < len(self.raw_prediction_input_signal)
+            # Verify that signal values match
+            if len_match and index_match:
+                val_match = utils.array.check_equality(utils.array.rel_round(input_signal, self.input_signal_precision),
+                                                       utils.array.rel_round(
+                                                           self.raw_prediction_input_signal[
+                                                               self._t_predict_subset_index[1]],
+                                                           self.input_signal_precision)
+                                                       )
+            else:
+                val_match = False
+
+            if not (len_match and index_match and val_match):
                 self._raw_prediction_input_signal = deepcopy(input_signal)
                 self._t_predict_subset_index = ('', [])
                 self._recalc_chrono_prediction_matrix = True
@@ -937,9 +955,9 @@ class DRTBase:
             # Check if input_signal matches self.raw_prediction_input_signal
             if hasattr(self, 'raw_prediction_input_signal'):
                 if not utils.array.check_equality(utils.array.rel_round(input_signal, self.input_signal_precision),
-                                            utils.array.rel_round(self.raw_prediction_input_signal,
-                                                            self.input_signal_precision)
-                                            ):
+                                                  utils.array.rel_round(self.raw_prediction_input_signal,
+                                                                        self.input_signal_precision)
+                                                  ):
                     self._raw_prediction_input_signal = deepcopy(input_signal)
                     self._recalc_chrono_prediction_matrix = True
             else:
@@ -992,7 +1010,7 @@ class DRTBase:
                 # print('a')
             # Check if frequencies is the same as self.f_predict
             elif utils.array.check_equality(utils.array.rel_round(self._f_predict, self.frequency_precision),
-                                      utils.array.rel_round(frequencies, self.frequency_precision)):
+                                            utils.array.rel_round(frequencies, self.frequency_precision)):
                 self._f_predict = frequencies
                 # print('b')
             # Check if frequencies is a subset of self.f_fit or self.f_predict

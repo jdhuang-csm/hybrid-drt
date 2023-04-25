@@ -423,7 +423,8 @@ class DRT(DRTBase):
 
         if self.fit_dop:
             if self.fixed_basis_nu is None:
-                self.basis_nu = np.linspace(-1, 1, 41)
+                # self.basis_nu = np.linspace(-1, 1, 41)
+                self.basis_nu = np.concatenate([np.linspace(-1, -0.4, 13), [0], np.linspace(0.4, 1, 13)])
             else:
                 self.basis_nu = self.fixed_basis_nu
             self._add_special_qp_param('x_dop', True, size=len(self.basis_nu))
@@ -747,11 +748,13 @@ class DRT(DRTBase):
                         # eis_weight_factor = ratio ** -1 * rp_tot_factor ** 0.5
                         # eis_weight_factor = (rp_eis / rp_tot) ** 0.25
                         eis_weight_factor = rp_eis ** 0.75 / (rp_chrono ** 0.25 * rp_tot ** 0.5)
+                        # eis_weight_factor = (rp_eis / rp_chrono) ** 0.5
 
                     if chrono_weight_factor is None:
                         # chrono_weight_factor = ratio * rp_tot_factor ** 0.5
                         # chrono_weight_factor = (rp_chrono / rp_tot) ** 0.25
                         chrono_weight_factor = rp_chrono ** 0.75 / (rp_eis ** 0.25 * rp_tot ** 0.5)
+                        # chrono_weight_factor = (rp_chrono / rp_eis) ** 0.5
                 else:
                     raise ValueError(f"Invalid hybrid_weight_factor_method argument {hybrid_weight_factor_method}. "
                                      f"Options: 'weight', 'rp'")
@@ -4423,7 +4426,8 @@ class DRT(DRTBase):
         else:
             return dop
 
-    def predict_response(self, times=None, input_signal=None, op_mode=None, offset_steps=None,
+    def predict_response(self, times=None, input_signal=None, step_times=None, step_sizes=None, op_mode=None,
+                         offset_steps=None,
                          smooth_inf_response=None, x=None, include_vz_offset=True, subtract_background=True,
                          y_bkg=None, v_baseline=None):
         # If chrono_mode is not provided, use fitted chrono_mode
@@ -4442,7 +4446,8 @@ class DRT(DRTBase):
             smooth_inf_response = self.fit_kwargs['smooth_inf_response']
 
         # Get prediction matrix and vectors
-        rm_drt, induc_rv, inf_rv, rm_dop = self._prep_chrono_prediction_matrix(times, input_signal, op_mode,
+        rm_drt, induc_rv, inf_rv, rm_dop = self._prep_chrono_prediction_matrix(times, input_signal,
+                                                                               step_times, step_sizes, op_mode,
                                                                                offset_steps, smooth_inf_response)
         # Response matrices from _prep_response_prediction_matrix will be scaled. Rescale to data scale
         # rm *= self.input_signal_scale
@@ -5789,7 +5794,7 @@ class DRT(DRTBase):
 
         # Normalize
         if normalize:
-            r_p = self.predict_r_p(x=x)
+            r_p = self.predict_r_p(x=x, absolute=True)
             scale_prefix = ''
         else:
             r_p = None
@@ -6349,7 +6354,11 @@ class DRT(DRTBase):
             if self.normalize_dop:
                 tau_lim = np.array(pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times))
                 # print(tau_lim, self.basis_tau)
-                self.dop_scale_vector = 100 * mat1d.phasor_scale_vector(self.basis_nu, self.basis_tau,
+                if self.tau_supergrid is not None:
+                    dop_eval_tau = self.tau_supergrid
+                else:
+                    dop_eval_tau = self.basis_tau
+                self.dop_scale_vector = 100 * mat1d.phasor_scale_vector(self.basis_nu, dop_eval_tau,
                                                                         self.nu_basis_type)
                 # print(self.dop_scale_vector)
             else:
@@ -6536,9 +6545,18 @@ class DRT(DRTBase):
     #     return (sample_times, i_signal_scaled, v_signal_scaled, response_baseline, z_scaled), \
     #            (rm, zm, induc_rv, inf_rv, induc_zv, penalty_matrices)
 
-    def _prep_chrono_prediction_matrix(self, times, input_signal, op_mode, offset_steps, smooth_inf_response):
+    def _prep_chrono_prediction_matrix(self, times, input_signal, step_times, step_sizes,
+                                       op_mode, offset_steps, smooth_inf_response):
+        # Validate input signal
+        if input_signal is not None and step_times is not None:
+            raise ValueError('Either input_signal OR (step_times and step_sizes) should be provided; '
+                             'received input_signal and step_times')
+        elif step_times is not None and step_sizes is None:
+            raise ValueError('If input signal steps are provided, both step_times and step_sizes must be provided; '
+                             'received step_times only')
+
         # If input signal is not provided, use self.raw_input_signal
-        if input_signal is None:
+        if input_signal is None and step_times is None:
             if self._t_fit_subset_index is not None:
                 input_signal = self.raw_input_signal[self._t_fit_subset_index]
             else:
@@ -6547,8 +6565,12 @@ class DRT(DRTBase):
         else:
             use_fit_signal = False
 
+        # If signal steps are provided instead of input_signal, create dummy signal for validation
+        if step_times is not None:
+            input_signal = pp.generate_model_signal(times, step_times, step_sizes, None, 'ideal')
+
         self.t_predict = times
-        self.raw_prediction_input_signal = input_signal.copy()
+        self.raw_prediction_input_signal = input_signal
         self.chrono_mode_predict = op_mode
         # Final update of t_predict in case recalc status changed
         self.t_predict = times
@@ -6556,6 +6578,7 @@ class DRT(DRTBase):
         if self.print_diagnostics:
             print('recalc_response_prediction_matrix:', self._recalc_chrono_prediction_matrix)
 
+        # Process signal to identify steps
         if use_fit_signal:
             # Allow times to have a different length than input_signal if using fitted signal (input_signal = None)
             # This will break construct_inf_response_vector if smooth_inf_response==False
@@ -6563,9 +6586,12 @@ class DRT(DRTBase):
             step_sizes = self.step_sizes
             tau_rise = self.tau_rise
         else:
-            # Identify steps in applied signal
-            step_times, step_sizes, tau_rise = pp.process_input_signal(times, input_signal, self.step_model,
-                                                                       offset_steps)
+            if step_times is None:
+                # Identify steps in applied signal
+                step_times, step_sizes, tau_rise = pp.process_input_signal(times, input_signal, self.step_model,
+                                                                           offset_steps)
+            else:
+                tau_rise = None
 
         if self._recalc_chrono_prediction_matrix:
             # Matrix recalculation is required

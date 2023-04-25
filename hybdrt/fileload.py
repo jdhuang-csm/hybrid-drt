@@ -16,11 +16,16 @@ def get_file_source(file):
     except UnicodeDecodeError:
         with open(file, 'r', encoding='latin1') as f:
             txt = f.read()
-    # determine	format
+
+    # Determine	format
     if txt.split('\n')[0] == 'EXPLAIN':
         source = 'gamry'
     elif txt.split('\n')[0] == 'ZPLOT2 ASCII':
         source = 'zplot'
+    elif txt.split('\n')[0] == 'EC-Lab ASCII FILE':
+        source = 'biologic'
+    else:
+        source = None
 
     return source
 
@@ -173,14 +178,36 @@ def read_chrono(file):
         return data
 
 
-def concatenate_chrono_data(files, trim_index=None, trim_time=None):
+def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None):
     """Concatenate curve data from multiple files"""
-    # sort files
-    files = sorted(files, key=get_timestamp)
+    if type(chrono_data_list[0]) == pd.DataFrame:
+        chrono_dfs = chrono_data_list
+    else:
+        # Assume data_list contains files
+        chrono_dfs = [read_chrono(file) for file in chrono_data_list]
 
-    dfs = [read_chrono(file) for file in files]
-    start_times = [df['timestamp'][0] for df in dfs]
-    start_time = min(start_times)
+    if eis_data_list is not None:
+        if type(eis_data_list[0]) == pd.DataFrame:
+            eis_dfs = eis_data_list
+        else:
+            # Assume data_list contains files
+            eis_dfs = [read_eis(file) for file in eis_data_list]
+
+        # Keep consistent columns only
+        chrono_dfs = [df.loc[:, ['Time', 'Im', 'Vf', 'timestamp']] for df in chrono_dfs]
+        eis_dfs = [df.loc[:, ['Time', 'Idc', 'Vdc', 'timestamp']].rename({'Idc': 'Im', 'Vdc': 'Vf'}, axis=1)
+                   for df in eis_dfs]
+
+        dfs = chrono_dfs + eis_dfs
+    else:
+        dfs = chrono_dfs
+
+    # start_times = [df['timestamp'][0] for df in dfs]
+    # start_time = min(start_times)
+
+    # Sort by first timestamp
+    dfs = sorted(dfs, key=lambda x: x['timestamp'][0])
+    start_time = dfs[0]['timestamp'][0]
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
     for df in dfs:
@@ -216,7 +243,7 @@ def concatenate_eis_data(files):
     # if trim_time is not None:
     #     dfs = [df[df['T'] >= trim_time] for df in dfs]
 
-    df_out = pd.concat(dfs)
+    df_out = pd.concat(dfs, ignore_index=True)
 
     return df_out
 
@@ -314,6 +341,46 @@ def read_eis(file, warn=True, return_tuple=False):
         data['Zmod'] = Zmod
         data['Zphz'] = Zphz
 
+    elif source == 'biologic':
+        # header_count_index = txt.find('Nb header lines :')
+        f_index = txt.find('freq/Hz')
+
+        skiprows = len(txt[:f_index].split('\n')) - 1
+
+        # read data to DataFrame
+        data = pd.read_csv(file, sep='\t', skiprows=skiprows, encoding=None, encoding_errors='ignore')
+
+        rename = {
+            'freq/Hz': 'Freq',
+            'Re(Z)/Ohm': 'Zreal',
+            '-Im(Z)/Ohm': 'Zimag',
+            '|Z|/Ohm': 'Zmod',
+            'Phase(Z)/deg': 'Zphz',
+            'time/s': 'Time',
+            # '<Ewe>/V',
+            # '<I>/mA',
+            # 'Cs/F',
+            # 'Cp/F',
+            # 'cycle number',
+            # 'I Range',
+            # '|Ewe|/V',
+            # '|I|/A',
+            # 'Ns',
+            # '(Q-Qo)/mA.h',
+            # 'Re(Y)/Ohm-1',
+            # 'Im(Y)/Ohm-1',
+            # '|Y|/Ohm-1',
+            # 'Phase(Y)/deg',
+            # 'dq/mA.h'
+        }
+
+        data = data.rename(rename, axis=1)
+
+        data['Zimag'] *= -1
+
+    else:
+        raise ValueError('Unrecognized file format')
+
     return data
 
 
@@ -364,6 +431,52 @@ def get_chrono_tuple(data, start_time=None, end_time=None):
         v_signal = v_signal[index]
 
     return times, i_signal, v_signal
+
+
+def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False):
+    """
+    Get data tuple for hybrid measurement
+    :param chrono_data: chrono file path or DataFrame
+    :param eis_data: EIS file path or DataFrame
+    :param bool append_eis_iv: if True, extract DC I-V data from the EIS data
+    and append it to the chrono data. Only valid if the EIS measurement was
+    performed after the chrono measurement
+    :return:
+    """
+    if type(chrono_data) != pd.DataFrame:
+        chrono_data = read_chrono(chrono_data)
+
+    if type(eis_data) != pd.DataFrame:
+        eis_data = read_eis(eis_data)
+
+    times, i_sig, v_sig = get_chrono_tuple(chrono_data)
+    freq, z = get_eis_tuple(eis_data)
+
+    if append_eis_iv:
+        time_offset = get_time_offset(eis_data, chrono_data)
+        if time_offset > 0:
+            t_eis, i_eis, v_eis = iv_from_eis(eis_data)
+            t_eis += time_offset
+            times = np.concatenate([times, t_eis])
+            i_sig = np.concatenate([i_sig, i_eis])
+            v_sig = np.concatenate([v_sig, v_eis])
+
+    return times, i_sig, v_sig, freq, z
+
+
+def get_time_offset(df, df_ref):
+    return (df.loc[0, 'timestamp'] - df_ref.loc[0, 'timestamp']).total_seconds()
+
+
+def iv_from_eis(data):
+    if type(data) != pd.DataFrame:
+        data = read_eis(data)
+
+    times = data['Time'].values
+    i_sig = data['Idc'].values
+    v_sig = data['Vdc'].values
+
+    return times, i_sig, v_sig
 
 
 def read_notes(file, parse=True):

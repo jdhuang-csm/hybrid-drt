@@ -119,11 +119,11 @@ def process_chrono_plot_data(data):
             raise ValueError('If data is a tuple, it must be a 3-tuple of time, i_signal, and v_signal arrays')
     elif type(data) == pd.core.frame.DataFrame:
         is_valid_df = True
-        time_intersect = np.intersect1d(['Time', 'T'], list(data.columns))
+        time_intersect = np.intersect1d(['elapsed', 'Time', 'T'], list(data.columns))
         if len(time_intersect) == 0:
             is_valid_df = False
         else:
-            time_column = time_intersect[0]
+            time_column = time_intersect[-1]
             required_columns = ['Vf', 'Im']
             intersection = np.intersect1d(required_columns, list(data.columns))
             if len(intersection) == len(required_columns):
@@ -229,7 +229,8 @@ def display_linear_time_ticks(ax, times, step_times, trans_functions, step_incre
     # minor_trans = time2trans(minor_times)
 
     ax.set_xticks(major_trans)
-    ax.set_xticklabels(['{:{}}'.format(mt, major_tick_format) for mt in major_ticks])
+    # Set tick labels manually. Add small positive to prevent "-0.0" label
+    ax.set_xticklabels(['{:{}}'.format(mt + 1e-10, major_tick_format) for mt in major_ticks])
 
     ax.xaxis.set_minor_locator(ticker.FixedLocator(minor_trans))
     # ax.set_xticklabels(['$+10^{{{}}}$'.format(mdp) for mdp in minor_delta_powers], minor=True)
