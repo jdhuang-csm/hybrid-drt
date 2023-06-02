@@ -1,7 +1,7 @@
 import cvxopt
 import numpy as np
 from scipy.optimize import least_squares
-from scipy.special import erf, gamma
+from scipy.special import erf
 from mitlef.pade_approx import create_approx_func
 
 from .. import utils
@@ -93,6 +93,15 @@ def get_basis_func(basis_type, zga_params=None):
     if basis_type == 'gaussian':
         def phi(y, epsilon):
             return np.exp(-(epsilon * y) ** 2)  # (epsilon / np.sqrt(np.pi)) * np.exp(-(epsilon * y) ** 2)
+    elif basis_type == 'beta':
+        def phi(y):
+            return np.abs(y) * (1 - np.abs(y))
+    elif basis_type == 'beta-rbf':
+        f = get_basis_func('gaussian')
+        g = get_basis_func('beta')
+
+        def phi(y, mu, epsilon):
+            return f(y - mu, epsilon) * g(y)
     elif basis_type == 'Cole-Cole':
         def phi(y, epsilon):
             return (1 / (2 * np.pi)) * np.sin((1 - epsilon) * np.pi) / (
@@ -187,6 +196,8 @@ def get_basis_func(basis_type, zga_params=None):
                 out[rise_index] = (half_width - np.abs(y[rise_index])) / half_width
                 out[flat_index] = 1
             return out
+    else:
+        phi = None
 
     return phi
 
@@ -220,6 +231,27 @@ def get_basis_func_derivative(basis_type, order, zga_params=None):
                 "3rd derivative of Gaussian RBF"
                 return (12 * epsilon ** 4 * y - 8 * epsilon ** 6 * y ** 3) * phi(y, epsilon)
                 # * (epsilon / np.sqrt(np.pi))
+    elif basis_type == 'beta':
+        if order == 1:
+            def func(y):
+                return (y / np.abs(y)) - 2 * y
+        elif order == 2:
+            def func(y):
+                return -2 * np.ones_like(y)
+    elif basis_type == 'beta-rbf':
+        f = get_basis_func('gaussian')
+        fx = get_basis_func_derivative('gaussian', order=1)
+        g = get_basis_func('beta')
+        gx = get_basis_func_derivative('beta', order=1)
+        if order == 1:
+            def func(y, mu, epsilon):
+                return f(y - mu, epsilon) * gx(y) + fx(y - mu, epsilon) * g(y)
+        elif order == 2:
+            fxx = get_basis_func_derivative('gaussian', order=2)
+            gxx = get_basis_func_derivative('beta', order=2)
+
+            def func(y, mu, epsilon):
+                return gxx(y) * f(y - mu, epsilon) + 2 * gx(y) * fx(y - mu, epsilon) + fxx(y - mu, epsilon) * g(y)
     elif basis_type == 'Cole-Cole':
         if order == 1:
             def func(y, epsilon):
@@ -261,7 +293,7 @@ def get_basis_func_derivative(basis_type, order, zga_params=None):
 
                 return discrete_diff(dfdy, y, epsilon)
 
-    # CHeck if function defined
+    # Check if function defined
     if func is None:
         raise ValueError(f'Derivative of order {order} not implemented for basis type {basis_type}')
 
@@ -288,6 +320,77 @@ def get_basis_func_integral(basis_type, zga_params=None):
         raise ValueError(f'Basis func integral not yet implemented for basis_type {basis_type}')
 
     return phi
+
+
+def get_integrated_derivative_func(basis_type='gaussian', order=1, indefinite=False):
+    """
+    Create function for integrated derivative matrix
+
+    Parameters:
+    -----------
+    basis : string, optional (default: 'gaussian')
+        Basis function used to approximate DRT
+    order : int, optional (default: 1)
+        Order of DRT derivative for ridge penalty
+    indefinite : bool
+        If True, return the indefinite integral function.
+        If False, return the definite integral function from -inf to inf
+    """
+    utils.validation.check_basis_type(basis_type)
+    if basis_type != 'gaussian':
+        raise ValueError('Integrated derivative matrix only implemented for gaussian basis function')
+    if basis_type == 'gaussian':
+        if indefinite:
+            if order == 0:
+                def func(x, x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)
+                    b = epsilon * (x_m + x_n - 2 * x)
+                    out = erf(b / np.sqrt(2))
+                    out *= -np.sqrt(np.pi / 8) * epsilon ** -1 * np.exp(-0.5 * a ** 2)
+                    return out
+            elif order == 1:
+                def func(x, x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)
+                    b = epsilon * (x_m + x_n - 2 * x)
+                    out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n))
+                    out += -np.sqrt(2 * np.pi) * (a ** 2 - 1) * \
+                        np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
+                    out *= -0.25 * epsilon * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    return out
+            elif order == 2:
+                def func(x, x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)
+                    b = epsilon * (x_m + x_n - 2 * x)
+                    out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n)) * \
+                        (3 * a ** 2 - 2 * epsilon ** 2 * ((x - x_m) ** 2 + (x - x_n) ** 2) + 1)
+                    out += -np.sqrt(2 * np.pi) * (a ** 4 - 6 * a ** 2 + 3) * \
+                        np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
+                    out *= 0.25 * epsilon ** 3 * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    return out
+        else:
+            if order == 0:
+                def func(x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)  # epsilon * np.log(l_m / l_n)
+                    return (np.pi / 2) ** 0.5 * epsilon ** (-1) * np.exp(-(a ** 2 / 2))  # * (epsilon / np.sqrt(np.pi))
+            elif order == 1:
+                def func(x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)  # epsilon * np.log(l_m / l_n)
+                    return -(np.pi / 2) ** 0.5 * epsilon * (-1 + a ** 2) * np.exp(
+                        -(a ** 2 / 2))  # * (epsilon / np.sqrt(np.pi))
+            elif order == 2:
+                def func(x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)
+                    return (np.pi / 2) ** 0.5 * epsilon ** 3 * (3 - 6 * a ** 2 + a ** 4) * np.exp(-(a ** 2 / 2)) \
+                        # * (epsilon / np.sqrt(np.pi))
+            elif order == 3:
+                def func(x_n, x_m, epsilon):
+                    a = epsilon * (x_m - x_n)
+                    return -(np.pi / 2) ** 0.5 * epsilon ** 5 * (-15 + (45 * a ** 2) - (15 * a ** 4) + (a ** 6)) \
+                           * np.exp(-(a ** 2 / 2))
+            else:
+                raise ValueError(f'Invalid order {order}. Order must be between 0 and 2')
+
+    return func
 
 
 def get_basis_func_area(basis_type, epsilon, zga_params=None):
@@ -494,7 +597,8 @@ def get_response_func(basis_type, op_mode, step_model, zga_params=None):
                     # Sum responses of all ZARCs used to approximate Gaussian RBF
                     # epsilon ignored - included for compatibility only
                     f_out = np.array(
-                        [x_i * f_zarc(tau_m * np.exp(y_i), t_n, eps_zga, ml_func) for x_i, y_i in zip(coef[1:], y_basis)]
+                        [x_i * f_zarc(tau_m * np.exp(y_i), t_n, eps_zga, ml_func) for x_i, y_i in
+                         zip(coef[1:], y_basis)]
                     )
                     return np.sum(f_out, axis=0)
             else:
@@ -520,22 +624,11 @@ def get_response_func(basis_type, op_mode, step_model, zga_params=None):
                     return f_basis(y, epsilon) * (
                             1 - np.exp(-t_n / tau)
                             + (tau_rise / (tau_rise - tau)) * (
-                                np.exp(-t_n / tau) - np.exp(-t_n / tau_rise)
+                                    np.exp(-t_n / tau) - np.exp(-t_n / tau_rise)
                             )
                     )
 
     return func
-
-
-# -------------------
-# Phasors
-# -------------------
-def unit_phasor_impedance(omega, nu):
-    return (1j * omega) ** nu
-
-
-def unit_phasor_voltage(t, nu):
-    return t ** -nu / gamma(-nu + 1)
 
 
 # ---------------------------------------------
