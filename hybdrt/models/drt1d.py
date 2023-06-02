@@ -11,7 +11,7 @@ import pickle
 
 from .. import utils, preprocessing as pp
 from ..utils import stats
-from ..matrices import mat1d, basis
+from ..matrices import mat1d, basis, phasance
 from . import qphb, peaks, elements, pfrt, background
 from ..evaluation import get_similarity_function
 from .drtbase import DRTBase
@@ -167,7 +167,9 @@ class DRT(DRTBase):
                        subtract_background=False, background_type='static', background_corr_power=None,
                        estimate_background_kw=None, smooth_inf_response=True,
                        # penalty settings
-                       v_baseline_penalty=1e-6, R_inf_penalty=1e-6, inductance_penalty=1e-6, inductance_scale=1e-5,
+                       v_baseline_penalty=1e-6, ohmic_penalty=1e-6,
+                       inductance_penalty=1e-6, capacitance_penalty=1e-6,
+                       inductance_scale=1e-5, capacitance_scale=1e-3,
                        background_penalty=1,
                        penalty_type='integral',
                        remove_extremes=False, extreme_kw=None,
@@ -256,31 +258,32 @@ class DRT(DRTBase):
         # Find and remove outliers (more precise)
         if remove_outliers:
             # Only need to supply kwargs that matter for initial weights estimation
-            chrono_outlier_index, eis_outlier_index = self._qphb_fit_core(
-                times, i_signal, v_signal, frequencies, z, step_times=step_times,
-                nonneg=nonneg, series_neg=series_neg, scale_data=scale_data,
-                solve_rp=solve_rp,
-                offset_steps=offset_steps, offset_baseline=offset_baseline,
-                downsample=downsample,
-                downsample_kw=downsample_kw,
-                # Don't perform background estimation until outliers have been removed
-                subtract_background=False,
-                smooth_inf_response=smooth_inf_response,
-                v_baseline_penalty=v_baseline_penalty, R_inf_penalty=R_inf_penalty,
-                inductance_penalty=inductance_penalty,
-                inductance_scale=inductance_scale,
-                background_penalty=background_penalty,
-                penalty_type=penalty_type,
-                chrono_error_structure=chrono_error_structure,
-                eis_error_structure=eis_error_structure,
-                # Request outlier index
-                remove_outliers=False, return_outlier_index=True,
-                outlier_thresh=outlier_thresh,
-                chrono_vmm_epsilon=chrono_vmm_epsilon, eis_vmm_epsilon=eis_vmm_epsilon,
-                eis_reim_cor=eis_reim_cor,
-                eff_hp=eff_hp,
-                **kw
-            )
+            chrono_outlier_index, eis_outlier_index = self._qphb_fit_core(times, i_signal, v_signal, frequencies, z,
+                                                                          step_times=step_times, nonneg=nonneg,
+                                                                          series_neg=series_neg, scale_data=scale_data,
+                                                                          solve_rp=solve_rp, offset_steps=offset_steps,
+                                                                          offset_baseline=offset_baseline,
+                                                                          downsample=downsample,
+                                                                          downsample_kw=downsample_kw,
+                                                                          subtract_background=False,
+                                                                          smooth_inf_response=smooth_inf_response,
+                                                                          v_baseline_penalty=v_baseline_penalty,
+                                                                          ohmic_penalty=ohmic_penalty,
+                                                                          inductance_penalty=inductance_penalty,
+                                                                          capacitance_penalty=capacitance_penalty,
+                                                                          background_penalty=background_penalty,
+                                                                          inductance_scale=inductance_scale,
+                                                                          capacitance_scale=capacitance_scale,
+                                                                          penalty_type=penalty_type,
+                                                                          chrono_error_structure=chrono_error_structure,
+                                                                          eis_error_structure=eis_error_structure,
+                                                                          remove_outliers=False,
+                                                                          return_outlier_index=True,
+                                                                          outlier_thresh=outlier_thresh,
+                                                                          chrono_vmm_epsilon=chrono_vmm_epsilon,
+                                                                          eis_vmm_epsilon=eis_vmm_epsilon,
+                                                                          eis_reim_cor=eis_reim_cor, eff_hp=eff_hp,
+                                                                          **kw)
 
             self.eis_outlier_index = eis_outlier_index
             self.chrono_outlier_index = chrono_outlier_index
@@ -342,6 +345,7 @@ class DRT(DRTBase):
             if estimate_background_kw is None:
                 estimate_background_kw = {}
             estimate_background_defaults = {
+                'step_times': step_times,
                 'nonneg': nonneg, 'series_neg': series_neg,
                 'downsample': downsample, 'downsample_kw': downsample_kw
             }
@@ -415,23 +419,34 @@ class DRT(DRTBase):
             self._add_special_qp_param('background_scale', True)
 
         # DOP replaces R_inf and L
-        if not self.fit_dop:
+        # TODO: incorporate delta functions for R_inf, L, and C
+        if self.fit_ohmic:
             self._add_special_qp_param('R_inf', True)
 
-        if self.fit_inductance and not self.fit_dop:
+        if self.fit_inductance:
             self._add_special_qp_param('inductance', True)
+
+        if self.fit_capacitance:
+            self._add_special_qp_param('C_inv', True)
 
         if self.fit_dop:
             if self.fixed_basis_nu is None:
-                self.basis_nu = np.linspace(-1, 1, 41)
+                # self.basis_nu = np.linspace(-1, 1, 41)
+                self.basis_nu = np.concatenate([np.linspace(-1, -0.4, 25), np.linspace(0.4, 1, 25)])
             else:
                 self.basis_nu = self.fixed_basis_nu
+
+            # Set nu_epsilon
+            if self.nu_epsilon is None and self.nu_basis_type != 'delta':
+                dnu = np.median(np.diff(np.sort(self.basis_nu)))
+                self.nu_epsilon = 1 / dnu
+
             self._add_special_qp_param('x_dop', True, size=len(self.basis_nu))
         else:
             self.basis_nu = None
 
         # Get preprocessing hyperparameters. Won't know data factor until chrono data has been downsampled
-        pp_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
+        pp_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop, self.nu_basis_type)
 
         # Validate provided kwargs
         for key in kw.keys():
@@ -447,9 +462,10 @@ class DRT(DRTBase):
                                                    scale_data=scale_data, rp_scale=pp_hypers['rp_scale'],
                                                    penalty_type=penalty_type,
                                                    derivative_weights=pp_hypers['derivative_weights'])
-
+        # Unpack processed data
         sample_times, sample_i, sample_v, response_baseline, z_scaled = sample_data
-        rm_drt, induc_rv, inf_rv, rm_dop, zm_drt, induc_zv, zm_dop, base_penalty_matrices = matrices  # partial matrices
+        # Unpack partial matrices
+        rm_drt, induc_rv, inf_rv, cap_rv, rm_dop, zm_drt, induc_zv, cap_zv, zm_dop, base_penalty_matrices = matrices
 
         # Get num_chrono after downsampling
         if sample_times is not None:
@@ -468,7 +484,7 @@ class DRT(DRTBase):
             print('data factor:', data_factor)
 
         # Get default hyperparameters and update with user-specified values
-        qphb_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
+        qphb_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop, self.nu_basis_type)
         qphb_hypers.update(kw)
 
         # Store fit kwargs for reference (after prep_for_fit creates self.fit_kwargs)
@@ -476,15 +492,19 @@ class DRT(DRTBase):
         self.fit_kwargs['nonneg'] = nonneg
         self.fit_kwargs['eff_hp'] = eff_hp
         self.fit_kwargs['penalty_type'] = penalty_type
+        self.fit_kwargs['subtract_background'] = subtract_background
+        self.fit_kwargs['background_type'] = background_type
+        self.fit_kwargs['background_corr_power'] = background_corr_power
 
         if self.print_diagnostics:
             print('lambda_0, iw_beta:', qphb_hypers['l2_lambda_0'], qphb_hypers['iw_beta'])
 
         # Format matrices for QP fit
-        rm, zm, penalty_matrices = self._format_qp_matrices(rm_drt, inf_rv, induc_rv, rm_dop, zm_drt, induc_zv, zm_dop,
-                                                            base_penalty_matrices, v_baseline_penalty, R_inf_penalty,
-                                                            inductance_penalty, vz_offset_scale, background_penalty,
-                                                            inductance_scale, penalty_type,
+        rm, zm, penalty_matrices = self._format_qp_matrices(rm_drt, inf_rv, induc_rv, cap_rv, rm_dop, zm_drt, induc_zv,
+                                                            cap_zv, zm_dop, base_penalty_matrices, v_baseline_penalty,
+                                                            ohmic_penalty, inductance_penalty, capacitance_penalty,
+                                                            vz_offset_scale, background_penalty, inductance_scale,
+                                                            capacitance_scale, penalty_type,
                                                             qphb_hypers['derivative_weights'])
 
         if subtract_background and times is not None and background_type != 'static':
@@ -747,11 +767,13 @@ class DRT(DRTBase):
                         # eis_weight_factor = ratio ** -1 * rp_tot_factor ** 0.5
                         # eis_weight_factor = (rp_eis / rp_tot) ** 0.25
                         eis_weight_factor = rp_eis ** 0.75 / (rp_chrono ** 0.25 * rp_tot ** 0.5)
+                        # eis_weight_factor = (rp_eis / rp_chrono) ** 0.5
 
                     if chrono_weight_factor is None:
                         # chrono_weight_factor = ratio * rp_tot_factor ** 0.5
                         # chrono_weight_factor = (rp_chrono / rp_tot) ** 0.25
                         chrono_weight_factor = rp_chrono ** 0.75 / (rp_eis ** 0.25 * rp_tot ** 0.5)
+                        # chrono_weight_factor = (rp_chrono / rp_eis) ** 0.5
                 else:
                     raise ValueError(f"Invalid hybrid_weight_factor_method argument {hybrid_weight_factor_method}. "
                                      f"Options: 'weight', 'rp'")
@@ -1209,8 +1231,8 @@ class DRT(DRTBase):
                             subtract_background=subtract_background, estimate_background_kw=estimate_background_kw,
                             smooth_inf_response=smooth_inf_response, chrono_error_structure=chrono_error_structure,
                             eis_error_structure=eis_error_structure, chrono_vmm_epsilon=chrono_vmm_epsilon,
-                            eis_vmm_epsilon=eis_vmm_epsilon, eis_reim_cor=eis_reim_cor,
-                            vz_offset=vz_offset, vz_offset_scale=vz_offset_scale, vz_offset_eps=vz_offset_eps,
+                            eis_vmm_epsilon=eis_vmm_epsilon, eis_reim_cor=eis_reim_cor, vz_offset=vz_offset,
+                            vz_offset_scale=vz_offset_scale, vz_offset_eps=vz_offset_eps,
                             eis_weight_factor=eis_weight_factor, chrono_weight_factor=chrono_weight_factor, **kwargs)
 
     # def qphb_fit_chrono(self, times, i_signal, v_signal, step_times=None, nonneg=True, scale_data=True,
@@ -1882,7 +1904,8 @@ class DRT(DRTBase):
 
             # Perform actual QPHB operation
             x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, outlier_tvt, cvx_result, converged = \
-                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_tvt, rm,
+                qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_weights, outlier_tvt,
+                                  rm,
                                   vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp, xmx_norms,
                                   dop_xmx_norms, None, None, None, nonneg, self.special_qp_params, xtol, 1,
                                   continue_history)
@@ -2963,7 +2986,7 @@ class DRT(DRTBase):
                        max_init_iter=20, xtol=1e-2, nonneg=True, series_neg=False, **kw):
 
         # Get default hyperparameters
-        qphb_hypers = qphb.get_default_hypers(True, self.fit_dop)
+        qphb_hypers = qphb.get_default_hypers(True, self.fit_dop, self.nu_basis_type)
         init_kw = dict(qphb_hypers, **kw)
 
         if factors is None:
@@ -3252,7 +3275,7 @@ class DRT(DRTBase):
         if normalize:
             tot_pfrt = tot_pfrt / np.max(tot_pfrt)
 
-        return tot_pfrt  #, step_pfrt, post_prob_eff, step_x, step_p_mat, factors, fxx_sigmas
+        return tot_pfrt  # , step_pfrt, post_prob_eff, step_x, step_p_mat, factors, fxx_sigmas
 
     def select_pfrt_candidates(self, start_thresh=0.99, end_thresh=0.01, peak_thresh=1e-6):
         target_peak_indices, step_indices = pfrt.select_candidates(
@@ -4310,19 +4333,20 @@ class DRT(DRTBase):
             # Error in precision matrix inversion
             return None
 
-    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, var_floor=0.0):
+    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, var_floor=0.0, order=0,
+                         normalize_quantiles=(0.25, 0.75), delta_density=False):
         # If tau is not provided, go one decade beyond self.basis_tau with finer spacing
         if nu is None:
             nu = self.basis_nu
 
         # Construct basis matrix
         basis_matrix = basis.construct_func_eval_matrix(self.basis_nu, nu,
-                                                        self.nu_basis_type, epsilon=None,
-                                                        order=0, zga_params=None)
+                                                        self.nu_basis_type, epsilon=self.nu_epsilon,
+                                                        order=order, zga_params=None)
 
         # Normalize
         if normalize:
-            normalize_by = mat1d.phasor_scale_vector(nu, self.basis_tau, self.nu_basis_type) ** 2
+            normalize_by = phasance.phasor_scale_vector(nu, self.basis_tau, normalize_quantiles) ** 2
         else:
             normalize_by = 1
 
@@ -4333,6 +4357,11 @@ class DRT(DRTBase):
             # Limit to DOP parameters
             dop_start, dop_end = self.dop_indices
             x_cov = x_cov[dop_start:dop_end, dop_start:dop_end]
+
+            # Normalize delta function magnitude to grid spacing
+            if delta_density and self.nu_basis_type == 'delta':
+                dnu = self.get_nu_basis_spacing()
+                x_cov = x_cov / dnu
 
             # Distribution covariance given by matrix product
             dist_cov = basis_matrix @ x_cov @ basis_matrix.T
@@ -4372,14 +4401,20 @@ class DRT(DRTBase):
             # Error in covariance calculation
             return None, None
 
-    def predict_dop_ci(self, nu=None, x=None, normalize=False, normalize_tau=None, quantiles=[0.025, 0.975]):
+    def predict_dop_ci(self, nu=None, x=None, normalize=False, normalize_tau=None, quantiles=[0.025, 0.975],
+                       order=0, normalize_quantiles=(0.25, 0.75), delta_density=False):
         # Get distribution std
-        dist_cov = self.estimate_dop_cov(nu, normalize=normalize)
+        dist_cov = self.estimate_dop_cov(nu, normalize=normalize, order=order,
+                                         normalize_quantiles=normalize_quantiles,
+                                         delta_density=delta_density)
         if dist_cov is not None:
             dist_sigma = np.diag(dist_cov) ** 0.5
 
             # Distribution mean
-            dist_mu = self.predict_dop(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau)
+            dist_mu = self.predict_dop(nu=nu, x=x, normalize=normalize,
+                                       normalize_tau=normalize_tau, order=order,
+                                       normalize_quantiles=normalize_quantiles,
+                                       delta_density=delta_density)
 
             # Determine number of std devs to obtain quantiles
             s_lo, s_hi = stats.std_normal_quantile(quantiles)
@@ -4392,38 +4427,87 @@ class DRT(DRTBase):
             # Error in covariance calculation
             return None, None
 
-    def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False):
+    def get_nu_basis_spacing(self):
+        # For each grid point, get the minimum distance to next basis location
+        if self.fixed_basis_nu is not None:
+            basis_nu = self.fixed_basis_nu
+        else:
+            basis_nu = self.basis_nu
+
+        dnu = np.diff(np.sort(basis_nu))
+        dnu = np.minimum(dnu[1:], dnu[:-1])
+        median_dnu = np.median(dnu)
+        dnu = np.append(np.insert(dnu, 0, median_dnu), median_dnu)
+        return dnu
+
+    def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False,
+                    normalize_quantiles=(0.25, 0.75), delta_density=False):
         if nu is None:
             nu = np.linspace(-1, 1, 401)
             # Ensure basis_nu is included
             nu = np.unique(np.concatenate([self.basis_nu, nu]))
+            # Ensure pure inductance, resistance, and capacitance are included
+            nu = np.unique(np.concatenate([nu, np.array([-1, 0, 1])]))
+        else:
+            nu = np.sort(nu)
 
         # Construct basis matrix
         basis_matrix = basis.construct_func_eval_matrix(self.basis_nu, nu,
-                                                        self.nu_basis_type, epsilon=None,
+                                                        self.nu_basis_type, epsilon=self.nu_epsilon,
                                                         order=order, zga_params=None)
 
         x = self.get_dop_params(x=x)
 
+        if delta_density:
+            dnu = self.get_nu_basis_spacing()
+            if self.nu_basis_type == 'delta':
+                x = x / dnu
+
+        dop = basis_matrix @ x
+
+        # Add pure inductance, resistance, and capacitance
+        ohmic_index = np.where(nu == 0)
+        if len(ohmic_index) == 1:
+            r_inf = self.fit_parameters['R_inf']
+            if delta_density:
+                r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
+            dop[ohmic_index] += r_inf
+
+        induc_index = np.where(nu == 1)
+        if len(induc_index) == 1:
+            induc = self.fit_parameters['inductance']
+            if delta_density:
+                induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
+            dop[induc_index] += induc
+
+        cap_index = np.where(nu == -1)
+        if len(cap_index) == 1:
+            c_inv = self.fit_parameters['C_inv']
+            if delta_density:
+                c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
+            dop[cap_index] += c_inv
+
         # TODO: revisit normalization
         if normalize:
             if normalize_tau is None:
-                data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
-                normalize_tau = np.array(data_tau_lim)
+                # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
+                # normalize_tau = np.array(data_tau_lim)
+                normalize_tau = self.basis_tau
             else:
                 normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
-            normalize_by = mat1d.phasor_scale_vector(nu, normalize_tau, self.nu_basis_type)
+            normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
         else:
             normalize_by = 1
 
-        dop = basis_matrix @ x / normalize_by
+        dop /= normalize_by
 
         if return_nu:
             return nu, dop
         else:
             return dop
 
-    def predict_response(self, times=None, input_signal=None, op_mode=None, offset_steps=None,
+    def predict_response(self, times=None, input_signal=None, step_times=None, step_sizes=None, op_mode=None,
+                         offset_steps=None,
                          smooth_inf_response=None, x=None, include_vz_offset=True, subtract_background=True,
                          y_bkg=None, v_baseline=None):
         # If chrono_mode is not provided, use fitted chrono_mode
@@ -4442,7 +4526,8 @@ class DRT(DRTBase):
             smooth_inf_response = self.fit_kwargs['smooth_inf_response']
 
         # Get prediction matrix and vectors
-        rm_drt, induc_rv, inf_rv, rm_dop = self._prep_chrono_prediction_matrix(times, input_signal, op_mode,
+        rm_drt, induc_rv, inf_rv, cap_rv, rm_dop = self._prep_chrono_prediction_matrix(times, input_signal,
+                                                                               step_times, step_sizes, op_mode,
                                                                                offset_steps, smooth_inf_response)
         # Response matrices from _prep_response_prediction_matrix will be scaled. Rescale to data scale
         # rm *= self.input_signal_scale
@@ -4459,11 +4544,12 @@ class DRT(DRTBase):
         x_dop = fit_parameters.get('x_dop', None)
         r_inf = fit_parameters.get('R_inf', 0)
         induc = fit_parameters.get('inductance', 0)
+        c_inv = fit_parameters.get('C_inv', 0)
 
         if v_baseline is None:
             v_baseline = fit_parameters.get('v_baseline', 0)
 
-        response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv
+        response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv + c_inv * cap_rv
 
         if x_dop is not None:
             response += rm_dop @ x_dop
@@ -4479,20 +4565,45 @@ class DRT(DRTBase):
             # v_baseline_offset = v_baseline_param * (1 + self.fit_parameters.get('vz_offset', 0)) \
             #                     - self.scaled_response_offset * self.response_signal_scale
             # Apply vz_offset before adding baseline
-            vz_strength_vec, _ = self._get_vz_strength_vec(times,
-                                                           vz_offset_eps=self.fit_parameters.get('vz_offset_eps', None))
+            vz_strength_vec, _ = self._get_vz_strength_vec(
+                times, vz_offset_eps=self.fit_parameters.get('vz_offset_eps', None)
+            )
             response *= (1 + fit_parameters.get('vz_offset', 0) * vz_strength_vec)
 
         response += v_baseline
 
         if not subtract_background:
             if y_bkg is None:
-                y_bkg = self.raw_response_background
+                y_bkg = self.predict_chrono_background(times)
             if len(times) != len(y_bkg):
                 raise ValueError('Length of background does not match length of times')
             response += y_bkg
 
         return response
+
+    def predict_chrono_background(self, times):
+        if self.background_gp is None:
+            return np.zeros(len(times))
+            # raise ValueError('Chrono background was not fitted. To fit the chrono background, '
+            #                  'call fit_chrono or fit_hybrid with subtract_background=True')
+
+        if np.array_equal(times, self.get_fit_times()):
+            # If times are fit times, use precalculated background
+            return self.raw_response_background
+        else:
+            # Predict using fitted GP
+            if self.fit_kwargs['background_type'] == 'static':
+                return self.background_gp.predict(times[:, None])
+            else:
+                # Need to account for correlation between DRT and background
+                y_pred = self.predict_response(times)
+                rm_bkg = background.get_background_matrix([self.background_gp], times[:, None],
+                                                          y_drt=y_pred,
+                                                          corr_power=self.fit_kwargs['background_corr_power'])
+                # Get residuals for training data
+                y_resid = self.raw_response_signal - self.predict_response()
+
+                return rm_bkg @ y_resid
 
     def predict_z(self, frequencies, include_vz_offset=True, x=None):
         # Get matrix
@@ -4508,8 +4619,9 @@ class DRT(DRTBase):
         x_dop = fit_parameters.get('x_dop', None)
         r_inf = fit_parameters.get('R_inf', 0)
         induc = fit_parameters.get('inductance', 0)
+        c_inv = fit_parameters.get('C_inv', 0)
 
-        z = zm @ x_drt + r_inf + induc * 2j * np.pi * frequencies
+        z = zm @ x_drt + r_inf + induc * 2j * np.pi * frequencies + c_inv * (2j * np.pi * frequencies) ** -1
 
         if x_dop is not None:
             z += zm_dop @ x_dop
@@ -4551,11 +4663,13 @@ class DRT(DRTBase):
         return sum_x * basis_area
 
     def predict_r_inf(self):
-        if self.fit_dop:
+        r_inf = self.fit_parameters.get('R_inf', 0)
+
+        if self.fit_dop and self.nu_basis_type == 'delta':
             zero_index = np.where(self.basis_nu == 0)
-            r_inf = np.sum(self.fit_parameters['x_dop'][zero_index])
-        else:
-            r_inf = self.fit_parameters.get('R_inf', 0)
+            if len(zero_index) == 1:
+                r_inf += np.sum(self.fit_parameters['x_dop'][zero_index])
+
         return r_inf
 
     def predict_r_tot(self):
@@ -5789,7 +5903,7 @@ class DRT(DRTBase):
 
         # Normalize
         if normalize:
-            r_p = self.predict_r_p(x=x)
+            r_p = self.predict_r_p(x=x, absolute=True)
             scale_prefix = ''
         else:
             r_p = None
@@ -5896,15 +6010,18 @@ class DRT(DRTBase):
             return ax
 
     def plot_dop(self, nu=None, x=None, ax=None, scale_prefix=None, normalize=False, normalize_tau=None,
-                 invert_nu=True, plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],
-                 tight_layout=True, return_line=False, **kw):
+                 invert_nu=True, plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
+                 delta_density=False,
+                 tight_layout=True, return_line=False, normalize_quantiles=(0.25, 0.75), **kw):
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
         else:
             fig = ax.get_figure()
 
-        nu, dop = self.predict_dop(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau, return_nu=True)
+        nu, dop = self.predict_dop(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
+                                   order=order, return_nu=True, normalize_quantiles=normalize_quantiles,
+                                   delta_density=delta_density)
 
         # Invert nu for more intuitive visualization
         if invert_nu:
@@ -5923,9 +6040,15 @@ class DRT(DRTBase):
         if plot_ci:
             if self.fit_type.find('qphb') > -1:
                 dop_lo, dop_hi = self.predict_dop_ci(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
-                                                     quantiles=ci_quantiles)
+                                                     quantiles=ci_quantiles, order=order,
+                                                     normalize_quantiles=normalize_quantiles,
+                                                     delta_density=delta_density)
 
                 if dop_lo is not None:
+                    # Enforce sign constraint in CI
+                    if order == 0:
+                        dop_lo = np.maximum(dop_lo, 0)
+
                     if ci_kw is None:
                         ci_kw = {}
                     ci_defaults = dict(color=line[0].get_color(), lw=0.5, alpha=0.2, zorder=-10)
@@ -6115,26 +6238,27 @@ class DRT(DRTBase):
 
         if sample_times is not None:
             # Get matrix and vectors for chrono fit
-            rm_drt, inf_rv, induc_rv, rm_dop = self._prep_chrono_fit_matrix(sample_times, step_times, step_sizes,
-                                                                            tau_rise, smooth_inf_response)
+            rm_drt, inf_rv, induc_rv, cap_rv, rm_dop = \
+                self._prep_chrono_fit_matrix(sample_times, step_times, step_sizes,
+                                             tau_rise, smooth_inf_response)
 
             if self.series_neg:
                 rm_drt = np.hstack((rm_drt, -rm_drt))
         else:
             # No chrono data
             self.t_fit = []
-            rm_drt, inf_rv, induc_rv, rm_dop = None, None, None, None
+            rm_drt, inf_rv, induc_rv, cap_rv, rm_dop = None, None, None, None, None
 
         if frequencies is not None:
             # Get matrix and vector for impedance fit
-            zm_drt, induc_zv, zm_dop = self._prep_impedance_fit_matrix(frequencies)
+            zm_drt, induc_zv, cap_zv, zm_dop = self._prep_impedance_fit_matrix(frequencies)
 
             if self.series_neg:
                 zm_drt = np.hstack((zm_drt, -zm_drt))
         else:
             # No EIS data
             self.f_fit = []
-            zm_drt, induc_zv, zm_dop = None, None, None
+            zm_drt, induc_zv, cap_zv, zm_dop = None, None, None, None
 
         # Calculate penalty matrices
         penalty_matrices = self._prep_penalty_matrices(penalty_type, derivative_weights)
@@ -6165,6 +6289,7 @@ class DRT(DRTBase):
             rm_drt = rm_drt / self.input_signal_scale
             induc_rv = induc_rv / self.input_signal_scale
             inf_rv = inf_rv / self.input_signal_scale
+            cap_rv = cap_rv / self.input_signal_scale
             if rm_dop is not None:
                 rm_dop = rm_dop / self.input_signal_scale
 
@@ -6172,10 +6297,15 @@ class DRT(DRTBase):
             print('Finished prep_for_fit in {:.2f} s'.format(time.time() - start_time))
 
         return (sample_times, i_signal_scaled, v_signal_scaled, response_baseline, z_scaled), \
-               (rm_drt, induc_rv, inf_rv, rm_dop, zm_drt, induc_zv, zm_dop, penalty_matrices)
+               (rm_drt, induc_rv, inf_rv, cap_rv, rm_dop, zm_drt, induc_zv, cap_zv, zm_dop, penalty_matrices)
 
     def _prep_chrono_fit_matrix(self, times, step_times, step_sizes, tau_rise, smooth_inf_response):
         # Recalculate matrices if necessary
+        # TODO: incorporate step_times and step_sizes logic
+        #  This is a placeholder to avoid issues with corner cases
+        #  (e.g. if input_signal remains the same but step_times is manually specified)
+        self._recalc_chrono_fit_matrix = True
+
         if self._recalc_chrono_fit_matrix:
             if self.print_diagnostics:
                 print('Calculating chrono response matrix')
@@ -6193,8 +6323,11 @@ class DRT(DRTBase):
 
             induc_rv = mat1d.construct_inductance_response_vector(times, self.step_model, step_times, step_sizes,
                                                                   tau_rise, self.chrono_mode)
+            cap_rv = mat1d.construct_capacitance_response_vector(times, self.step_model, step_times, step_sizes,
+                                                                 tau_rise, self.chrono_mode)
 
-            self.fit_matrices['inductance_response'] = induc_rv.copy()
+            self.fit_matrices['inductance_response'] = induc_rv
+            self.fit_matrices['capacitance_response'] = cap_rv
 
             # With all matrices calculated, set recalc flags to False
             self._recalc_chrono_fit_matrix = False
@@ -6205,26 +6338,30 @@ class DRT(DRTBase):
             # times is a subset of self.t_fit. Use sub-matrices of existing A array; do not overwrite
             rm = self.fit_matrices['response'][self._t_fit_subset_index, :].copy()
             induc_rv = self.fit_matrices['inductance_response'][self._t_fit_subset_index].copy()
+            cap_rv = self.fit_matrices['capacitance_response'][self._t_fit_subset_index].copy()
         else:
             # All matrix parameters are the same. Use existing matrices
             rm = self.fit_matrices['response'].copy()
             induc_rv = self.fit_matrices['inductance_response'].copy()
+            cap_rv = self.fit_matrices['capacitance_response'].copy()
 
         # Construct R_inf response vector. Fast - always calculate
-        inf_rv = mat1d.construct_inf_response_vector(times, self.step_model, step_times, step_sizes, tau_rise,
-                                                     self.raw_input_signal, smooth_inf_response, self.chrono_mode)
+        inf_rv = mat1d.construct_ohmic_response_vector(times, self.step_model, step_times, step_sizes, tau_rise,
+                                                       self.raw_input_signal, smooth_inf_response, self.chrono_mode)
         self.fit_matrices['inf_response'] = inf_rv.copy()
 
         if self.fit_dop:
-            rm_dop, rm_dop_layered = mat1d.construct_phasor_v_matrix(times, self.basis_nu, self.nu_basis_type,
-                                                                     self.step_model, step_times, step_sizes,
-                                                                     self.chrono_mode)
+            rm_dop, rm_dop_layered = phasance.construct_phasor_v_matrix(times, self.basis_nu,
+                                                                        self.nu_basis_type,
+                                                                        self.nu_epsilon,
+                                                                        self.step_model, step_times,
+                                                                        step_sizes, self.chrono_mode)
             self.fit_matrices['rm_dop'] = rm_dop.copy()
             self.fit_matrices['rm_dop_layered'] = rm_dop_layered.copy()
         else:
             rm_dop = None
 
-        return rm, inf_rv, induc_rv, rm_dop
+        return rm, inf_rv, induc_rv, cap_rv, rm_dop
 
     def _prep_impedance_fit_matrix(self, frequencies):
         self.f_fit = frequencies
@@ -6258,15 +6395,17 @@ class DRT(DRTBase):
 
         # Construct inductance impedance vector
         induc_zv = mat1d.construct_inductance_impedance_vector(frequencies)
+        cap_zv = mat1d.construct_capacitance_impedance_vector(frequencies)
 
         # Distribution of phasances
         if self.fit_dop:
-            zm_dop = mat1d.construct_phasor_z_matrix(frequencies, self.basis_nu, self.nu_basis_type)
+            zm_dop = phasance.construct_phasor_z_matrix(frequencies, self.basis_nu,
+                                                        self.nu_basis_type, self.nu_epsilon)
         else:
             zm_dop = None
         self.fit_matrices['zm_dop'] = zm_dop
 
-        return zm, induc_zv, zm_dop
+        return zm, induc_zv, cap_zv, zm_dop
 
     def _prep_penalty_matrices(self, penalty_type, derivative_weights):
         # Always calculate penalty (derivative) matrices - fast, avoids any gaps in recalc logic
@@ -6282,10 +6421,11 @@ class DRT(DRTBase):
                 penalty_matrices[f'm{k}'] = dk.T @ dk
 
                 if self.fit_dop:
-                    # TODO: clean this up
-                    # if k == 0:
-                    dk_dop = mat1d.construct_integrated_derivative_matrix(self.basis_nu, basis_type='gaussian',
-                                                                          order=k, epsilon=1)
+                    # Use Gaussian derivatives for delta basis
+                    dnu = np.median(np.diff(np.sort(self.basis_nu)))
+                    dk_dop = basis.construct_func_eval_matrix(self.basis_nu, None,
+                                                              basis_type='gaussian',
+                                                              order=k, epsilon=1 / dnu)
                     penalty_matrices[f'l{k}_dop'] = dk_dop.copy()
                     penalty_matrices[f'm{k}_dop'] = dk_dop.T @ dk_dop
             elif penalty_type == 'integral':
@@ -6296,23 +6436,27 @@ class DRT(DRTBase):
                 penalty_matrices[f'm{k}'] = dk.copy()
 
                 if self.fit_dop:
-                    # if k == 0:
-                    try:
-
+                    if self.nu_basis_type == 'delta':
+                        # Use Gaussian derivatives for delta basis
+                        dnu = np.median(np.diff(np.sort(self.basis_nu)))
+                        dk_dop = mat1d.construct_integrated_derivative_matrix(self.basis_nu,
+                                                                              basis_type='gaussian',
+                                                                              order=k, epsilon=1 / dnu)
+                    else:
                         dk_dop = mat1d.construct_integrated_derivative_matrix(self.basis_nu,
                                                                               basis_type=self.nu_basis_type,
-                                                                              order=k, epsilon=None)
-                        penalty_matrices[f'm{k}_dop'] = dk_dop.copy()
+                                                                              order=k, epsilon=self.nu_epsilon)
+                    penalty_matrices[f'm{k}_dop'] = dk_dop.copy()
 
-                        # Make a smoothing matrix for the 0th-derivative s vector
-                        if k == 0:
-                            dnu = np.mean(np.abs(np.diff(self.basis_nu)))
-                            gmat = mat1d.construct_integrated_derivative_matrix(self.basis_nu,
-                                                                                basis_type='gaussian',
-                                                                                order=1, epsilon=1 / dnu)
-                            penalty_matrices[f'gmat{k}_dop'] = gmat.copy()
-                    except ValueError:
-                        penalty_matrices[f'm{k}_dop'] = 0
+                    # Make a smoothing matrix for the 0th-derivative s vector
+                    if k == 0:
+                        dnu = np.mean(np.abs(np.diff(self.basis_nu)))
+                        gmat = mat1d.construct_integrated_derivative_matrix(self.basis_nu,
+                                                                            basis_type='gaussian',
+                                                                            order=1, epsilon=1 / dnu)
+                        penalty_matrices[f'gmat{k}_dop'] = gmat.copy()
+                    # except ValueError:
+                    #     penalty_matrices[f'm{k}_dop'] = 0
 
         self.fit_matrices.update(penalty_matrices)
 
@@ -6320,17 +6464,22 @@ class DRT(DRTBase):
             print('Constructed penalty matrices')
         return penalty_matrices
 
-    def _format_qp_matrices(self, rm_drt, inf_rv, induc_rv, rm_dop, zm_drt, induc_zv, zm_dop, base_penalty_matrices,
-                            v_baseline_penalty, R_inf_penalty, inductance_penalty, vz_offset_scale, background_penalty,
-                            inductance_scale, penalty_type, derivative_weights):
+    def _format_qp_matrices(self, rm_drt, inf_rv, induc_rv, cap_rv, rm_dop,
+                            zm_drt, induc_zv, cap_zv, zm_dop,
+                            base_penalty_matrices, v_baseline_penalty, ohmic_penalty,
+                            inductance_penalty, capacitance_penalty,
+                            vz_offset_scale, background_penalty,
+                            inductance_scale, capacitance_scale, penalty_type, derivative_weights):
         """
         Format matrices for quadratic programming solution
+        :param capacitance_scale:
+        :param capacitance_penalty:
+        :param cap_rv:
+        :param cap_zv:
         :param background_penalty:
         :param derivative_weights:
-        :param v_baseline_scale:
         :param rm_drt:
         :param base_penalty_matrices:
-        :param R_inf_scale:
         :param inductance_scale:
         :param penalty_type:
         :return:
@@ -6343,14 +6492,22 @@ class DRT(DRTBase):
 
         # Store inductance scale for reference
         self.inductance_scale = inductance_scale
+        self.capacitance_scale = capacitance_scale
 
         # Get DOP scale vector
         if self.fit_dop:
             if self.normalize_dop:
-                tau_lim = np.array(pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times))
+                # tau_lim = np.array(pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times))
                 # print(tau_lim, self.basis_tau)
-                self.dop_scale_vector = 100 * mat1d.phasor_scale_vector(self.basis_nu, self.basis_tau,
-                                                                        self.nu_basis_type)
+                if self.tau_supergrid is not None:
+                    dop_eval_tau = self.tau_supergrid
+                else:
+                    dop_eval_tau = self.basis_tau
+                self.dop_scale_vector = phasance.phasor_scale_vector(self.basis_nu, dop_eval_tau)
+                # Normalize for basis function area
+                # print('nu basis area:', basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon))
+                self.dop_scale_vector /= basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon)
+                # self.dop_scale_vector *= 100
                 # print(self.dop_scale_vector)
             else:
                 self.dop_scale_vector = np.ones(len(self.basis_nu))
@@ -6369,6 +6526,8 @@ class DRT(DRTBase):
                 rm[:, special_indices['inductance']] = induc_rv * inductance_scale  # inductance response
             if 'R_inf' in special_indices.keys():
                 rm[:, special_indices['R_inf']] = inf_rv  # R_inf response. only works for galvanostatic mode
+            if 'C_inv' in special_indices.keys():
+                rm[:, special_indices['C_inv']] = cap_rv * capacitance_scale
 
             # Add entry for vz_offset if applicable
             if 'vz_offset' in special_indices.keys():
@@ -6400,6 +6559,9 @@ class DRT(DRTBase):
 
             if 'R_inf' in special_indices.keys():
                 zm[:, special_indices['R_inf']] = 1  # R_inf contribution to impedance
+
+            if 'C_inv' in special_indices.keys():
+                zm[:, special_indices['C_inv']] = cap_zv * capacitance_scale
 
             # Add entry for vz_offset if applicable
             if 'vz_offset' in special_indices.keys():
@@ -6437,7 +6599,9 @@ class DRT(DRTBase):
                 if 'inductance' in special_indices.keys():
                     m_k[special_indices['inductance'], special_indices['inductance']] = inductance_penalty
                 if 'R_inf' in special_indices.keys():
-                    m_k[special_indices['R_inf'], special_indices['R_inf']] = R_inf_penalty
+                    m_k[special_indices['R_inf'], special_indices['R_inf']] = ohmic_penalty
+                if 'C_inv' in special_indices.keys():
+                    m_k[special_indices['C_inv'], special_indices['C_inv']] = capacitance_penalty
 
                 # Add entry for vz_offset if applicable
                 if 'vz_offset' in special_indices.keys():
@@ -6475,7 +6639,9 @@ class DRT(DRTBase):
                 if 'inductance' in special_indices.keys():
                     l_k[special_indices['inductance'], special_indices['inductance']] = inductance_penalty ** 0.5
                 if 'R_inf' in special_indices.keys():
-                    l_k[special_indices['R_inf'], special_indices['R_inf']] = R_inf_penalty ** 0.5
+                    l_k[special_indices['R_inf'], special_indices['R_inf']] = ohmic_penalty ** 0.5
+                if 'C_inv' in special_indices.keys():
+                    l_k[special_indices['C_inv'], special_indices['C_inv']] = capacitance_penalty ** 0.5
 
                 # Add entry for vz_offset if applicable
                 if 'vz_offset' in special_indices.keys():
@@ -6536,9 +6702,23 @@ class DRT(DRTBase):
     #     return (sample_times, i_signal_scaled, v_signal_scaled, response_baseline, z_scaled), \
     #            (rm, zm, induc_rv, inf_rv, induc_zv, penalty_matrices)
 
-    def _prep_chrono_prediction_matrix(self, times, input_signal, op_mode, offset_steps, smooth_inf_response):
+    def _prep_chrono_prediction_matrix(self, times, input_signal, step_times, step_sizes,
+                                       op_mode, offset_steps, smooth_inf_response):
+        # TODO: incorporate step_times and step_sizes logic
+        #  This is a placeholder to avoid issues with corner cases
+        #  (e.g. if input_signal remains the same but step_times is manually specified)
+        self._recalc_chrono_prediction_matrix = True
+
+        # Validate input signal
+        if input_signal is not None and step_times is not None:
+            raise ValueError('Either input_signal OR (step_times and step_sizes) should be provided; '
+                             'received input_signal and step_times')
+        elif step_times is not None and step_sizes is None:
+            raise ValueError('If input signal steps are provided, both step_times and step_sizes must be provided; '
+                             'received step_times only')
+
         # If input signal is not provided, use self.raw_input_signal
-        if input_signal is None:
+        if input_signal is None and step_times is None:
             if self._t_fit_subset_index is not None:
                 input_signal = self.raw_input_signal[self._t_fit_subset_index]
             else:
@@ -6547,8 +6727,12 @@ class DRT(DRTBase):
         else:
             use_fit_signal = False
 
+        # If signal steps are provided instead of input_signal, create dummy signal for validation
+        if step_times is not None:
+            input_signal = pp.generate_model_signal(times, step_times, step_sizes, None, 'ideal')
+
         self.t_predict = times
-        self.raw_prediction_input_signal = input_signal.copy()
+        self.raw_prediction_input_signal = input_signal
         self.chrono_mode_predict = op_mode
         # Final update of t_predict in case recalc status changed
         self.t_predict = times
@@ -6556,6 +6740,7 @@ class DRT(DRTBase):
         if self.print_diagnostics:
             print('recalc_response_prediction_matrix:', self._recalc_chrono_prediction_matrix)
 
+        # Process signal to identify steps
         if use_fit_signal:
             # Allow times to have a different length than input_signal if using fitted signal (input_signal = None)
             # This will break construct_inf_response_vector if smooth_inf_response==False
@@ -6563,9 +6748,12 @@ class DRT(DRTBase):
             step_sizes = self.step_sizes
             tau_rise = self.tau_rise
         else:
-            # Identify steps in applied signal
-            step_times, step_sizes, tau_rise = pp.process_input_signal(times, input_signal, self.step_model,
-                                                                       offset_steps)
+            if step_times is None:
+                # Identify steps in applied signal
+                step_times, step_sizes, tau_rise = pp.process_input_signal(times, input_signal, self.step_model,
+                                                                           offset_steps)
+            else:
+                tau_rise = None
 
         if self._recalc_chrono_prediction_matrix:
             # Matrix recalculation is required
@@ -6576,53 +6764,58 @@ class DRT(DRTBase):
                                                              integrate_method=self.integrate_method,
                                                              zga_params=self.zga_params,
                                                              interpolate_grids=self.interpolate_lookups['response'])
-            if self.step_model == 'expdecay':
-                # num_steps = len(step_times)
-                # signal_fit = fit_signal_steps(times, input_signal)
-                # # Get step time offsets
-                # t_step_offset = signal_fit['x'][:num_steps] * 1e-6
-                # step_times += t_step_offset
-                # # Get rise times
-                # tau_rise = np.exp(signal_fit['x'][num_steps:])
-                induc_rv = mat1d.construct_inductance_response_vector(times, self.step_model, step_times,
-                                                                      step_sizes, tau_rise,
-                                                                      op_mode)
-            else:
-                induc_rv = np.zeros(len(times))
-            self.prediction_matrices.update({'response': rm.copy(), 'inductance_response': induc_rv.copy()})
+
+            induc_rv = mat1d.construct_inductance_response_vector(times, self.step_model, step_times, step_sizes,
+                                                                  tau_rise, op_mode)
+            cap_rv = mat1d.construct_capacitance_response_vector(times, self.step_model, step_times, step_sizes,
+                                                                 tau_rise, op_mode)
+
+            self.prediction_matrices.update({
+                'response': rm.copy(),
+                'inductance_response': induc_rv.copy(),
+                'capacitance_response': cap_rv.copy(),
+            })
 
             # With prediction matrices calculated, set recalc flag to False
             self._recalc_chrono_prediction_matrix = False
             if self.print_diagnostics:
                 print('Calculated response prediction matrices')
         elif self._t_predict_eq_t_fit:
+            print('eq')
             # times is the same as self.t_fit. Do not overwrite
             rm = self.fit_matrices['response'].copy()
             induc_rv = self.fit_matrices['inductance_response'].copy()
+            cap_rv = self.fit_matrices['capacitance_response'].copy()
         elif self._t_predict_subset_index[0] == 'predict':
             # times is a subset of self.t_predict. Use sub-matrices of existing matrix; do not overwrite
             rm = self.prediction_matrices['response'][self._t_predict_subset_index[1], :].copy()
             induc_rv = self.prediction_matrices['inductance_response'][self._t_predict_subset_index[1]].copy()
+            cap_rv = self.prediction_matrices['capacitance_response'][self._t_predict_subset_index[1]].copy()
         elif self._t_predict_subset_index[0] == 'fit':
+            print('fit')
             # times is a subset of self.t_fit. Use sub-matrices of existing matrix; do not overwrite
             rm = self.fit_matrices['response'][self._t_predict_subset_index[1], :].copy()
             induc_rv = self.fit_matrices['inductance_response'][self._t_predict_subset_index[1]].copy()
+            cap_rv = self.fit_matrices['capacitance_response'][self._t_predict_subset_index[1]].copy()
         else:
             # All matrix parameters are the same. Use existing matrix
+            print('predict')
             rm = self.prediction_matrices['response'].copy()
             induc_rv = self.prediction_matrices['inductance_response'].copy()
+            cap_rv = self.prediction_matrices['capacitance_response'].copy()
 
         # Construct R_inf response vector
-        inf_rv = mat1d.construct_inf_response_vector(times, self.step_model, step_times, step_sizes,
-                                                     tau_rise, input_signal, smooth_inf_response,
-                                                     op_mode)
+        inf_rv = mat1d.construct_ohmic_response_vector(times, self.step_model, step_times, step_sizes,
+                                                       tau_rise, input_signal, smooth_inf_response,
+                                                       op_mode)
 
         self.prediction_matrices['inf_response'] = inf_rv.copy()
 
         # Construct DOP matrix
         if self.fit_dop:
-            rm_dop, _ = mat1d.construct_phasor_v_matrix(times, self.basis_nu, self.nu_basis_type, self.step_model,
-                                                        step_times, step_sizes, op_mode)
+            rm_dop, _ = phasance.construct_phasor_v_matrix(times, self.basis_nu, self.nu_basis_type,
+                                                           self.nu_epsilon, self.step_model, step_times,
+                                                           step_sizes, op_mode)
             self.prediction_matrices['rm_dop'] = rm_dop.copy()
         else:
             rm_dop = None
@@ -6630,7 +6823,7 @@ class DRT(DRTBase):
         if self.series_neg:
             rm = np.hstack((rm, -rm))
 
-        return rm, induc_rv, inf_rv, rm_dop
+        return rm, induc_rv, inf_rv, cap_rv, rm_dop
 
     def _prep_impedance_prediction_matrix(self, frequencies):
         self.f_predict = frequencies
@@ -6654,21 +6847,31 @@ class DRT(DRTBase):
 
             # With prediction matrix calculated, set recalc flag to False
             self._recalc_eis_prediction_matrix = False
-        elif self._f_predict_eq_f_fit:
-            # frequencies is same as self.f_fit. Use existing fit matrix; do not overwrite
-            zm = self.fit_matrices['impedance'].copy()
-        elif self._f_predict_subset_index[0] == 'fit':
-            # frequencies is a subset of self.f_fit. Use sub-matrices of existing matrix; do not overwrite
-            zm = self.fit_matrices['impedance'][self._f_predict_subset_index[1], :].copy()
-        elif self._f_predict_subset_index[0] == 'predict':
-            # frequencies is a subset of self.f_predict. Use sub-matrices of existing matrix; do not overwrite
-            zm = self.prediction_matrices['impedance'][self._f_predict_subset_index[1], :].copy()
         else:
-            # All matrix parameters are the same. Use existing matrix
-            zm = self.prediction_matrices['impedance'].copy()
+            try:
+                if self._f_predict_eq_f_fit:
+                    # frequencies is same as self.f_fit. Use existing fit matrix; do not overwrite
+                    zm = self.fit_matrices['impedance'].copy()
+                elif self._f_predict_subset_index[0] == 'fit':
+                    # frequencies is a subset of self.f_fit. Use sub-matrices of existing matrix; do not overwrite
+                    zm = self.fit_matrices['impedance'][self._f_predict_subset_index[1], :].copy()
+                elif self._f_predict_subset_index[0] == 'predict':
+                    # frequencies is a subset of self.f_predict. Use sub-matrices of existing matrix; do not overwrite
+                    zm = self.prediction_matrices['impedance'][self._f_predict_subset_index[1], :].copy()
+                else:
+                    # All matrix parameters are the same. Use existing matrix
+                    zm = self.prediction_matrices['impedance'].copy()
+            except KeyError:
+                # The matrix we're trying to reuse doesn't exist. Recalculate explicitly
+                # This can happen if the matrix was deleted or if the DRT instance was loaded from file
+                self._recalc_eis_prediction_matrix = True
+                zm, _ = self._prep_impedance_prediction_matrix(frequencies)
+                self._f_predict_eq_f_fit = False
+                self._f_predict_subset_index = ('', [])
 
         if self.fit_dop:
-            zm_dop = mat1d.construct_phasor_z_matrix(frequencies, self.basis_nu, self.nu_basis_type)
+            zm_dop = phasance.construct_phasor_z_matrix(frequencies, self.basis_nu,
+                                                        self.nu_basis_type, self.nu_epsilon)
             self.prediction_matrices['zm_dop'] = zm_dop.copy()
         else:
             zm_dop = None
@@ -6739,6 +6942,8 @@ class DRT(DRTBase):
 
         if 'R_inf' in special_indices.keys():
             fit_parameters['R_inf'] = x[special_indices['R_inf']] * self.coefficient_scale
+        else:
+            fit_parameters['R_inf'] = 0
 
         if 'v_baseline' in special_indices.keys():
             fit_parameters['v_baseline'] = (x[special_indices['v_baseline']] - self.scaled_response_offset) \
@@ -6753,6 +6958,12 @@ class DRT(DRTBase):
         else:
             fit_parameters['inductance'] = 0
 
+        if 'C_inv' in special_indices.keys():
+            fit_parameters['C_inv'] = x[special_indices['C_inv']] \
+                                      * self.coefficient_scale * self.capacitance_scale
+        else:
+            fit_parameters['C_inv'] = 0
+
         if 'background_scale' in special_indices.keys():
             fit_parameters['background_scale'] = x[special_indices['background_scale']]
 
@@ -6763,7 +6974,7 @@ class DRT(DRTBase):
         return fit_parameters
 
     def estimate_chrono_background(self, times, i_signal, v_signal, bkg_iter=1,
-                                   gp=None, kernel_type='gaussian', length_scale_bounds=(0.01, 1),
+                                   gp=None, kernel_type='gaussian', length_scale_bounds=(0.01, 10),
                                    periodicity_bounds=(1e-3, 1e3), noise_level_bounds=(0.1, 10),
                                    kernel_size=1, n_restarts=1, kernel_scale_factor=1, y_err_thresh=1e-3,
                                    linear_downsample=True, linear_sample_interval=None, copy_self=False,
@@ -6800,7 +7011,7 @@ class DRT(DRTBase):
         att = {
             'config': [
                 'fixed_basis_tau', 'basis_tau', 'tau_basis_type', 'tau_epsilon', 'tau_supergrid',
-                'fixed_basis_nu', 'basis_nu', 'nu_basis_type',  # 'nu_epsilon',
+                'fixed_basis_nu', 'basis_nu', 'nu_basis_type', 'nu_epsilon',
                 'series_neg', 'fit_dop', 'normalize_dop', 'fit_inductance',
                 'step_model', 'chrono_mode',
                 'frequency_precision', 'time_precision', 'input_signal_precision',
@@ -6823,7 +7034,7 @@ class DRT(DRTBase):
             ],
             'data': [
                 't_fit', 'raw_input_signal', 'raw_response_signal', 'scaled_input_signal', 'scaled_response_signal',
-                'raw_response_background', 'step_times', 'step_sizes', 'tau_rise',
+                'raw_response_background', 'step_times', 'nonconsec_step_times', 'step_sizes', 'tau_rise',
                 'f_fit', 'z_fit', 'z_fit_scaled',
                 'chrono_outlier_index', 'chrono_outliers', 'eis_outlier_index', 'eis_outliers',
                 '_t_fit_subset_index', '_f_fit_subset_index'

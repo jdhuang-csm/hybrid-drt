@@ -88,7 +88,6 @@ def find_peaks_compound(fx, fxx, order1_kw=None, order2_kw=None):
 
 
 def find_troughs(f, fxx, peak_indices):
-    # TODO: update this for signed distributions
     # If left and right peaks have same sign, use existing logic (after accounting for sign)
     # If left and right peaks have different signs, find zero between them
     trough_indices = []
@@ -104,11 +103,13 @@ def find_troughs(f, fxx, peak_indices):
         if left_sign == right_sign:
             # Both peaks are same sign
             sign = left_sign
+            # print(start_index, np.min(sign * f[start_index:end_index]), min(sign * f[start_index], sign * f[end_index]))
             if np.min(sign * f[start_index:end_index]) < min(sign * f[start_index], sign * f[end_index]):
                 # If there is a local minimum between the peaks, use this as the trough
                 trough_index = start_index + np.argmin(sign * f[start_index:end_index])
+                # print(start_index, 'local min')
             else:
-                # If no local minimum, use the min of (f - fxx) curvature to locate the trough
+                # If no local minimum, use the min of (f - fxx) to locate the trough
                 trough_index = start_index + np.argmax(sign * f_mix[start_index:end_index])
                 # If max curvature is at an endpoint, go halfway between the max curvature and the midpoint of the peaks
                 if trough_index in (start_index, end_index):
@@ -124,58 +125,63 @@ def find_troughs(f, fxx, peak_indices):
 
 
 def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, epsilon_factor=1.25, max_epsilon=1.25,
-                                       epsilon_uniform=None):
-    peak_indices = sorted(peak_indices)
-    # Get RBF for weighting function
-    rbf = basis.get_basis_func('gaussian')
+                                       epsilon_uniform=None, trough_indices=None):
+    # print(len(peak_indices), len(trough_indices))
+    if len(peak_indices) > 1:
+        peak_indices = sorted(peak_indices)
+        # Get RBF for weighting function
+        rbf = basis.get_basis_func('gaussian')
 
-    # Get weighting function for each peak
-    peak_weights = np.empty((len(peak_indices), len(basis_tau)))
-    # peak_iter = iter(peak_indices)
-    # prev_index = 0
-    # peak_index = next(peak_iter)
+        # Get weighting function for each peak
+        peak_weights = np.empty((len(peak_indices), len(basis_tau)))
+        # peak_iter = iter(peak_indices)
+        # prev_index = 0
+        # peak_index = next(peak_iter)
 
-    trough_indices = find_troughs(f, fxx, peak_indices)
+        if trough_indices is None:
+            trough_indices = find_troughs(f, fxx, peak_indices)
 
-    for i in range(len(peak_indices)):
-        peak_index = peak_indices[i]
-        # next_index = next(peak_iter, -1)
-        if epsilon_uniform is None:
-            # Estimate RBF length scale based on distance to next peak
-            # l_epsilon = 2.5 / np.log(tau[peak_index] / tau[prev_index])
-            # r_epsilon = 2.5 / np.log(tau[next_index] / tau[peak_index])
-            # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
-            # print(l_epsilon, r_epsilon)
-            if i == 0:
-                prev_index = 0
+        for i in range(len(peak_indices)):
+            peak_index = peak_indices[i]
+            # next_index = next(peak_iter, -1)
+            if epsilon_uniform is None:
+                # Estimate RBF length scale based on distance to next peak
+                # l_epsilon = 2.5 / np.log(tau[peak_index] / tau[prev_index])
+                # r_epsilon = 2.5 / np.log(tau[next_index] / tau[peak_index])
+                # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
+                # print(l_epsilon, r_epsilon)
+                if i == 0:
+                    prev_index = 0
+                else:
+                    prev_index = trough_indices[i - 1]
+
+                if i == len(peak_indices) - 1:
+                    next_index = -1
+                else:
+                    next_index = trough_indices[i]
+
+                l_epsilon = min(epsilon_factor / np.log(tau[peak_index] / tau[prev_index]), max_epsilon)
+                r_epsilon = min(epsilon_factor / np.log(tau[next_index] / tau[peak_index]), max_epsilon)
+                # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
+                # print(l_epsilon, r_epsilon)
             else:
-                prev_index = trough_indices[i - 1]
+                l_epsilon = epsilon_uniform
+                r_epsilon = epsilon_uniform
 
-            if i == len(peak_indices) - 1:
-                next_index = -1
-            else:
-                next_index = trough_indices[i]
+            peak_weights[i, basis_tau < tau[peak_index]] = rbf(
+                np.log(basis_tau[basis_tau < tau[peak_index]] / tau[peak_index]), l_epsilon
+            )
+            peak_weights[i, basis_tau >= tau[peak_index]] = rbf(
+                np.log(basis_tau[basis_tau >= tau[peak_index]] / tau[peak_index]), r_epsilon
+            )
 
-            l_epsilon = min(epsilon_factor / np.log(tau[peak_index] / tau[prev_index]), max_epsilon)
-            r_epsilon = min(epsilon_factor / np.log(tau[next_index] / tau[peak_index]), max_epsilon)
-            # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
-            # print(l_epsilon, r_epsilon)
-        else:
-            l_epsilon = epsilon_uniform
-            r_epsilon = epsilon_uniform
+            # prev_index = peak_index
+            # peak_index = next_index
 
-        peak_weights[i, basis_tau < tau[peak_index]] = rbf(
-            np.log(basis_tau[basis_tau < tau[peak_index]] / tau[peak_index]), l_epsilon
-        )
-        peak_weights[i, basis_tau >= tau[peak_index]] = rbf(
-            np.log(basis_tau[basis_tau >= tau[peak_index]] / tau[peak_index]), r_epsilon
-        )
-
-        # prev_index = peak_index
-        # peak_index = next_index
-
-    # Normalize to total weight
-    peak_weights /= np.sum(peak_weights, axis=0)
+        # Normalize to total weight
+        peak_weights /= np.sum(peak_weights, axis=0)
+    else:
+        peak_weights = np.ones((len(peak_indices), len(basis_tau)))
 
     return peak_weights
 
