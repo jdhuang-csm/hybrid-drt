@@ -150,7 +150,7 @@ def get_data_factor_from_data(times, step_times, frequencies):
     return get_data_factor(tot_num, tot_ppd)
 
 
-def get_default_hypers(eff_hp, fit_dop):
+def get_default_hypers(eff_hp, fit_dop, nu_basis_type):
     if eff_hp:
         s_alpha = np.array([5, 10, 25])  # np.array([1.5, 2.5, 25])
         rho_alpha = np.array([0.15, 0.2, 0.25])  # np.array([0.1, 0.15, 0.2])
@@ -178,14 +178,24 @@ def get_default_hypers(eff_hp, fit_dop):
     )
 
     if fit_dop:
-        hypers['dop_l2_lambda_0'] = 10
+        # if nu_basis_type == 'delta':
+        #     hypers['dop_l2_lambda_0'] = 100
+        #     hypers['dop_l1_lambda_0'] = 0
+        #     hypers['dop_derivative_weights'] = np.array([1, 0, 0])
+        #     hypers['dop_s_alpha'] = np.array([2, 2, 2])
+        #     hypers['dop_rho_alpha'] = np.array([0.15, 0.2, 0.25])
+        #     hypers['dop_s_0'] = np.ones(3)
+        #     hypers['dop_rho_0'] = np.ones(3)
+        #     hypers['dop_sigma_ds'] = np.array([1, 1000, 1000])
+        # else:
+        hypers['dop_l2_lambda_0'] = 100
         hypers['dop_l1_lambda_0'] = 0
-        hypers['dop_derivative_weights'] = np.array([1, 0, 0])
-        hypers['dop_s_alpha'] = np.array([2, 2, 2])
+        hypers['dop_derivative_weights'] = np.array([0.5, 1.0, 0.5])
+        hypers['dop_s_alpha'] = np.array([5, 10, 25])
         hypers['dop_rho_alpha'] = np.array([0.15, 0.2, 0.25])
         hypers['dop_s_0'] = np.ones(3)
         hypers['dop_rho_0'] = np.ones(3)
-        hypers['dop_sigma_ds'] = np.array([1, 1, 1])
+        hypers['dop_sigma_ds'] = np.array([1, 1000, 1000])
 
     return hypers
 

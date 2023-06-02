@@ -4,6 +4,7 @@ from pathlib import Path, WindowsPath
 from copy import deepcopy
 from scipy import ndimage
 import pandas as pd
+import time
 
 from .ndx import resample, assemble_ndx
 from .curvature import peak_prob_1d
@@ -12,7 +13,7 @@ from .nddata import impute_nans, flag_bad_obs, flag_outliers
 from ..filters import apply_filter
 from .. import utils
 from .. import fileload as fl
-from ..matrices import basis, mat1d
+from ..matrices import basis, mat1d, phasance
 from ..models.drt1d import DRT
 
 
@@ -20,15 +21,19 @@ class DRTMD(object):
     def __init__(self, tau_supergrid, psi_dim_names=None, store_attr_categories=None,
                  tau_basis_type='gaussian', tau_epsilon=None,
                  step_model='ideal', chrono_mode='galv',
-                 fixed_basis_nu=None, fit_dop=False, normalize_dop=True, nu_basis_type='delta',
-                 fit_inductance=True, time_precision=10, input_signal_precision=10, frequency_precision=10,
+                 fit_inductance=True, fit_ohmic=True, fit_capacitance=False,
+                 fixed_basis_nu=None, fit_dop=False, normalize_dop=True,
+                 nu_basis_type='gaussian', nu_epsilon=None,
+                 time_precision=10, input_signal_precision=10, frequency_precision=10,
                  chrono_reader=None, eis_reader=None,
                  fit_kw=None, fit_type='drt', pfrt_factors=None,
                  print_diagnostics=False, print_progress=True, warn=False):
 
         # Initialize workhorse DRT instance. Set up integral interpolation using tau_supergrid
-        self.drt1d = DRT(interpolate_integrals=True, tau_supergrid=tau_supergrid, tau_epsilon=tau_epsilon,
-                         tau_basis_type=tau_basis_type)
+        self.drt1d = DRT(interpolate_integrals=True,
+                         tau_supergrid=tau_supergrid, tau_epsilon=tau_epsilon, tau_basis_type=tau_basis_type,
+                         fixed_basis_nu=fixed_basis_nu, nu_epsilon=nu_epsilon, nu_basis_type=nu_basis_type
+                         )
 
         self.psi_dim_names = psi_dim_names
 
@@ -42,12 +47,21 @@ class DRTMD(object):
         self.tau_basis_type = tau_basis_type
         self.tau_epsilon = self.drt1d.tau_epsilon
         self.fit_inductance = fit_inductance
+        self.fit_ohmic = fit_ohmic
+        self.fit_capacitance = fit_capacitance
 
         # Distribution of phasances
+        # TODO: create setter for fixed_basis_nu to update nu_epsilon?
         self.fixed_basis_nu = fixed_basis_nu
         self.nu_basis_type = nu_basis_type
+        self.nu_epsilon = nu_epsilon
         self.fit_dop = fit_dop
         self.normalize_dop = normalize_dop
+
+        # Set nu epsilon
+        if self.nu_epsilon is None and self.nu_basis_type != 'delta':
+            dnu = np.median(self.drt1d.get_nu_basis_spacing())
+            self.nu_epsilon = 1 / dnu
 
         # Chrono settings
         self.step_model = step_model
@@ -116,7 +130,8 @@ class DRTMD(object):
             att_dict = source
 
         # Initialize with required/essential arguments
-        config_keys = ['tau_supergrid', 'psi_dim_names', 'store_attr_categories',  'tau_basis_type', 'tau_epsilon']
+        config_keys = ['tau_supergrid', 'psi_dim_names', 'store_attr_categories',  'tau_basis_type', 'tau_epsilon',
+                       'fixed_basis_nu', 'nu_epsilon', 'nu_basis_type']
         init_kw = {k: att_dict.get(k, None) for k in config_keys}
         init_kw = {k: v for k, v in init_kw.items() if v is not None}
         drtmd = cls(**init_kw)
@@ -235,6 +250,23 @@ class DRTMD(object):
             else:
                 raise err
 
+    def fit_observations(self, obs_index, print_interval=None, ignore_errors=False):
+        num_to_fit = len(obs_index)
+        if print_interval is None:
+            print_interval = int(np.ceil(num_to_fit / 10))
+        if self.print_progress:
+            print(f'Found {num_to_fit} observations to fit')
+
+        start_time = time.time()
+        for i, index in enumerate(obs_index):
+            self.fit_observation(index, ignore_errors=ignore_errors)
+            if self.print_progress and ((i + 1) % print_interval == 0 or i == num_to_fit - 1):
+                print(f'{i + 1} / {num_to_fit}')
+
+        elapsed = time.time() - start_time
+        print('Fitted {} observations in {:.1f} minutes'.format(num_to_fit, elapsed / 60))
+        print('{:.1f} seconds per observation'.format(elapsed / num_to_fit))
+
     def fit_all(self, refit=False, print_interval=None, ignore_errors=False):
         if refit:
             # Fit all observations regardless of fit status
@@ -243,16 +275,7 @@ class DRTMD(object):
             # Only fit unfitted observations
             fit_index = np.where(~np.array(self.obs_fit_status) & ~np.array(self.obs_ignore_flag))[0]
 
-        num_to_fit = len(fit_index)
-        if print_interval is None:
-            print_interval = int(np.ceil(num_to_fit / 10))
-        if self.print_progress:
-            print(f'Found {num_to_fit} observations to fit')
-
-        for i, index in enumerate(fit_index):
-            self.fit_observation(index, ignore_errors=ignore_errors)
-            if self.print_progress and ((i + 1) % print_interval == 0 or i == num_to_fit - 1):
-                print(f'{i + 1} / {num_to_fit}')
+        self.fit_observations(fit_index, print_interval, ignore_errors)
 
     def get_obs_data(self, obs_index):
         chrono_data, eis_data = self.obs_data[obs_index]
@@ -264,6 +287,9 @@ class DRTMD(object):
             chrono_data = fl.get_chrono_tuple(chrono_data)
         elif chrono_data is None:
             chrono_data = (None, None, None)
+        else:
+            raise ValueError('Expected chrono data to be a path, DataFrame, or None. '
+                             f'Received data of type {type(chrono_data)}')
 
         # Load EIS data
         if type(eis_data) in (str, Path, WindowsPath):
@@ -272,6 +298,9 @@ class DRTMD(object):
             eis_data = fl.get_eis_tuple(eis_data)
         elif eis_data is None:
             eis_data = (None, None)
+        else:
+            raise ValueError('Expected EIS data to be a path, DataFrame, or None. '
+                             f'Received data of type {type(eis_data)}')
 
         return chrono_data, eis_data
 
@@ -361,7 +390,8 @@ class DRTMD(object):
         obs_tau_indices = [self.obs_tau_indices[i] for i in obs_index]
 
         x_drt, x_special, tau_indices = resolve_observations(
-            obs_drt_list, obs_tau_indices, obs_psi=obs_psi, truncate=truncate, sigma=sigma,
+            obs_drt_list, obs_tau_indices, self.fit_kw['nonneg'],
+            obs_psi=obs_psi, truncate=truncate, sigma=sigma,
             lambda_psi=lambda_psi, unpack=True,
             tau_filter_sigma=tau_filter_sigma, special_filter_sigma=special_filter_sigma
         )
@@ -571,8 +601,8 @@ class DRTMD(object):
 
                     if key == 'x_dop':
                         # normalize
-                        dop_scale_vector = mat1d.phasor_scale_vector(self.fixed_basis_nu, self.tau_supergrid,
-                                                                     self.nu_basis_type)
+                        dop_scale_vector = phasance.phasor_scale_vector(self.fixed_basis_nu,
+                                                                                        self.tau_supergrid)
                         x_k = x_k / dop_scale_vector[None, :]
 
                     # Filter
@@ -663,6 +693,68 @@ class DRTMD(object):
                                                      self.tau_epsilon, order=order)
 
         return x @ basis_mat.T
+
+    def predict_dop(self, psi=None, x=None, nu=None, order=0, factor_index=None,
+                    normalize=False, normalize_tau=None, normalize_quantiles=(0.25, 0.75),
+                    delta_density=False,
+                    **kw):
+        # TODO: implement predict_x_dop
+        # if x is None:
+        #     x = self.predict_x(psi, factor_index=factor_index, normalize=False, **kw)
+
+        if nu is None:
+            nu = self.get_nu_eval(10)
+
+        # Construct basis matrix
+        basis_mat = basis.construct_func_eval_matrix(self.fixed_basis_nu, nu,
+                                                     self.nu_basis_type, epsilon=self.nu_epsilon,
+                                                     order=order, zga_params=None)
+
+        if delta_density:
+            dnu = self.drt1d.get_nu_basis_spacing()
+            if self.nu_basis_type == 'delta':
+                x = x / dnu
+
+        dop = x @ basis_mat.T
+
+        # TODO: take x_ohmic, x_induc, x_cap args?
+        # # Add pure inductance, resistance, and capacitance
+        # ohmic_index = np.where(nu == 0)
+        # if len(ohmic_index) == 1:
+        #     r_inf = self.obs_special['R_inf']
+        #     if delta_density:
+        #         r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
+        #     dop[:, ohmic_index] += r_inf
+        #
+        # induc_index = np.where(nu == 1)
+        # if len(induc_index) == 1:
+        #     induc = self.fit_parameters['inductance']
+        #     if delta_density:
+        #         induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
+        #     dop[induc_index] += induc
+        #
+        # cap_index = np.where(nu == -1)
+        # if len(cap_index) == 1:
+        #     c_inv = self.fit_parameters['C_inv']
+        #     if delta_density:
+        #         c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
+        #     dop[cap_index] += c_inv
+
+        # TODO: revisit normalization
+        if normalize:
+            if normalize_tau is None:
+                # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
+                # normalize_tau = np.array(data_tau_lim)
+                normalize_tau = self.tau_supergrid
+            else:
+                normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
+            normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
+        else:
+            normalize_by = 1
+
+        dop /= normalize_by
+
+        return dop
 
     def predict_param_cov(self, obs_index, factor_index=None):
         cov_matrices = []
@@ -925,7 +1017,7 @@ class DRTMD(object):
         psi = self.validate_psi(psi)
         return utils.array.row_match_index(self.obs_psi, psi, precision=8)
 
-    def get_group_index(self, group_id, psi_sort_dims=None):
+    def get_group_index(self, group_id, psi_sort_dims=None, exclude_flagged=False):
         """
         Get observation indices of group or groups
         :param group_id: group_id or list of group_ids
@@ -937,7 +1029,7 @@ class DRTMD(object):
         else:
             obs_index = np.where(np.isin(np.array(self.obs_group_id), group_id))[0]
 
-        # Sort before selecting batches
+        # Sort by specifieid psi dimensions
         if psi_sort_dims is not None:
             if type(group_id) == str:
                 sort_vals = [self.obs_psi[obs_index, self.psi_dim_names.index(d)] for d in psi_sort_dims][::-1]
@@ -953,9 +1045,13 @@ class DRTMD(object):
         if sort_vals is not None:
             obs_index = obs_index[np.lexsort(sort_vals)]
 
+        if exclude_flagged:
+            obs_index = obs_index[~self.obs_ignore_flag[obs_index]]
+
         return obs_index
 
-    def filter_psi(self, dim_eq=None, dim_gt=None, dim_lt=None, return_index=True):
+    def filter_psi(self, dim_eq=None, dim_gt=None, dim_lt=None, return_index=True,
+                   exclude_flagged=False):
         if dim_eq is None:
             dim_eq = {}
         if dim_gt is None:
@@ -963,11 +1059,16 @@ class DRTMD(object):
         if dim_lt is None:
             dim_lt = {}
 
-        psi_index = np.logical_and.reduce(
-            [self.obs_psi[:, self.psi_dim_names.index(k)] == v for k, v in dim_eq.items()] +
-            [self.obs_psi[:, self.psi_dim_names.index(k)] > v for k, v in dim_gt.items()] +
-            [self.obs_psi[:, self.psi_dim_names.index(k)] < v for k, v in dim_lt.items()]
+        conditions = (
+                [self.obs_psi[:, self.psi_dim_names.index(k)] == v for k, v in dim_eq.items()] +
+                [self.obs_psi[:, self.psi_dim_names.index(k)] > v for k, v in dim_gt.items()] +
+                [self.obs_psi[:, self.psi_dim_names.index(k)] < v for k, v in dim_lt.items()]
         )
+
+        if exclude_flagged:
+            conditions += [~self.obs_ignore_flag]
+
+        psi_index = np.logical_and.reduce(conditions)
 
         if return_index:
             return np.where(psi_index)[0]
@@ -986,6 +1087,15 @@ class DRTMD(object):
         tau = np.logspace(log_tau_min, log_tau_max, int((log_tau_max - log_tau_min) * ppd) + 1)
 
         return tau
+
+    def get_nu_eval(self, ppd=10):
+        nu = np.linspace(-1, 1, 20 * ppd + 1)
+        # Ensure basis_nu is included
+        nu = np.unique(np.concatenate([self.fixed_basis_nu, nu]))
+        # Ensure pure inductance, resistance, and capacitance are included
+        nu = np.unique(np.concatenate([nu, np.array([-1, 0, 1])]))
+
+        return nu
 
     @property
     def obs_dtype(self):
@@ -1070,7 +1180,7 @@ class DRTMD(object):
                 'fixed_basis_nu', 'nu_basis_type', 'fit_dop', 'normalize_dop',
                 # Chrono settings
                 'step_model', 'chrono_mode',
-                # Data readesr
+                # Data readers
                 # 'chrono_reader', 'eis_reader',
                 # Fit kwargs
                 'fit_type', 'fit_kw', 'pfrt_factors',
@@ -1221,8 +1331,8 @@ class DRTMD(object):
         # Propagate configuration items to workhorse DRT instance
         if name in [
             'tau_supergrid', 'tau_basis_type', 'tau_epsilon',
-            'fixed_basis_nu', 'fit_dop', 'normalize_dop', 'nu_basis_type',
-            'fit_inductance',
+            'fixed_basis_nu', 'fit_dop', 'normalize_dop', 'nu_basis_type', 'nu_epsilon',
+            'fit_inductance', 'fit_ohmic', 'fit_capacitance',
             'step_model', 'chrono_mode',
             'frequency_precision', 'time_precision', 'input_signal_precision',
             'print_diagnostics', 'warn'

@@ -30,6 +30,22 @@ def get_file_source(file):
     return source
 
 
+def check_source(file, source=None):
+    known_sources = ['gamry', 'zplot', 'biologic']
+
+    if source is None:
+        source = get_file_source(file)
+        if source is None:
+            raise ValueError('Could not identify file format. To read this file, '
+                             'manually specify the file format by providing the source argument. '
+                             'Recognized sources: {}'.format(', '.join(known_sources)))
+
+    if source not in known_sources:
+        raise ValueError('Unrecognized source {}. Recognized sources: {}'.format(source, ', '.join(known_sources)))
+
+    return source
+
+
 def get_custom_file_time(file):
     with open(file, 'r') as f:
         txt = f.read()
@@ -53,7 +69,7 @@ def get_custom_file_time(file):
     return float(calendar.timegm(file_time)) + float('0.' + frac_seconds)
 
 
-def get_timestamp(file):
+def get_timestamp(file, source=None):
     """Get experiment start timestamp from file"""
     try:
         with open(file, 'r') as f:
@@ -62,7 +78,7 @@ def get_timestamp(file):
         with open(file, 'r', encoding='latin1') as f:
             txt = f.read()
 
-    source = get_file_source(file)
+    source = check_source(file, source)
 
     if source == 'gamry':
         try:
@@ -119,7 +135,7 @@ def read_header(file):
     return txt[:table_index + 1]
 
 
-def read_chrono(file):
+def read_chrono(file, source=None):
     """
     Read chronopotentiometry data from Gamry .DTA file
 
@@ -133,58 +149,74 @@ def read_chrono(file):
         with open(file, 'r', encoding='latin1') as f:
             txt = f.read()
 
-    # find start of curve data
-    cidx = txt.upper().find('\nCURVE\tTABLE') + 1
-    skipfooter = 0
+    source = check_source(file, source)
 
-    if cidx == -1:
-        # coudn't find OCV curve data in file
-        # return empty dataframe
-        return pd.DataFrame([])
-    else:
-        # preceding text
-        pretxt = txt[:cidx]
+    if source == 'gamry':
+        # find start of curve data
+        cidx = txt.upper().find('\nCURVE\tTABLE') + 1
+        skipfooter = 0
 
-        # ocv curve data
-        ctable = txt[cidx:]
-        # column headers are next line after ZCURVE TABLE line
-        header_start = ctable.find('\n') + 1
-        header_end = header_start + ctable[header_start:].find('\n')
-        header = ctable[header_start:header_end].split('\t')
-        # units are next line after column headers
-        unit_end = header_end + 1 + ctable[header_end + 1:].find('\n')
-        units = ctable[header_end + 1:unit_end].split('\t')
-        # determine # of rows to skip by counting line breaks in preceding text
-        skiprows = len(pretxt.split('\n')) + 2
-
-        # if table is indented, ignore empty left column
-        if header[0] == '':
-            usecols = header[1:]
+        if cidx == -1:
+            # coudn't find OCV curve data in file
+            # return empty dataframe
+            return pd.DataFrame([])
         else:
-            usecols = header
-        # read data to DataFrame
-        data = pd.read_csv(file, sep='\t', skiprows=skiprows, skipfooter=skipfooter, header=None, names=header,
-                           usecols=usecols, engine='python')
+            # preceding text
+            pretxt = txt[:cidx]
 
-        # get timestamp
-        try:
-            dt = get_timestamp(file)
-            time_col = find_time_column(data) # time col may be either 'T' or 'Time'
-            # print(time_col, data[time_col])
-            data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
-        except ValueError:
-            warnings.warn(f'Could not read timestamp from file {file}')
+            # ocv curve data
+            ctable = txt[cidx:]
+            # column headers are next line after ZCURVE TABLE line
+            header_start = ctable.find('\n') + 1
+            header_end = header_start + ctable[header_start:].find('\n')
+            header = ctable[header_start:header_end].split('\t')
+            # units are next line after column headers
+            unit_end = header_end + 1 + ctable[header_end + 1:].find('\n')
+            units = ctable[header_end + 1:unit_end].split('\t')
+            # determine # of rows to skip by counting line breaks in preceding text
+            skiprows = len(pretxt.split('\n')) + 2
+
+            # if table is indented, ignore empty left column
+            if header[0] == '':
+                usecols = header[1:]
+            else:
+                usecols = header
+            # read data to DataFrame
+            data = pd.read_csv(file, sep='\t', skiprows=skiprows, skipfooter=skipfooter, header=None, names=header,
+                               usecols=usecols, engine='python')
+
+            # get timestamp
+            try:
+                dt = get_timestamp(file)
+                time_col = find_time_column(data) # time col may be either 'T' or 'Time'
+                # print(time_col, data[time_col])
+                data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
+            except ValueError:
+                warnings.warn(f'Could not read timestamp from file {file}')
+    else:
+        raise ValueError(f'read_chrono is not implemented for source {source}')
 
         return data
 
 
-def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None):
+def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None,
+                            loop=False, print_progress=False):
     """Concatenate curve data from multiple files"""
     if type(chrono_data_list[0]) == pd.DataFrame:
         chrono_dfs = chrono_data_list
     else:
         # Assume data_list contains files
-        chrono_dfs = [read_chrono(file) for file in chrono_data_list]
+        if loop:
+            chrono_dfs = []
+            num_to_load = len(chrono_data_list)
+            if print_progress:
+                print(f'Loading {num_to_load} chrono files...')
+            for i, file in enumerate(chrono_data_list):
+                chrono_dfs.append(read_chrono(file))
+                if print_progress and ((i + 1) % int(num_to_load / 5) == 0 or i == num_to_load - 1):
+                    print(f'{i + 1} / {num_to_load}')
+        else:
+            chrono_dfs = [read_chrono(file) for file in chrono_data_list]
 
     if eis_data_list is not None:
         if type(eis_data_list[0]) == pd.DataFrame:
@@ -224,14 +256,29 @@ def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=Non
     return df_out
 
 
-def concatenate_eis_data(files):
-    """Concatenate curve data from multiple files"""
-    # sort files
-    files = sorted(files, key=get_timestamp)
+def concatenate_eis_data(eis_data_list, loop=False, print_progress=False):
+    """Concatenate EIS data from multiple files"""
+    if type(eis_data_list[0]) == pd.DataFrame:
+        dfs = eis_data_list
+    else:
+        # Assume data_list contains files
+        if loop:
+            dfs = []
+            num_to_load = len(eis_data_list)
+            if print_progress:
+                print(f'Loading {num_to_load} EIS files...')
+            for i, file in enumerate(eis_data_list):
+                dfs.append(read_eis(file))
+                if print_progress and ((i + 1) % int(num_to_load / 5) == 0 or i == num_to_load - 1):
+                    print(f'{i + 1} / {num_to_load}')
+        else:
+            dfs = [read_eis(file) for file in eis_data_list]
 
-    dfs = [read_eis(file) for file in files]
-    start_times = [df['timestamp'][0] for df in dfs]
-    start_time = min(start_times)
+    # Sort by first timestamp
+    dfs = sorted(dfs, key=lambda x: x['timestamp'][0])
+    start_time = dfs[0]['timestamp'][0]
+    # start_times = [df['timestamp'][0] for df in dfs]
+    # start_time = min(start_times)
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
     for df in dfs:
@@ -248,7 +295,7 @@ def concatenate_eis_data(files):
     return df_out
 
 
-def read_eis(file, warn=True, return_tuple=False):
+def read_eis(file, source=None, warn=True, return_tuple=False):
     """read EIS zcurve data from Gamry .DTA file"""
     try:
         with open(file, 'r') as f:
@@ -256,7 +303,8 @@ def read_eis(file, warn=True, return_tuple=False):
     except UnicodeDecodeError:
         with open(file, 'r', encoding='latin1') as f:
             txt = f.read()
-    source = get_file_source(file)
+
+    source = check_source(file, source)
 
     if source == 'gamry':
         # find start of zcurve data
@@ -345,11 +393,15 @@ def read_eis(file, warn=True, return_tuple=False):
         # header_count_index = txt.find('Nb header lines :')
         f_index = txt.find('freq/Hz')
 
+        # Identify separator - could be tab or comma
+        sep = txt[f_index + 7]
+
         skiprows = len(txt[:f_index].split('\n')) - 1
 
         # read data to DataFrame
-        data = pd.read_csv(file, sep='\t', skiprows=skiprows, encoding=None, encoding_errors='ignore')
+        data = pd.read_csv(file, sep=sep, skiprows=skiprows, encoding=None, encoding_errors='ignore')
 
+        # Rename columns to standard names (matching Gamry format)
         rename = {
             'freq/Hz': 'Freq',
             'Re(Z)/Ohm': 'Zreal',
@@ -357,8 +409,8 @@ def read_eis(file, warn=True, return_tuple=False):
             '|Z|/Ohm': 'Zmod',
             'Phase(Z)/deg': 'Zphz',
             'time/s': 'Time',
-            # '<Ewe>/V',
-            # '<I>/mA',
+            '<Ewe>/V': 'Vdc',
+            '<I>/mA': 'Idc',
             # 'Cs/F',
             # 'Cp/F',
             # 'cycle number',
@@ -380,6 +432,9 @@ def read_eis(file, warn=True, return_tuple=False):
 
     else:
         raise ValueError('Unrecognized file format')
+
+    if return_tuple:
+        data = get_eis_tuple(data)
 
     return data
 
@@ -433,7 +488,9 @@ def get_chrono_tuple(data, start_time=None, end_time=None):
     return times, i_signal, v_signal
 
 
-def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False):
+def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False,
+                     start_time=None, end_time=None,
+                     min_freq=None, max_freq=None):
     """
     Get data tuple for hybrid measurement
     :param chrono_data: chrono file path or DataFrame
@@ -449,8 +506,8 @@ def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False):
     if type(eis_data) != pd.DataFrame:
         eis_data = read_eis(eis_data)
 
-    times, i_sig, v_sig = get_chrono_tuple(chrono_data)
-    freq, z = get_eis_tuple(eis_data)
+    times, i_sig, v_sig = get_chrono_tuple(chrono_data, start_time=start_time, end_time=end_time)
+    freq, z = get_eis_tuple(eis_data, min_freq=min_freq, max_freq=max_freq)
 
     if append_eis_iv:
         time_offset = get_time_offset(eis_data, chrono_data)
@@ -472,7 +529,10 @@ def iv_from_eis(data):
     if type(data) != pd.DataFrame:
         data = read_eis(data)
 
-    times = data['Time'].values
+    if 'elapsed' in data.columns:
+        times = data['elapsed'].values
+    else:
+        times = data['Time'].values
     i_sig = data['Idc'].values
     v_sig = data['Vdc'].values
 

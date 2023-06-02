@@ -15,8 +15,9 @@ class DRTBase:
     def __init__(self, fixed_basis_tau=None, tau_supergrid=None, tau_basis_type='gaussian', tau_epsilon=None,
                  basis_tau_ppd=10,
                  step_model='ideal', chrono_mode='galv', interpolate_integrals=True, chrono_tau_rise=None,
-                 fixed_basis_nu=None, fit_dop=False, normalize_dop=True, nu_basis_type='delta',
-                 fit_inductance=True, time_precision=10, input_signal_precision=10, frequency_precision=10,
+                 fixed_basis_nu=None, nu_basis_type='gaussian', nu_epsilon=None, fit_dop=False, normalize_dop=True,
+                 fit_inductance=True, fit_ohmic=True, fit_capacitance=False,
+                 time_precision=10, input_signal_precision=10, frequency_precision=10,
                  print_diagnostics=False, warn=True):
 
         if fixed_basis_tau is not None and tau_supergrid is not None:
@@ -42,6 +43,8 @@ class DRTBase:
         # self.tau_zga_epsilon = None
         self._zga_params = None
         self.fit_inductance = fit_inductance
+        self.fit_ohmic = fit_ohmic
+        self.fit_capacitance = fit_capacitance
         self.sample_index = None
         self._t_predict_subset_index = ('', [])
         self._f_predict_subset_index = ('', [])
@@ -57,6 +60,7 @@ class DRTBase:
         # Distribution of phasances
         self.fixed_basis_nu = fixed_basis_nu
         self.basis_nu = None
+        self.nu_epsilon = nu_epsilon
         self.nu_basis_type = nu_basis_type
         self.fit_dop = fit_dop
         self.normalize_dop = normalize_dop
@@ -283,10 +287,13 @@ class DRTBase:
                 tau_rise = None
 
             # Get non-consecutive steps for plotting functions
-            step_diff = np.diff(step_times)
-            t_sample = np.min(np.diff(times))
-            nonconsec_step_times = step_times[1:][step_diff > 1.1 * t_sample]
-            self.nonconsec_step_times = np.insert(nonconsec_step_times, 0, step_times[0])
+            if len(step_times) > 1:
+                step_diff = np.diff(step_times)
+                t_sample = np.min(np.diff(times))
+                nonconsec_step_times = step_times[1:][step_diff > 1.1 * t_sample]
+                self.nonconsec_step_times = np.insert(nonconsec_step_times, 0, step_times[0])
+            else:
+                self.nonconsec_step_times = step_times
 
             if self.print_diagnostics:
                 print('Step data:', step_times, step_sizes)
@@ -504,7 +511,7 @@ class DRTBase:
             self.impedance_scale /= factor
 
     def _add_special_qp_param(self, name, nonneg, size=1):
-        options = ['R_inf', 'v_baseline', 'inductance', 'vz_offset', 'background_scale', 'x_dop']
+        options = ['R_inf', 'v_baseline', 'inductance', 'C_inv', 'vz_offset', 'background_scale', 'x_dop']
         if name not in options:
             raise ValueError('Invalid special QP parameter {name}. Options: {options}')
 

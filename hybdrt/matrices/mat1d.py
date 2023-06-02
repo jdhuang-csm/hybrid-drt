@@ -5,6 +5,7 @@ from mitlef.pade_approx import create_approx_func
 import warnings
 
 from . import basis
+from .basis import get_integrated_derivative_func
 from .. import utils
 from .. import preprocessing as pp
 
@@ -151,46 +152,8 @@ def construct_response_matrix(basis_tau, times, step_model, step_times, step_siz
     return A, A_layered
 
 
-def get_integrated_derivative_func(basis_type='gaussian', order=1):
-    """
-    Create function for integrated derivative matrix
-
-    Parameters:
-    -----------
-    basis : string, optional (default: 'gaussian')
-        Basis function used to approximate DRT
-    order : int, optional (default: 1)
-        Order of DRT derivative for ridge penalty
-    """
-    utils.validation.check_basis_type(basis_type)
-    if basis_type != 'gaussian':
-        raise ValueError('Integrated derivative matrix only implemented for gaussian basis function')
-    if basis_type == 'gaussian':
-        if order == 0:
-            def func(x_n, x_m, epsilon):
-                a = epsilon * (x_m - x_n)  # epsilon * np.log(l_m / l_n)
-                return (np.pi / 2) ** 0.5 * epsilon ** (-1) * np.exp(-(a ** 2 / 2))  # * (epsilon / np.sqrt(np.pi))
-        elif order == 1:
-            def func(x_n, x_m, epsilon):
-                a = epsilon * (x_m - x_n)  # epsilon * np.log(l_m / l_n)
-                return -(np.pi / 2) ** 0.5 * epsilon * (-1 + a ** 2) * np.exp(-(a ** 2 / 2))  # * (epsilon / np.sqrt(np.pi))
-        elif order == 2:
-            def func(x_n, x_m, epsilon):
-                a = epsilon * (x_m - x_n)
-                return (np.pi / 2) ** 0.5 * epsilon ** 3 * (3 - 6 * a ** 2 + a ** 4) * np.exp(-(a ** 2 / 2)) \
-                    # * (epsilon / np.sqrt(np.pi))
-        elif order == 3:
-            def func(x_n, x_m, epsilon):
-                a = epsilon * (x_m - x_n)
-                return -(np.pi / 2) ** 0.5 * epsilon ** 5 * (-15 + (45 * a ** 2) - (15 * a ** 4) + (a ** 6)) \
-                    * np.exp(-(a ** 2 / 2))
-        else:
-            raise ValueError(f'Invalid order {order}. Order must be between 0 and 2')
-
-    return func
-
-
-def construct_integrated_derivative_matrix(basis_grid, basis_type='gaussian', order=1, epsilon=1, zga_params=None):
+def construct_integrated_derivative_matrix(basis_grid, basis_type='gaussian', order=1, epsilon=1, zga_params=None,
+                                           integration_limits=None):
     """
     Construct matrix for calculation of DRT ridge penalty.
     x^T@M@x gives integral of squared derivative of DRT over all ln(tau)
@@ -208,50 +171,70 @@ def construct_integrated_derivative_matrix(basis_grid, basis_type='gaussian', or
     """
     utils.validation.check_basis_type(basis_type)
 
-    if basis_type == 'gaussian':
-        if type(order) == list:
-            f0, f1, f2 = order
-            func0 = get_integrated_derivative_func(basis_type, 0)
-            func1 = get_integrated_derivative_func(basis_type, 1)
-            func2 = get_integrated_derivative_func(basis_type, 2)
+    if integration_limits is None:
+        if basis_type == 'gaussian':
+            if type(order) == list:
+                f0, f1, f2 = order
+                func0 = get_integrated_derivative_func(basis_type, 0)
+                func1 = get_integrated_derivative_func(basis_type, 1)
+                func2 = get_integrated_derivative_func(basis_type, 2)
 
-            def func(x_n, x_m, epsilon):
-                return f0 * func0(x_n, x_m, epsilon) + f1 * func1(x_n, x_m, epsilon) + f2 * func2(x_n, x_m, epsilon)
+                def func(x_n, x_m, epsilon):
+                    return f0 * func0(x_n, x_m, epsilon) + f1 * func1(x_n, x_m, epsilon) + f2 * func2(x_n, x_m, epsilon)
 
+            else:
+                func = get_integrated_derivative_func(basis_type, order)
+
+            if utils.array.is_uniform(basis_grid):
+                # Matrix is symmetric Toeplitz if basis_type==gaussian and basis_eig is log-uniform.
+                # Only need to calculate 1st column
+                # May not apply to other basis functions
+                x_0 = basis_grid[0]
+
+                c = [func(x_n, x_0, epsilon) for x_n in basis_grid]
+                # r = [quad(func,limits[0],limits[1],args=(w_0,t_m,epsilon),epsabs=1e-4)[0] for t_m in 1/omega]
+                # if r[0]!=c[0]:
+                # raise Exception('First entries of first row and column are not equal')
+                M = linalg.toeplitz(c)
+            else:
+                # need to calculate all entries
+                M = np.empty((len(basis_grid), len(basis_grid)))
+                for n, x_n in enumerate(basis_grid):
+                    M[n, :] = [func(x_n, x_m, epsilon) for x_m in basis_grid]
+        elif basis_type == 'delta':
+            # Make discrete differentiation matrix
+            if order == 0:
+                M = np.eye(len(basis_grid))
+            elif order == 1:
+                L = np.eye(len(basis_grid))
+                np.fill_diagonal(L[1:, :-1], -1)
+                L[0, 0] = 0
+                L[1:, 1:] /= np.diff(basis_grid)[:, None]
+                M = L.T @ L
+            elif order == 2:
+                L = np.eye(len(basis_grid)) * 2
+                L[0, 0] = 1
+                L[-1, -1] = 1
+                np.fill_diagonal(L[1:, :-1], -1)
+                np.fill_diagonal(L[:-1, 1:], -1)
+                L[1:, 1:] /= np.diff(basis_grid)[:, None]
+                L[:-1, :-1] /= np.diff(basis_grid)[:, None]
+                M = L.T @ L
         else:
-            func = get_integrated_derivative_func(basis_type, order)
+            # Get discrete evaluation matrix (em @ x = vector of function values)
+            em = basis.construct_func_eval_matrix(basis_grid, None, basis_type, epsilon, order, zga_params)
 
-        if utils.array.is_uniform(basis_grid):
-            # Matrix is symmetric Toeplitz if basis_type==gaussian and basis_eig is log-uniform.
-            # Only need to calculate 1st column
-            # May not apply to other basis functions
-            x_0 = basis_grid[0]
+            # x.T @ em @ em @ x = L2 norm of vector of function values
+            M = em @ em
 
-            c = [func(x_n, x_0, epsilon) for x_n in basis_grid]
-            # r = [quad(func,limits[0],limits[1],args=(w_0,t_m,epsilon),epsabs=1e-4)[0] for t_m in 1/omega]
-            # if r[0]!=c[0]:
-            # raise Exception('First entries of first row and column are not equal')
-            M = linalg.toeplitz(c)
-        else:
-            # need to calculate all entries
-            M = np.empty((len(basis_grid), len(basis_grid)))
-            for n, x_n in enumerate(basis_grid):
-                M[n, :] = [func(x_n, x_m, epsilon) for x_m in basis_grid]
-    elif basis_type == 'delta':
-        if order == 0:
-            M = np.eye(len(basis_grid))
-        else:
-            raise ValueError('Derivatives of delta function are undefined')
+            # Multiply by grid spacing to approximate integral
+            grid_space = np.mean(np.abs(np.diff(basis_grid)))
+            M *= grid_space
     else:
-        # Get discrete evaluation matrix (em @ x = vector of function values)
-        em = basis.construct_func_eval_matrix(basis_grid, None, basis_type, epsilon, order, zga_params)
-
-        # x.T @ em @ em @ x = L2 norm of vector of function values
-        M = em @ em
-
-        # Multiply by grid spacing to approximate integral
-        grid_space = np.mean(np.abs(np.diff(basis_grid)))
-        M *= grid_space
+        func = get_integrated_derivative_func(basis_type, order, indefinite=True)
+        a, b = integration_limits
+        xx_i, xx_j = np.meshgrid(basis_grid, basis_grid)
+        M = func(b, xx_i, xx_j, epsilon) - func(a, xx_i, xx_j, epsilon)
 
     return M
 
@@ -421,66 +404,11 @@ def construct_impedance_matrix(frequencies, part, tau=None, basis_type='gaussian
     return A
 
 
-# ===============
-# Phasors
-# ===============
-def construct_phasor_z_matrix(frequencies, basis_nu, nu_basis_type):
-    if nu_basis_type == 'delta':
-        omega = 2 * np.pi * frequencies
-        nn, ww = np.meshgrid(basis_nu, omega)
-        return basis.unit_phasor_impedance(ww, nn)
-    else:
-        raise ValueError('DOP is only implemented for delta basis function')
-
-
-def construct_phasor_v_matrix(times, basis_nu, nu_basis_type, step_model, step_times, step_sizes, op_mode='galv'):
-    if nu_basis_type == 'delta':
-        if step_model != 'ideal':
-            raise ValueError('phasor response is only implemented for ideal current steps')
-
-        rm_layered = np.zeros((len(step_times), len(times), len(basis_nu)))
-
-        for k in range(len(step_times)):
-            st = step_times[k]
-            sa = step_sizes[k]
-            if op_mode == 'galv':
-                nn, tt = np.meshgrid(basis_nu, times[times > st] - st)
-                rm_layered[k, times > st] = sa * basis.unit_phasor_voltage(tt, nn)
-            else:
-                raise ValueError('phasor response is only implemented for galvanostatic mode')
-
-        rm = np.sum(rm_layered, axis=0)
-
-        return rm, rm_layered
-    else:
-        raise ValueError('DOP is only implemented for delta basis function')
-
-
-def phasor_scale_vector(nu, basis_tau, nu_basis_type):
-    """
-    Get vector for scaling phasor coefficients
-    :param nu_basis_type:
-    :param nu:
-    :param basis_tau:
-    :return:
-    """
-    freq = 1 / (2 * np.pi * basis_tau)
-
-    zm = construct_phasor_z_matrix(freq, nu, nu_basis_type)
-
-    scale_vector = 1 / np.max(np.abs(zm), axis=0)
-
-    return scale_vector
-
-
 # inductance response vector
 def construct_inductance_response_vector(times, step_model, step_times, step_sizes, tau_rise,
                                          op_mode='galv'):
     utils.validation.check_step_model(step_model)
     utils.validation.check_ctrl_mode(op_mode)
-
-    # if step_model != 'expdecay':
-    #     raise ValueError(f'Inductance response not supported for step_model {step_model}')
 
     irv = np.zeros(len(times))
 
@@ -498,8 +426,8 @@ def construct_inductance_response_vector(times, step_model, step_times, step_siz
     return irv
 
 
-def construct_inf_response_vector(times, step_model, step_times, step_sizes, tau_rise, input_signal, smooth,
-                                  op_mode='galv'):
+def construct_ohmic_response_vector(times, step_model, step_times, step_sizes, tau_rise, input_signal, smooth,
+                                    op_mode='galv'):
     utils.validation.check_step_model(step_model)
     utils.validation.check_ctrl_mode(op_mode)
 
@@ -518,15 +446,39 @@ def construct_inf_response_vector(times, step_model, step_times, step_sizes, tau
     if op_mode == 'galv':
         rv = input_signal
     else:
-        raise ValueError('Inf response vector not implemented for potentiostatic mode')
+        raise ValueError('Ohmic response vector not implemented for potentiostatic mode')
 
     return rv
 
 
-def construct_inductance_impedance_vector(frequencies):
-    izv = 1j * 2 * np.pi * frequencies
+def construct_capacitance_response_vector(times, step_model, step_times, step_sizes, tau_rise,
+                                          op_mode='galv'):
+    utils.validation.check_step_model(step_model)
+    utils.validation.check_ctrl_mode(op_mode)
 
-    return izv
+    crv = np.zeros(len(times))
+
+    if step_model == 'ideal':
+        for k in range(len(step_times)):
+            st = step_times[k]
+            sa = step_sizes[k]
+            if op_mode == 'galv':
+                crv[times >= st] += sa * (times[times >= st] - st)
+            else:
+                raise ValueError('Capacitance response vector not implemented for potentiostatic mode')
+    else:
+        raise ValueError('Capacitance response not implemented for non-ideal steps')
+        # TODO: implement for non-ideal step
+
+    return crv
+
+
+def construct_inductance_impedance_vector(frequencies):
+    return 1j * 2 * np.pi * frequencies
+
+
+def construct_capacitance_impedance_vector(frequencies):
+    return 1 / (1j * 2 * np.pi * frequencies)
 
 
 # ============================

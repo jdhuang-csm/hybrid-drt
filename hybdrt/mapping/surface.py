@@ -262,20 +262,26 @@ def coef_to_ridges(x, drtmd, num_group_dims, normalize=True,
 # -----------------------
 # Probability functions
 # -----------------------
-def peak_prob(f, fx, fxx, std_size=5, fxx_var=None, constrain_sign=False, std_baseline=0.1):
+def peak_prob(f, fx, fxx, std_size=5, f_var=None, fx_var=None, fxx_var=None, constrain_sign=False, std_baseline=0.1):
     # f = mrt.predict_drt(None, tau=mrt.tau_supergrid, x=x, order=0)
     # fx = mrt.predict_drt(None, tau=mrt.tau_supergrid, x=x, order=1)
     # fxx = mrt.predict_drt(None, tau=mrt.tau_supergrid, x=x, order=2)
 
     nan_mask = np.isnan(f)
 
-    f_std = std_filter(np.nan_to_num(f), size=std_size, mask=(~nan_mask).astype(float))
-    f_std += std_baseline * np.std(f[~nan_mask])
-    # f_std = (f_std ** 2 + (std_baseline * np.std(f[~nan_mask])) ** 2) ** 0.5
+    if f_var is None:
+        f_std = std_filter(np.nan_to_num(f), size=std_size, mask=(~nan_mask).astype(float))
+        f_std += std_baseline * np.std(f[~nan_mask])
+        # f_std = (f_std ** 2 + (std_baseline * np.std(f[~nan_mask])) ** 2) ** 0.5
+    else:
+        f_std = f_var ** 0.5
 
-    fx_std = std_filter(np.nan_to_num(fx), size=std_size, mask=(~nan_mask).astype(float))
-    fx_std += std_baseline * np.std(fx[~nan_mask])
-    # fx_std = (fx_std ** 2 + (std_baseline * np.std(fx[~nan_mask])) ** 2) ** 0.5
+    if fx_var is None:
+        fx_std = std_filter(np.nan_to_num(fx), size=std_size, mask=(~nan_mask).astype(float))
+        fx_std += std_baseline * np.std(fx[~nan_mask])
+        # fx_std = (fx_std ** 2 + (std_baseline * np.std(fx[~nan_mask])) ** 2) ** 0.5
+    else:
+        fx_std = fx_var ** 0.5
 
     if fxx_var is None:
         fxx_std = std_filter(np.nan_to_num(fxx), size=std_size, mask=(~nan_mask).astype(float))
@@ -298,6 +304,7 @@ def peak_prob(f, fx, fxx, std_size=5, fxx_var=None, constrain_sign=False, std_ba
     f_prob = (1 - stats.cdf_normal(1 * f_std, np.abs(f), f_std))  # Prob that f is more than 2 std away from zero
 
     cp = f_prob * fx_prob * fxx_prob
+    # cp = fxx_prob * f_prob
 
     return cp
 
@@ -385,7 +392,7 @@ def ridge_prob(f, fx, fxx, num_group_dims, subtract_troughs=True,
                std_baseline=0.1, std_size=5,
                ridge_filter=False, ndx_filter=True, filter_kw=None,
                hysteresis_threshold=True, thresh_low=0.2, thresh_high=0.75):
-    rp = peak_prob(f, fx, fxx, std_baseline=std_baseline, std_size=std_size)
+    rp = peak_prob(f, fx, fxx, std_size=std_size, std_baseline=std_baseline)
 
     if ndx_filter and filter_kw is None:
         filter_kw = dict(

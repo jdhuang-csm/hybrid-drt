@@ -2,6 +2,7 @@ import numpy as np
 from scipy import ndimage
 from scipy.signal import find_peaks
 from skimage.filters import scharr
+import matplotlib.pyplot as plt
 
 from ..filters import flexible_hysteresis_threshold, gaussian_laplace1d, iterative_gaussian_filter, \
     nonuniform_gaussian_filter1d
@@ -74,9 +75,9 @@ def energy_from_prob(ridge_prob):
     return -np.log(ridge_prob)
 
 
-def find_ridge_paths_2d(ridge_prob, start_rows, end_rows, offset=2, offset_cost=0.1, momentum=0.1,
-                        min_prob=0, grad_strength=2, grad_sigma=2,
-                        **find_peaks_kw):
+def find_paths_2d(ridge_prob, start_rows, end_rows, offset=2, offset_cost=0.1, momentum=0.1,
+                  min_prob=0, grad_strength=2, grad_sigma=2,
+                  **find_peaks_kw):
     paths = []
     costs = []
     energy = energy_from_prob(ridge_prob)
@@ -131,7 +132,7 @@ def columns_from_slope(col, slope, num_slices):
 
 
 def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cost=0.1, momentum=0.1,
-                 slope_offset_cost=0.1, slope_momentum=0.1,
+                 slope_offset_cost=0.1, slope_momentum=0.1, max_slope=3,
                  max_energy=np.inf, grad_strength=2, grad_sigma=2):
     num_slices = energy.shape[0]
     direction = np.sign(end_row - start_row)
@@ -172,6 +173,7 @@ def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cos
 
         # Get possible slopes
         slopes = np.arange(slope - 2 * slope_inc, slope + 2 * slope_inc + 1e-10, slope_inc)
+        slopes = slopes[np.abs(slopes) <= max_slope]
 
         slope_step_costs = np.abs(slopes - slope) * slope_offset_cost
         slope_momentum_costs = np.abs((slopes - slope) - prev_slope_offset) * slope_momentum
@@ -230,7 +232,7 @@ def find_paths_3d(ridge_prob, start_row, end_row, offset=2, offset_cost=0.1, mom
                   slope_offset_cost=0.1, slope_momentum=0.1,
                   min_prob=0, grad_strength=2, grad_sigma=2, max_slope=3, **find_peaks_kw):
     start_lines = find_starting_lines_3d(ridge_prob, start_row, max_slope=max_slope, **find_peaks_kw)
-    energy = energy_from_prob(ridge_prob)
+    energy = energy_from_prob(ridge_prob + 1e-10)
 
     max_energy = energy_from_prob(min_prob)
 
@@ -241,6 +243,7 @@ def find_paths_3d(ridge_prob, start_row, end_row, offset=2, offset_cost=0.1, mom
         path, cost = find_path_3d(energy, start_row, start_line, end_row, offset=offset, offset_cost=offset_cost,
                                   momentum=momentum,
                                   slope_offset_cost=slope_offset_cost, slope_momentum=slope_momentum,
+                                  max_slope=max_slope,
                                   max_energy=max_energy,
                                   grad_strength=grad_strength, grad_sigma=grad_sigma)
         paths.append(path)
@@ -267,12 +270,9 @@ def make_ridge_path_mask(ridge_prob, start_rows, end_rows, offset=2, offset_cost
     for _ in it:
         slice_index = it.multi_index
         if not np.all(np.isnan(ridge_prob[slice_index])):
-            paths, costs = find_ridge_paths_2d(ridge_prob[slice_index], start_rows, end_rows,
-                                               offset=offset, offset_cost=offset_cost,
-                                               momentum=momentum, min_prob=min_prob,
-                                               grad_strength=grad_strength, grad_sigma=grad_sigma,
-                                               **find_peaks_kw
-                                               )
+            paths, costs = find_paths_2d(ridge_prob[slice_index], start_rows, end_rows, offset=offset,
+                                         offset_cost=offset_cost, momentum=momentum, min_prob=min_prob,
+                                         grad_strength=grad_strength, grad_sigma=grad_sigma, **find_peaks_kw)
             mask = paths_to_mask(path_mask[slice_index].shape, paths, increment_labels=increment_labels)
             path_mask[slice_index] = mask
 
@@ -385,32 +385,40 @@ def find_missing_paths(ridge_prob, missing_peak_mask, row_lim=None, **path_kwarg
     return peak_paths, peak_costs
 
 
-def paths_to_mask_3d(shape, paths, increment_labels=False):
+def paths_to_mask_3d(shape, paths, increment_labels=False, fill_nan=False):
     if increment_labels:
         output = np.zeros(shape, dtype=int)
         for i, path in enumerate(paths):
             for k, col_index in enumerate(path[1]):
                 output[(np.ones(len(path[0]), dtype=int) * k, path[0], col_index)] = i + 1
-        return output
     else:
         output = np.zeros(shape, dtype=bool)
         for path in paths:
             for k, col_index in enumerate(path[1]):
                 output[(np.ones(len(path[0]), dtype=int) * k, path[0], col_index)] = 1
-        return output
+
+    if fill_nan:
+        output = output.astype(float)
+        output[output == 0] = np.nan
+
+    return output
 
 
-def paths_to_mask(shape, paths, increment_labels=False):
+def paths_to_mask(shape, paths, increment_labels=False, fill_nan=False):
     if increment_labels:
         output = np.zeros(shape, dtype=int)
         for i, path in enumerate(paths):
             output[path] = i + 1
-        return output
     else:
         output = np.zeros(shape, dtype=bool)
         for path in paths:
             output[path] = 1
-        return output
+
+    if fill_nan:
+        output = output.astype(float)
+        output[output == 0] = np.nan
+
+    return output
 
 
 def path_pair_metrics(path1, path2):
@@ -454,7 +462,7 @@ def find_bounding_troughs(trough_mask, path, path_ndim=3, tidy=False):
         return left_indices, right_indices
 
 
-def integrate_paths(f, rp, paths, troughs, width_sigma=1):
+def integrate_paths(tau, f, rp, paths, troughs, width_sigma=1):
     # Set up for 3d only
     path_weights = np.zeros((len(paths), *f.shape))
 
@@ -488,10 +496,30 @@ def integrate_paths(f, rp, paths, troughs, width_sigma=1):
     norm_weights = path_weights / weight_sum
 
     path_dist = norm_weights * f[None, :]
-    path_sizes = np.sum(path_dist, axis=-1)
+    path_sizes = np.trapz(path_dist, x=np.log(tau), axis=-1)
 
     return path_dist, path_sizes
 
 
+# ==================
+# Visualization
+# ==================
+def plot_paths_and_troughs(paths, troughs, shape, slice_index=None, slice_axis=None, ax=None):
+    path_mask = paths_to_mask_3d(shape, paths, fill_nan=True)
 
+    trough_paths = []
+    for k, path in enumerate(paths):
+        row_index = path[0]
+        trough_paths += [(row_index, troughs[k][0]), (row_index, troughs[k][1])]
 
+    trough_mask = paths_to_mask_3d(shape, trough_paths, fill_nan=True)
+
+    if slice_index is not None:
+        path_mask = np.take(path_mask, slice_index, slice_axis)
+        trough_mask = np.take(trough_mask, slice_index, slice_axis)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(3, 3))
+
+    ax.pcolormesh(path_mask, cmap='Reds', vmin=0, vmax=1)
+    ax.pcolormesh(trough_mask, cmap='Blues', vmin=0, vmax=1)

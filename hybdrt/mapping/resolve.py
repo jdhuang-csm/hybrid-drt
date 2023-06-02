@@ -137,7 +137,7 @@ def offset_special_dict(special_qp_params):
     return shifted_dict
 
 
-def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
+def resolve_observations(obs_drt_list, obs_tau_indices, nonneg, obs_psi=None,
                          truncate=False, sigma=1, lambda_psi=1, unpack=False,
                          tau_filter_sigma=0, special_filter_sigma=0):
     # Determine tau grid to resolve
@@ -169,21 +169,21 @@ def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
 
     # Make differentiation matrix
     # TODO: implement ND version with pairwise distances
-    epsilon = 1 / (np.sqrt(2) * sigma)
+    # epsilon = 1 / (np.sqrt(2) * sigma)
     # print('eps:', epsilon)
-    if obs_psi is None:
-        obs_psi = np.arange(nr)
-    else:
-        obs_psi = obs_psi.flatten()
+    # if obs_psi is None:
+    #     obs_psi = np.arange(nr)
+    # else:
+    #     obs_psi = obs_psi.flatten()
 
-    Ly = construct_func_eval_matrix(obs_psi, order=2, epsilon=epsilon)
+    # Ly = construct_func_eval_matrix(obs_psi, order=2, epsilon=epsilon)
     # Ly[0, 0] *= 0.5
     # Ly[-1, -1] *= 0.5
     # Reflect penalty at edges
-    Ly[0, 1:-1] *= 2
-    Ly[1:-1, 0] *= 2
-    Ly[-1, 1:-1] *= 2
-    Ly[1:-1, -1] *= 2
+    Ly = gaussian_filter1d(np.eye(nr), sigma=sigma, mode='reflect', order=2)
+    # factor = (1 / (np.sqrt(2 * np.pi) * sigma)) ** -1
+    # Ly *= factor
+    # print(Ly[:5, :5])
 
     # Apply the penalty to the rescaled coefficients (i.e. true scale)
     scale_vec = np.array([drt.coefficient_scale for drt in obs_drt_list])
@@ -193,6 +193,11 @@ def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
     # param_scale = np.ones((nr, nc)) * (scale_vec / scale_smooth)[:, None]
     # print(param_scale)
 
+    param_scale = np.ones(nc)
+    if 'R_inf' in special_dict.keys():
+        x_inf = np.array([drt.fit_parameters['R_inf'] / drt.coefficient_scale for drt in obs_drt_list])
+        ohmic_scale = 5 * np.std(x_inf)
+        param_scale[special_dict['R_inf']['index']] = ohmic_scale ** -2
     if 'x_dop' in special_dict.keys():
         x_dop = np.array([drt.fit_parameters['x_dop'] / (drt.coefficient_scale * drt.dop_scale_vector)
                           for drt in obs_drt_list])
@@ -206,9 +211,12 @@ def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
         # param_scale = np.hstack((np.tile(dop_scales ** -2, (nr, 1)), np.ones((nr, nc - special_offset))))
         # print(param_scale[:, 0], param_scale[:, special_offset-1])
         # print(param_scale)
-        param_scale = np.concatenate((dop_scales ** -2, np.ones(nc - len(dop_scales))))
+
+        dop_start = special_dict['x_dop']['index']
+        dop_end = dop_start + special_dict['x_dop'].get('size', 1)
+        param_scale[dop_start:dop_end] = dop_scales ** -2
     else:
-        param_scale = np.ones(nc)
+        dop_start, dop_end = None, None
 
     Lys = Ly @ scale_mat
     My = Lys.T @ Lys
@@ -220,23 +228,23 @@ def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
     M_full = np.zeros((nr * nc, nr * nc))
 
     if tau_filter_sigma > 0 or special_filter_sigma > 0:
-        filter_mat = np.zeros((nc, nc))
+        filter_mat = np.eye(nc)
 
-        if special_filter_sigma > 0:
+        if special_filter_sigma > 0 and dop_start is not None:
             special_epsilon = 1 / (np.sqrt(2) * special_filter_sigma)
-            filter_mat[:special_offset, :special_offset] = construct_func_eval_matrix(
-                np.arange(special_offset), epsilon=special_epsilon, order=0
+            filter_mat[dop_start:dop_end, dop_start:dop_end] = construct_func_eval_matrix(
+                np.arange(dop_start, dop_end), epsilon=special_epsilon, order=0
             )
-        else:
-            filter_mat[:special_offset, :special_offset] = np.eye(special_offset)
+        # else:
+        #     filter_mat[:special_offset, :special_offset] = np.eye(special_offset)
 
         if tau_filter_sigma > 0:
             tau_epsilon = 1 / (np.sqrt(2) * tau_filter_sigma)
             filter_mat[special_offset:, special_offset:] = construct_func_eval_matrix(
                 np.arange(nc - special_offset), epsilon=tau_epsilon, order=0
             )
-        else:
-            filter_mat[special_offset:, special_offset:] = np.eye(nc - special_offset)
+        # else:
+        #     filter_mat[special_offset:, special_offset:] = np.eye(nc - special_offset)
 
         full_filter_mat = np.zeros_like(M_full)
     else:
@@ -267,7 +275,12 @@ def resolve_observations(obs_drt_list, obs_tau_indices, obs_psi=None,
     q_vector = np.concatenate(q_list)
 
     G = -np.eye(p_matrix.shape[1])
-    h = 10 * np.ones(p_matrix.shape[1])
+
+    if nonneg:
+        h = np.zeros(p_matrix.shape[1])
+    else:
+        h = 10 * np.ones(p_matrix.shape[1])
+
     for sp in special_dict.values():
         if sp['nonneg']:
             start_index = sp['index']
@@ -301,7 +314,8 @@ def unpack_resolved_x(x, obs_drt_list, special_dict):
     x_special = {}
     for key, info in special_dict.items():
         start_index = info['index']
-        end_index = start_index + info.get('size', 1)
+        size = info.get('size', 1)
+        end_index = start_index + size
         x_k = x[:, start_index:end_index]
 
         # Scale to true values
@@ -310,6 +324,9 @@ def unpack_resolved_x(x, obs_drt_list, special_dict):
         if key == 'x_dop':
             dop_scale = np.array([drt.dop_scale_vector for drt in obs_drt_list])
             x_k = x_k * dop_scale
+
+        if size == 1:
+            x_k = x_k.flatten()
 
         x_special[key] = x_k
 

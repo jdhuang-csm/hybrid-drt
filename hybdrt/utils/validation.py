@@ -4,7 +4,7 @@ from hybdrt.utils.array import check_equality
 
 
 def check_basis_type(basis_type):
-    options = ['gaussian', 'Cole-Cole', 'step', 'delta', 'ramp', 'pwl', 'pwl_transformed', 'zga']
+    options = ['gaussian', 'beta', 'beta-rbf', 'Cole-Cole', 'step', 'delta', 'ramp', 'pwl', 'pwl_transformed', 'zga']
     if basis_type not in options:
         raise ValueError(f'Invalid basis_type {basis_type}. Options: {options}')
 

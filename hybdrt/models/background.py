@@ -160,11 +160,11 @@ def get_background_matrix(gps, X_pred, y_drt=None, corr_power=0):
     """
     bkg_mat = 0
     for gp in gps:
-        # K_trans = gp.kernel_(X_pred, gp.X_train_)
-        # K = gp.kernel_(gp.X_train_)
+        K_trans = gp.kernel_(X_pred, gp.X_train_)
+        K = gp.kernel_(gp.X_train_)
         # Since we only need the optimized kernel, not the training data, use X_pred to construct the matrix
-        K_trans = gp.kernel_(X_pred, X_pred)
-        K = gp.kernel_(X_pred)
+        # K_trans = gp.kernel_(X_pred, X_pred)
+        # K = gp.kernel_(X_pred)
         K_inv = np.linalg.inv(K)
         bkg_mat += K_trans @ K_inv
 
