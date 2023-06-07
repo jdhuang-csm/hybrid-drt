@@ -462,6 +462,27 @@ def find_bounding_troughs(trough_mask, path, path_ndim=3, tidy=False):
         return left_indices, right_indices
 
 
+def get_path_tau(tau, paths, shape=None):
+    if shape is not None:
+        # Return an array. nans indicate rows that path did not reach
+        path_tau = np.empty((len(paths), *shape[:-1]))
+        path_tau.fill(np.nan)
+    else:
+        # Return a list of arrays. May be ragged
+        path_tau = []
+
+    for k, path in enumerate(paths):
+        if shape is not None:
+            if len(shape) == 2:
+                path_tau[k, path[0]] = tau[path[1]]
+            else:
+                path_tau[k][:, path[0]] = tau[path[1]]
+        else:
+            path_tau[k] = tau[path[1]]
+
+    return path_tau
+
+
 def integrate_paths(tau, f, rp, paths, troughs, width_sigma=1):
     # Set up for 3d only
     path_weights = np.zeros((len(paths), *f.shape))

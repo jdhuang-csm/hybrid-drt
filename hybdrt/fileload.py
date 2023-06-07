@@ -135,7 +135,7 @@ def read_header(file):
     return txt[:table_index + 1]
 
 
-def read_chrono(file, source=None):
+def read_chrono(file, source=None, return_tuple=False):
     """
     Read chronopotentiometry data from Gamry .DTA file
 
@@ -196,7 +196,10 @@ def read_chrono(file, source=None):
     else:
         raise ValueError(f'read_chrono is not implemented for source {source}')
 
-        return data
+    if return_tuple:
+        data = get_chrono_tuple(data)
+
+    return data
 
 
 def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None,
