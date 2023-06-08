@@ -80,6 +80,8 @@ class DRTMD(object):
 
         # Fit configuration
         self.fit_type = fit_type
+        if fit_kw is None:
+            fit_kw = {}
         self.fit_kw = fit_kw
         if pfrt_factors is None:
             pfrt_factors = np.logspace(-0.7, 0.7, 11)

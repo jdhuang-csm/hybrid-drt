@@ -309,17 +309,29 @@ def peak_prob(f, fx, fxx, std_size=5, f_var=None, fx_var=None, fxx_var=None, con
     return cp
 
 
-def trough_prob(f, fx, fxx, std_size=5, std_baseline=0.1):
+def trough_prob(f, fx, fxx, f_var=None, fx_var=None, fxx_var=None, std_size=5, std_baseline=0.1):
     nan_mask = np.isnan(f)
 
-    f_std = std_filter(np.nan_to_num(f), size=std_size, mask=(~nan_mask).astype(float))
-    f_std += std_baseline * np.std(f[~nan_mask])
+    if f_var is None:
+        f_std = std_filter(np.nan_to_num(f), size=std_size, mask=(~nan_mask).astype(float))
+        f_std += std_baseline * np.std(f[~nan_mask])
+        # f_std = (f_std ** 2 + (std_baseline * np.std(f[~nan_mask])) ** 2) ** 0.5
+    else:
+        f_std = f_var ** 0.5
 
-    fx_std = std_filter(np.nan_to_num(fx), size=std_size, mask=(~nan_mask).astype(float))
-    fx_std += std_baseline * np.std(fx[~nan_mask])
+    if fx_var is None:
+        fx_std = std_filter(np.nan_to_num(fx), size=std_size, mask=(~nan_mask).astype(float))
+        fx_std += std_baseline * np.std(fx[~nan_mask])
+        # fx_std = (fx_std ** 2 + (std_baseline * np.std(fx[~nan_mask])) ** 2) ** 0.5
+    else:
+        fx_std = fx_var ** 0.5
 
-    fxx_std = std_filter(np.nan_to_num(fxx), size=std_size, mask=(~nan_mask).astype(float))
-    fxx_std += std_baseline * np.std(fxx[~nan_mask])
+    if fxx_var is None:
+        fxx_std = std_filter(np.nan_to_num(fxx), size=std_size, mask=(~nan_mask).astype(float))
+        fxx_std += std_baseline * np.std(fxx[~nan_mask])
+        # fxx_std = (fxx_std ** 2 + (std_baseline * np.std(fxx[~nan_mask])) ** 2) ** 0.5
+    else:
+        fxx_std = fxx_var ** 0.5
 
     # # Prob that f is within 3 std of zero
     # f_prob = stats.cdf_normal(3 * f_std, f, f_std) - stats.cdf_normal(-3 * f_std, f, f_std)
