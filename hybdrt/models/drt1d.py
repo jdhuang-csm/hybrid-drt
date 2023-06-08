@@ -11,7 +11,7 @@ import pickle
 
 from .. import utils, preprocessing as pp
 from ..utils import stats
-from ..matrices import mat1d, basis, phasance
+from ..matrices import mat1d, basis
 from . import qphb, peaks, elements, pfrt, background
 from ..evaluation import get_similarity_function
 from .drtbase import DRTBase
