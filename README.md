@@ -25,3 +25,8 @@ Additional tutorials and new functionality will be added soon.
 ## Installation
 Install `hybrid-drt` from the repository files using either conda or pip. See `installation.txt` for step-by-step instructions.
 
+## Citing `hybrid-drt`
+If you use `hybrid-drt` in published work, please consider citing the following paper:
+
+Huang, J. D., Sullivan, N. P., Zakutayev, A., & O’Hayre, R. (2023). How reliable is distribution of relaxation times (DRT) analysis? A dual regression-classification perspective on DRT estimation, interpretation, and accuracy. *Electrochimica Acta, 443*, 141879. https://doi.org/10.1016/j.electacta.2023.141879
+
