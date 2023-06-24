@@ -698,7 +698,7 @@ class DRTMD(object):
 
     def predict_dop(self, psi=None, x=None, nu=None, order=0, factor_index=None,
                     normalize=False, normalize_tau=None, normalize_quantiles=(0.25, 0.75),
-                    delta_density=False,
+                    delta_density=False, include_ohmic=False, x_ohmic=None,
                     **kw):
         # TODO: implement predict_x_dop
         # if x is None:
@@ -718,6 +718,13 @@ class DRTMD(object):
                 x = x / dnu
 
         dop = x @ basis_mat.T
+
+        # Add ohmic
+        if include_ohmic and 0 in nu:
+            if x_ohmic is not None:
+                ohmic_index = np.where(nu == 0)[0][0]
+                dop[..., ohmic_index] = x_ohmic.copy()
+
 
         # TODO: take x_ohmic, x_induc, x_cap args?
         # # Add pure inductance, resistance, and capacitance
@@ -1177,7 +1184,8 @@ class DRTMD(object):
         att = {
             'config': [
                 'psi_dim_names', 'store_attr_categories',
-                'tau_supergrid', 'tau_basis_type', 'tau_epsilon', 'fit_inductance',
+                'tau_supergrid', 'tau_basis_type', 'tau_epsilon',
+                'fit_inductance', 'fit_capacitance', 'fit_ohmic',
                 # Distribution of phasances
                 'fixed_basis_nu', 'nu_basis_type', 'fit_dop', 'normalize_dop',
                 # Chrono settings

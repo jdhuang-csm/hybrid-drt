@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import iqr
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ExpSineSquared
 from sklearn.gaussian_process import GaussianProcessRegressor
+# import time
 
 from .. import preprocessing as pp
 
@@ -105,7 +106,7 @@ def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=No
                 x_gp, y_pred_gp, y_meas_gp, sample_index = \
                     pp.downsample_data(x_meas, y_pred, y_meas, target_times=lin_times, stepwise_sample_times=False,
                                        method='match')
-                # print('linear downsample size:', len(x_gp))
+                print('linear downsample size:', len(x_gp))
             else:
                 x_gp = x_meas[sample_index]
                 y_pred_gp = y_pred[sample_index]
@@ -130,11 +131,13 @@ def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=No
 
         # If data was downsampled, need to predict background for all times
         if linear_downsample:
+            # ts = time.time()
             # Fit to the full dataset with kernel fixed at previously optimized state
             gp_i.optimizer = None
             gp_i.kernel = gp_i.kernel_
             gp_i.fit(x_meas[:, None], y_meas - y_pred)
             y_bkg_i = gp_i.predict(x_meas[:, None])
+            # print('Full sample fit/predict time: {:.1f} s'.format(time.time() - ts))
 
         # Add signal to background estimate
         y_bkg += y_bkg_i

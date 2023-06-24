@@ -459,7 +459,7 @@ def get_decimation_index(times, step_times, t_sample, prestep_points, decimation
 
             if sample_interval == max_sample_interval:
                 # Sample interval has reached maximum. Continue through end of step
-                interval_end_index = next_step_index - 1
+                interval_end_index = next_step_index #- 1
             else:
                 # Continue with current sampling rate until decimation_interval points acquired
                 interval_end_index = min(last_index + decimation_interval * sample_interval + 1,
@@ -469,7 +469,7 @@ def get_decimation_index(times, step_times, t_sample, prestep_points, decimation
 
             if len(keep_index) == 0:
                 # sample_interval too large - runs past end of step. Keep last sample
-                keep_index = [interval_end_index]
+                keep_index = [interval_end_index - 1]
 
             # If this is the final interval, ensure that last point before next step is included
             if interval_end_index == next_step_index and keep_index[-1] < next_step_index - 1:
@@ -779,8 +779,16 @@ def get_basis_tau(frequencies, times, step_times, ppd=10, extend_decades=1, tau_
 
     if tau_grid is not None:
         # If tau_grid provided, select range from grid
-        left_index = nearest_index(tau_grid, 10 ** log_tau_min, constraint=-1)
-        right_index = nearest_index(tau_grid, 10 ** log_tau_max, constraint=1) + 1
+        if 10 ** log_tau_min < np.min(tau_grid):
+            left_index = 0
+        else:
+            left_index = nearest_index(tau_grid, 10 ** log_tau_min, constraint=-1)
+
+        if 10 ** log_tau_max > np.max(tau_grid):
+            right_index = len(tau_grid)
+        else:
+            right_index = nearest_index(tau_grid, 10 ** log_tau_max, constraint=1) + 1
+
         return tau_grid[left_index:right_index]
     else:
         # Determine number of basis points based on spacing

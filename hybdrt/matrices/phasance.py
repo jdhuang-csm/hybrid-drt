@@ -181,3 +181,7 @@ def phasor_scale_vector(nu, basis_tau, quantiles=(0.25, 0.75)):
     scale_vector[nu > 0] = tau_q1 ** nu[nu > 0]
 
     return scale_vector
+
+
+# def integrate_dop(x_dop, nu, nu_basis_type, tau_neg, tau_pos):
+

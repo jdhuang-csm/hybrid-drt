@@ -245,8 +245,9 @@ def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=Non
     start_time = dfs[0]['timestamp'][0]
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
-    for df in dfs:
+    for i, df in enumerate(dfs):
         df['elapsed'] = ts_func(df['timestamp'])
+        df['file_id'] = i
 
     # Trim beginning of each file
     if trim_index is not None:
@@ -284,8 +285,9 @@ def concatenate_eis_data(eis_data_list, loop=False, print_progress=False):
     # start_time = min(start_times)
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
-    for df in dfs:
+    for i, df in enumerate(dfs):
         df['elapsed'] = ts_func(df['timestamp'])
+        df['file_id'] = i
 
     # # Trim beginning of each file
     # if trim_index is not None:

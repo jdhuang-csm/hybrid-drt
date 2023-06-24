@@ -177,6 +177,7 @@ class DRT(DRTBase):
                        chrono_error_structure='uniform', eis_error_structure=None,
                        remove_outliers=False, return_outlier_index=False, outlier_thresh=0.75,
                        chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
+                       iw_l1_lambda_0=1e-4, iw_l2_lambda_0=1e-4,
                        # Hybrid settings
                        vz_offset=True, vz_offset_scale=1, vz_offset_eps=1,
                        eis_weight_factor=None, chrono_weight_factor=None,
@@ -357,6 +358,8 @@ class DRT(DRTBase):
 
             drt_bkg, bkg_gps, y_bkg = self.estimate_chrono_background(times, i_signal, v_signal, copy_self=True,
                                                                       **estimate_background_kw)
+            if self.print_diagnostics:
+                print('Finished initial background estimation')
             y_pred_bkg = drt_bkg.predict_response()
 
             if background_corr_power is None and background_type != 'static':
@@ -419,7 +422,6 @@ class DRT(DRTBase):
             self._add_special_qp_param('background_scale', True)
 
         # DOP replaces R_inf and L
-        # TODO: incorporate delta functions for R_inf, L, and C
         if self.fit_ohmic:
             self._add_special_qp_param('R_inf', True)
 
@@ -665,9 +667,15 @@ class DRT(DRTBase):
         # Initialize data weight (IMPORTANT)
         # ----------------------------------
         # Initialize chrono and eis weights separately
+        iw_hypers = qphb_hypers.copy()
+        iw_hypers['l1_lambda_0'] = iw_l1_lambda_0
+        iw_hypers['l2_lambda_0'] = iw_l2_lambda_0
+        if 'dop_l2_lambda_0' in qphb_hypers.keys():
+            dop_drt_ratio = qphb_hypers['dop_l2_lambda_0'] / qphb_hypers['l2_lambda_0']
+            iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
         if times is not None:
             chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = \
-                qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
                                         s_vectors,
                                         rv, rm, chrono_vmm, nonneg, self.special_qp_params)
 
@@ -678,7 +686,7 @@ class DRT(DRTBase):
 
         if frequencies is not None:
             eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = \
-                qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
                                         s_vectors,
                                         zv, zm, eis_vmm, nonneg, self.special_qp_params)
 
@@ -774,9 +782,12 @@ class DRT(DRTBase):
                         # chrono_weight_factor = (rp_chrono / rp_tot) ** 0.25
                         chrono_weight_factor = rp_chrono ** 0.75 / (rp_eis ** 0.25 * rp_tot ** 0.5)
                         # chrono_weight_factor = (rp_chrono / rp_eis) ** 0.5
+                elif hybrid_weight_factor_method is None:
+                    eis_weight_factor = 1
+                    chrono_weight_factor = 1
                 else:
                     raise ValueError(f"Invalid hybrid_weight_factor_method argument {hybrid_weight_factor_method}. "
-                                     f"Options: 'weight', 'rp'")
+                                     f"Options: 'weight', 'rp', None")
 
             if self.print_diagnostics:
                 print('num_chrono / num_eis:', num_chrono / num_eis)
@@ -4402,7 +4413,7 @@ class DRT(DRTBase):
             return None, None
 
     def predict_dop_ci(self, nu=None, x=None, normalize=False, normalize_tau=None, quantiles=[0.025, 0.975],
-                       order=0, normalize_quantiles=(0.25, 0.75), delta_density=False):
+                       order=0, normalize_quantiles=(0.25, 0.75), delta_density=False, include_ideal=True):
         # Get distribution std
         dist_cov = self.estimate_dop_cov(nu, normalize=normalize, order=order,
                                          normalize_quantiles=normalize_quantiles,
@@ -4414,7 +4425,7 @@ class DRT(DRTBase):
             dist_mu = self.predict_dop(nu=nu, x=x, normalize=normalize,
                                        normalize_tau=normalize_tau, order=order,
                                        normalize_quantiles=normalize_quantiles,
-                                       delta_density=delta_density)
+                                       delta_density=delta_density, include_ideal=include_ideal)
 
             # Determine number of std devs to obtain quantiles
             s_lo, s_hi = stats.std_normal_quantile(quantiles)
@@ -4441,7 +4452,7 @@ class DRT(DRTBase):
         return dnu
 
     def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False,
-                    normalize_quantiles=(0.25, 0.75), delta_density=False):
+                    normalize_quantiles=(0.25, 0.75), delta_density=False, include_ideal=True):
         if nu is None:
             nu = np.linspace(-1, 1, 401)
             # Ensure basis_nu is included
@@ -4466,26 +4477,27 @@ class DRT(DRTBase):
         dop = basis_matrix @ x
 
         # Add pure inductance, resistance, and capacitance
-        ohmic_index = np.where(nu == 0)
-        if len(ohmic_index) == 1:
-            r_inf = self.fit_parameters['R_inf']
-            if delta_density:
-                r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
-            dop[ohmic_index] += r_inf
-
-        induc_index = np.where(nu == 1)
-        if len(induc_index) == 1:
-            induc = self.fit_parameters['inductance']
-            if delta_density:
-                induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
-            dop[induc_index] += induc
-
-        cap_index = np.where(nu == -1)
-        if len(cap_index) == 1:
-            c_inv = self.fit_parameters['C_inv']
-            if delta_density:
-                c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
-            dop[cap_index] += c_inv
+        if include_ideal:
+            ohmic_index = np.where(nu == 0)
+            if len(ohmic_index) == 1:
+                r_inf = self.fit_parameters['R_inf']
+                if delta_density:
+                    r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
+                dop[ohmic_index] += r_inf
+    
+            induc_index = np.where(nu == 1)
+            if len(induc_index) == 1:
+                induc = self.fit_parameters['inductance']
+                if delta_density:
+                    induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
+                dop[induc_index] += induc
+    
+            cap_index = np.where(nu == -1)
+            if len(cap_index) == 1:
+                c_inv = self.fit_parameters['C_inv']
+                if delta_density:
+                    c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
+                dop[cap_index] += c_inv
 
         # TODO: revisit normalization
         if normalize:
@@ -6011,7 +6023,7 @@ class DRT(DRTBase):
 
     def plot_dop(self, nu=None, x=None, ax=None, scale_prefix=None, normalize=False, normalize_tau=None,
                  invert_nu=True, plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
-                 delta_density=False,
+                 delta_density=False, include_ideal=True,
                  tight_layout=True, return_line=False, normalize_quantiles=(0.25, 0.75), **kw):
 
         if ax is None:
@@ -6021,7 +6033,7 @@ class DRT(DRTBase):
 
         nu, dop = self.predict_dop(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
                                    order=order, return_nu=True, normalize_quantiles=normalize_quantiles,
-                                   delta_density=delta_density)
+                                   delta_density=delta_density, include_ideal=include_ideal)
 
         # Invert nu for more intuitive visualization
         if invert_nu:
@@ -6042,7 +6054,7 @@ class DRT(DRTBase):
                 dop_lo, dop_hi = self.predict_dop_ci(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
                                                      quantiles=ci_quantiles, order=order,
                                                      normalize_quantiles=normalize_quantiles,
-                                                     delta_density=delta_density)
+                                                     delta_density=delta_density, include_ideal=include_ideal)
 
                 if dop_lo is not None:
                     # Enforce sign constraint in CI
@@ -6331,7 +6343,11 @@ class DRT(DRTBase):
 
             # With all matrices calculated, set recalc flags to False
             self._recalc_chrono_fit_matrix = False
-            self._recalc_chrono_prediction_matrix = False
+            # self._recalc_chrono_prediction_matrix = False
+            # We shouldn't reset _recalc_eis_prediction_matrix here.
+            #  Example case: basis_tau changes during fit (triggers recalc, which is then overwritten here),
+            #  but f_predict is unchanged
+            #  When we next try to call predict_z, recalc status will be False even though basis_tau changed
 
         # Otherwise, reuse existing matrices as appropriate
         elif self._t_fit_subset_index is not None:
@@ -6385,7 +6401,11 @@ class DRT(DRTBase):
 
             # With matrices calculated, set recalc flags to False
             self._recalc_eis_fit_matrix = False
-            self._recalc_eis_prediction_matrix = False
+            # self._recalc_eis_prediction_matrix = False
+            # We shouldn't reset _recalc_eis_prediction_matrix here.
+            #  Example case: basis_tau changes during fit (triggers recalc, which is then overwritten here),
+            #  but f_predict is unchanged
+            #  When we next try to call predict_z, recalc status will be False even though basis_tau changed
         elif self._f_fit_subset_index is not None:
             # frequencies is a subset of self.f_fit. Use sub-matrices of existing matrix; do not overwrite
             zm = self.fit_matrices['impedance'][self._f_fit_subset_index, :].copy()
@@ -6407,7 +6427,7 @@ class DRT(DRTBase):
 
         return zm, induc_zv, cap_zv, zm_dop
 
-    def _prep_penalty_matrices(self, penalty_type, derivative_weights):
+    def _prep_penalty_matrices(self, penalty_type, derivative_weights, truncate=False):
         # Always calculate penalty (derivative) matrices - fast, avoids any gaps in recalc logic
         # if self._recalc_chrono_fit_matrix:
         penalty_matrices = {}
@@ -6429,13 +6449,19 @@ class DRT(DRTBase):
                     penalty_matrices[f'l{k}_dop'] = dk_dop.copy()
                     penalty_matrices[f'm{k}_dop'] = dk_dop.T @ dk_dop
             elif penalty_type == 'integral':
+                if truncate:
+                    integration_limits = (np.log(self.basis_tau[0]), np.log(self.basis_tau[-1]))
+                else:
+                    integration_limits = None
                 dk = mat1d.construct_integrated_derivative_matrix(np.log(self.basis_tau),
                                                                   basis_type=self.tau_basis_type,
                                                                   order=k, epsilon=self.tau_epsilon,
-                                                                  zga_params=self.zga_params)
+                                                                  zga_params=self.zga_params,
+                                                                  integration_limits=integration_limits)
                 penalty_matrices[f'm{k}'] = dk.copy()
 
                 if self.fit_dop:
+                    # TODO: truncate dop penalty?
                     if self.nu_basis_type == 'delta':
                         # Use Gaussian derivatives for delta basis
                         dnu = np.median(np.diff(np.sort(self.basis_nu)))
@@ -7073,3 +7099,7 @@ class DRT(DRTBase):
         with open(source, 'rb') as f:
             att_dict = pickle.load(f)
         self.set_attributes(att_dict)
+
+    def copy(self):
+        return deepcopy(self)
+

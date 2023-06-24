@@ -1669,18 +1669,20 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
     # Calculate L2 penalty matrix (SMS)
     # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(len(derivative_weights))]
     # Apply very small penalty strength for overfit
-    iw_hypers = hypers.copy()
-    iw_hypers['l2_lambda_0'] = 1e-4
-    if 'dop_l2_lambda_0' in hypers.keys():
-        dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
-        iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
+    # iw_hypers = hypers.copy()
+    # iw_hypers['l2_lambda_0'] = 1e-4
+    # # iw_hypers['l2_lambda_0'] = 1e-10
+    # if 'dop_l2_lambda_0' in hypers.keys():
+    #     dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
+    #     iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
 
-    l2_matrix = calculate_qp_l2_matrix(iw_hypers, rho_vector, dop_rho_vector, penalty_matrices,
+    l2_matrix = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
                                        s_vectors, penalty_type, special_qp_params)
 
     iw_alpha = hypers['iw_alpha']
     iw_beta = hypers['iw_beta']
     outlier_p = hypers['outlier_p']
+    l1_lambda_0 = hypers['l1_lambda_0']
 
     if outlier_p is not None:
         outlier_t = np.ones(vmm.shape[0])
@@ -1691,7 +1693,7 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
             # Solve the ridge problem with QP: optimize x
             # Multiply l2_matrix by 2 due to exponential prior
             w_diag = np.diag(est_weights)
-            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, 1e-4, nonneg, special_qp_params)
+            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, l1_lambda_0, nonneg, special_qp_params)
             x_overfit = np.array(list(cvx_result['x']))
             # print(x_overfit)
             # print(rm @ x_overfit)
@@ -1713,7 +1715,7 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
         # print('init outlier prob:', 1 - outlier_t)
 
     else:
-        cvx_result = solve_convex_opt(rv, rm, l2_matrix, 1e-4, nonneg, special_qp_params)
+        cvx_result = solve_convex_opt(rv, rm, l2_matrix, l1_lambda_0, nonneg, special_qp_params)
         x_overfit = np.array(list(cvx_result['x']))
         est_weights, outlier_t, out_tvt = estimate_weights(x_overfit, rv, vmm, rm,
                                                            est_weights=None, outlier_p=outlier_p)

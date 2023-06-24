@@ -522,7 +522,7 @@ def integrate_paths(tau, f, rp, paths, troughs, width_sigma=1):
     return path_dist, path_sizes
 
 
-# ==================
+# ==================git
 # Visualization
 # ==================
 def plot_paths_and_troughs(paths, troughs, shape, slice_index=None, slice_axis=None, ax=None):

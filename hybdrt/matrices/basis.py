@@ -352,20 +352,31 @@ def get_integrated_derivative_func(basis_type='gaussian', order=1, indefinite=Fa
                 def func(x, x_n, x_m, epsilon):
                     a = epsilon * (x_m - x_n)
                     b = epsilon * (x_m + x_n - 2 * x)
-                    out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n))
-                    out += -np.sqrt(2 * np.pi) * (a ** 2 - 1) * \
-                        np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
-                    out *= -0.25 * epsilon * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    # out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n))
+                    # out += -np.sqrt(2 * np.pi) * (a ** 2 - 1) * \
+                    #     np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
+                    # out *= -0.25 * epsilon * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    out = b * np.exp(epsilon ** 2 * (2 * x * (x_m + x_n) - (x_m ** 2 + x_n ** 2 + 2 * x ** 2)))
+                    out += 0.5 * np.sqrt(2 * np.pi) * (a ** 2 - 1) * \
+                           np.exp(epsilon ** 2 * (
+                                   0.5 * ((x_m + x_n) ** 2 + 4 * x ** 2) - (x_m ** 2 + x_n ** 2 + 2 * x ** 2)
+                           )) * erf(b / np.sqrt(2))
+                    out *= 0.5 * epsilon
                     return out
             elif order == 2:
                 def func(x, x_n, x_m, epsilon):
                     a = epsilon * (x_m - x_n)
                     b = epsilon * (x_m + x_n - 2 * x)
-                    out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n)) * \
-                        (3 * a ** 2 - 2 * epsilon ** 2 * ((x - x_m) ** 2 + (x - x_n) ** 2) + 1)
-                    out += -np.sqrt(2 * np.pi) * (a ** 4 - 6 * a ** 2 + 3) * \
-                        np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
-                    out *= 0.25 * epsilon ** 3 * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    # out = -2 * b * np.exp(2 * epsilon ** 2 * x * (x_m + x_n)) * \
+                    #     (3 * a ** 2 - 2 * epsilon ** 2 * ((x - x_m) ** 2 + (x - x_n) ** 2) + 1)
+                    # out += -np.sqrt(2 * np.pi) * (a ** 4 - 6 * a ** 2 + 3) * \
+                    #     np.exp(0.5 * epsilon ** 2 * ((x_m + x_n) ** 2 + 4 * x ** 2)) * erf(b / np.sqrt(2))
+                    # out *= 0.25 * epsilon ** 3 * np.exp(-epsilon ** 2 * (x_m ** 2 + x_n ** 2 + 2 * x ** 2))
+                    out = 2 * b * np.exp(epsilon ** 2 * (2 * x * (x_m + x_n) - (x_m ** 2 + x_n ** 2 + 2 * x ** 2))) * \
+                          (3 * a ** 2 - 2 * epsilon ** 2 * ((x - x_m) ** 2 + (x - x_n) ** 2) + 1)
+                    out += np.sqrt(2 * np.pi) * (a ** 4 - 6 * a ** 2 + 3) * \
+                           np.exp(epsilon ** 2 * (0.5 * ((x_m + x_n) ** 2 + 4 * x ** 2) - (x_m ** 2 + x_n ** 2 + 2 * x ** 2))) * erf(b / np.sqrt(2))
+                    out *= -0.25 * epsilon ** 3
                     return out
         else:
             if order == 0:

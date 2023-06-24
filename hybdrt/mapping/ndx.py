@@ -282,7 +282,6 @@ def filter_ndx(ndx, num_group_dims, impute=False, impute_groups=False, iterative
         out = np.empty_like(ndx)
         for group in it:
             group_index = it.multi_index
-
             out[group_index] = _filter_ndx_sub(ndx[group_index], nan_obs_index[group_index],
                                                filter_func, filter_kw, mask_nans, iterative, adaptive)
 

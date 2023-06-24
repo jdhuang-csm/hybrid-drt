@@ -175,6 +175,11 @@ def masked_filter(a, mask, filter_func=None, **filter_kw):
     return x_filt / mask_filt
 
 
+def nan_filter(a, filter_func, **filter_kw):
+    mask = ~np.isnan(a)
+    return masked_filter(np.nan_to_num(a), mask, filter_func, **filter_kw)
+
+
 def iterate_gaussian_weights(a, init_weights=None, adaptive=False, iter=2, nstd=5, dev_rms_size=5,
                              nan_mask=None, **filter_kw):
     if init_weights is None:
@@ -257,6 +262,7 @@ def nonuniform_gaussian_filter1d(a, sigma, axis=-1, empty=False,
                                  mode='reflect', cval=0.0, truncate=4, order=0,
                                  sigma_node_factor=1.5, min_sigma=0.25):
     if np.max(sigma) > 0:
+        sigma = np.maximum(sigma, 1e-8)
         # Get sigma nodes
         min_ls = max(np.min(np.log10(sigma)), np.log10(min_sigma))  # Don't go below min effective value
         max_ls = max(np.max(np.log10(sigma)), np.log10(min_sigma))

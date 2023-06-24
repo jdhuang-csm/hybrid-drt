@@ -8,96 +8,94 @@ using namespace stan::math;
 
 
 stan::math::profile_map profiles__;
-static constexpr std::array<const char*, 214> locations_array__ = 
+static constexpr std::array<const char*, 216> locations_array__ = 
 {" (found before start of program)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 87, column 4 to column 27)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 88, column 4 to column 29)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 89, column 4 to column 29)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 92, column 4 to column 29)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 93, column 4 to column 33)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 94, column 4 to column 38)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 95, column 4 to column 19)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 96, column 4 to column 23)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 97, column 4 to column 31)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 98, column 4 to column 35)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 99, column 4 to column 28)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 100, column 4 to column 40)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 101, column 4 to column 30)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 102, column 4 to column 31)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 109, column 4 to column 25)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 110, column 4 to column 29)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 111, column 4 to column 34)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 112, column 4 to column 46)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 113, column 4 to column 30)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 114, column 4 to column 31)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 115, column 4 to column 32)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 116, column 4 to column 65)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 118, column 4 to column 32)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 121, column 8 to column 60)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 122, column 8 to column 76)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 123, column 8 to column 96)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 124, column 8 to column 67)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 126, column 8 to column 37)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 120, column 19 to line 127, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 120, column 4 to line 127, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 129, column 4 to column 35)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 130, column 4 to column 37)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 187, column 4 to column 30)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 188, column 4 to column 32)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 189, column 4 to column 28)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 191, column 8 to column 39)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 193, column 12 to column 92)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 192, column 23 to line 194, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 192, column 8 to line 194, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 190, column 19 to line 195, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 190, column 4 to line 195, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 198, column 8 to column 87)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 199, column 8 to column 66)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 197, column 19 to line 200, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 197, column 4 to line 200, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 134, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 134, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 134, column 4 to column 29)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 138, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 138, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 138, column 23 to column 24)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 138, column 4 to column 30)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 23 to column 24)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 4 to column 32)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 142, column 8 to column 56)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 145, column 12 to column 58)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 144, column 23 to line 146, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 144, column 8 to line 146, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 147, column 8 to column 46)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 141, column 19 to line 148, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 141, column 4 to line 148, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 151, column 4 to column 26)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 152, column 4 to column 25)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 153, column 4 to column 25)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 156, column 8 to column 56)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 157, column 8 to column 60)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 158, column 8 to column 65)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 155, column 19 to line 159, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 155, column 4 to line 159, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 163, column 8 to column 38)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 165, column 12 to column 90)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 164, column 23 to line 166, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 164, column 8 to line 166, column 9)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 162, column 19 to line 167, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 162, column 4 to line 167, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 170, column 8 to column 44)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 169, column 19 to line 171, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 169, column 4 to line 171, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 175, column 4 to column 30)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 176, column 4 to column 34)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 177, column 4 to column 39)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 178, column 4 to column 34)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 179, column 4 to column 26)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 180, column 4 to column 30)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 89, column 4 to column 27)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 90, column 4 to column 29)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 91, column 4 to column 29)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 94, column 4 to column 29)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 95, column 4 to column 33)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 96, column 4 to column 38)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 97, column 4 to column 19)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 98, column 4 to column 23)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 99, column 4 to column 31)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 100, column 4 to column 35)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 101, column 4 to column 28)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 102, column 4 to column 40)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 103, column 4 to column 34)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 104, column 4 to column 35)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 111, column 4 to column 25)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 112, column 4 to column 29)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 113, column 4 to column 34)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 114, column 4 to column 46)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 116, column 4 to column 31)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 117, column 4 to column 32)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 118, column 4 to column 65)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 121, column 4 to column 29)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 122, column 4 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 128, column 8 to column 60)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 129, column 8 to column 76)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 130, column 8 to column 96)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 131, column 8 to column 67)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 127, column 19 to line 134, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 127, column 4 to line 134, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 138, column 8 to column 38)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 140, column 12 to column 90)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 23 to line 141, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 139, column 8 to line 141, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 142, column 8 to column 40)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 137, column 19 to line 143, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 137, column 4 to line 143, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 146, column 4 to column 59)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 147, column 4 to column 62)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 194, column 4 to column 30)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 195, column 4 to column 32)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 196, column 4 to column 28)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 198, column 8 to column 39)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 200, column 12 to column 92)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 199, column 23 to line 201, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 199, column 8 to line 201, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 197, column 19 to line 202, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 197, column 4 to line 202, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 205, column 8 to column 87)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 206, column 8 to column 66)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 204, column 19 to line 207, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 204, column 4 to line 207, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 151, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 151, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 151, column 23 to column 24)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 151, column 4 to column 30)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 152, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 152, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 152, column 23 to column 24)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 152, column 4 to column 32)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 155, column 8 to column 56)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 158, column 12 to column 58)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 157, column 23 to line 159, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 157, column 8 to line 159, column 9)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 160, column 8 to column 46)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 154, column 19 to line 161, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 154, column 4 to line 161, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 164, column 4 to column 26)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 165, column 4 to column 25)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 166, column 4 to column 25)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 170, column 8 to column 56)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 171, column 8 to column 60)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 172, column 8 to column 65)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 169, column 19 to line 173, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 169, column 4 to line 173, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 177, column 8 to column 44)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 176, column 19 to line 178, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 176, column 4 to line 178, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 179, column 4 to column 34)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 182, column 4 to column 30)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 183, column 4 to column 34)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 184, column 4 to column 35)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 184, column 4 to column 39)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 185, column 4 to column 34)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 186, column 4 to column 26)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 187, column 4 to column 30)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 190, column 4 to column 38)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 191, column 4 to column 39)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 65, column 4 to column 19)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 66, column 4 to column 19)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 67, column 4 to column 19)",
@@ -111,50 +109,54 @@ static constexpr std::array<const char*, 214> locations_array__ =
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 71, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 71, column 4 to column 25)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 72, column 4 to column 33)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 75, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 75, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 75, column 4 to column 26)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 76, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 76, column 4 to column 26)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 79, column 8 to column 35)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 78, column 19 to line 80, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 78, column 4 to line 80, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 82, column 8 to column 32)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 81, column 19 to line 83, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 81, column 4 to line 83, column 5)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 87, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 88, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 73, column 4 to column 36)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 74, column 4 to column 37)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 77, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 77, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 77, column 4 to column 26)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 78, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 78, column 4 to column 26)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 81, column 8 to column 35)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 80, column 19 to line 82, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 80, column 4 to line 82, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 84, column 8 to column 32)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 83, column 19 to line 85, column 5)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 83, column 4 to line 85, column 5)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 89, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 92, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 92, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 93, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 93, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 90, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 91, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 94, column 10 to column 11)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 94, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 95, column 11 to column 12)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 96, column 11 to column 12)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 97, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 98, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 99, column 11 to column 12)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 95, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 95, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 96, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 96, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 97, column 11 to column 12)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 98, column 11 to column 12)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 99, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 100, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 109, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 109, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 110, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 110, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 101, column 11 to column 12)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 102, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 111, column 10 to column 11)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 111, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 112, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 112, column 38 to column 39)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 112, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 113, column 10 to column 11)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 113, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 114, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 115, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 114, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 114, column 38 to column 39)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 116, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 187, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 187, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 188, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 188, column 20 to column 21)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 189, column 10 to column 11)",
- " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 189, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 117, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 118, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 121, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 121, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 122, column 11 to column 12)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 194, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 194, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 195, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 195, column 20 to column 21)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 196, column 10 to column 11)",
+ " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 196, column 20 to column 21)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 3, column 9 to column 10)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 3, column 2 to column 31)",
  " (in 'C:/Users/jdh10/ONEDRI~1/python/projects/HYBRID~1/hybdrt/mapping/STAN_M~1/gp_marginal_ZARC.stan', line 4, column 9 to column 10)",
@@ -287,35 +289,35 @@ template <typename T1__, typename T2__, typename T3__, typename T4__,
     local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
     (void) DUMMY_VAR__;  // suppress unused var warning
     try {
-      current_statement__ = 146;
+      current_statement__ = 148;
       stan::math::validate_non_negative_index("tt0", "M", M);
       Eigen::Matrix<local_scalar_t__, -1, 1> tt0 =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__);
-      current_statement__ = 147;
+      current_statement__ = 149;
       stan::model::assign(tt0, stan::math::elt_divide(tau, tau_0),
         "assigning variable tt0");
-      current_statement__ = 148;
+      current_statement__ = 150;
       stan::math::validate_non_negative_index("gamma_out", "M", M);
       Eigen::Matrix<local_scalar_t__, -1, 1> gamma_out =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__);
-      current_statement__ = 155;
+      current_statement__ = 157;
       for (int m = 1; m <= M; ++m) {
         local_scalar_t__ theta = DUMMY_VAR__;
-        current_statement__ = 150;
+        current_statement__ = 152;
         theta = stan::math::atan2(stan::math::sin((stan::math::pi() * beta)),
                   (stan::math::pow(
                      stan::model::rvalue(tt0, "tt0",
                        stan::model::index_uni(m)), beta) +
                     stan::math::cos((stan::math::pi() * beta))));
         local_scalar_t__ nume = DUMMY_VAR__;
-        current_statement__ = 151;
+        current_statement__ = 153;
         nume = (((1 / stan::math::pi()) *
                   stan::math::pow(
                     stan::model::rvalue(tt0, "tt0",
                       stan::model::index_uni(m)), (beta * alpha))) *
                  stan::math::sin((alpha * theta)));
         local_scalar_t__ deno = DUMMY_VAR__;
-        current_statement__ = 152;
+        current_statement__ = 154;
         deno = stan::math::pow(
                  ((1 +
                     ((2 * stan::math::cos((stan::math::pi() * beta))) *
@@ -325,11 +327,11 @@ template <typename T1__, typename T2__, typename T3__, typename T4__,
                    stan::math::pow(
                      stan::model::rvalue(tt0, "tt0",
                        stan::model::index_uni(m)), (2 * beta))), (alpha / 2));
-        current_statement__ = 153;
+        current_statement__ = 155;
         stan::model::assign(gamma_out, (nume / deno),
           "assigning variable gamma_out", stan::model::index_uni(m));
       }
-      current_statement__ = 156;
+      current_statement__ = 158;
       return gamma_out;
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -352,26 +354,26 @@ template <typename T0__, typename T1__, typename T2__,
     (void) DUMMY_VAR__;  // suppress unused var warning
     try {
       int M = std::numeric_limits<int>::min();
-      current_statement__ = 158;
+      current_statement__ = 160;
       M = stan::math::size(tau);
-      current_statement__ = 159;
+      current_statement__ = 161;
       stan::math::validate_non_negative_index("tt0", "M", M);
       Eigen::Matrix<local_scalar_t__, -1, 1> tt0 =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__);
-      current_statement__ = 160;
+      current_statement__ = 162;
       stan::model::assign(tt0, stan::math::elt_divide(tau, tau_0),
         "assigning variable tt0");
-      current_statement__ = 161;
+      current_statement__ = 163;
       stan::math::validate_non_negative_index("gamma_out", "M", M);
       Eigen::Matrix<local_scalar_t__, -1, 1> gamma_out =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__);
-      current_statement__ = 167;
+      current_statement__ = 169;
       for (int m = 1; m <= M; ++m) {
         local_scalar_t__ nume = DUMMY_VAR__;
-        current_statement__ = 163;
+        current_statement__ = 165;
         nume = stan::math::sin(((1 - beta) * stan::math::pi()));
         local_scalar_t__ deno = DUMMY_VAR__;
-        current_statement__ = 164;
+        current_statement__ = 166;
         deno = ((2 * stan::math::pi()) *
                  (stan::math::cosh(
                     (beta *
@@ -379,11 +381,11 @@ template <typename T0__, typename T1__, typename T2__,
                         stan::model::rvalue(tt0, "tt0",
                           stan::model::index_uni(m))))) -
                    stan::math::cos(((1 - beta) * stan::math::pi()))));
-        current_statement__ = 165;
+        current_statement__ = 167;
         stan::model::assign(gamma_out, (nume / deno),
           "assigning variable gamma_out", stan::model::index_uni(m));
       }
-      current_statement__ = 168;
+      current_statement__ = 170;
       return gamma_out;
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -405,7 +407,7 @@ template <typename T0__, typename T1__, typename T2__,
     local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
     (void) DUMMY_VAR__;  // suppress unused var warning
     try {
-      current_statement__ = 170;
+      current_statement__ = 172;
       return stan::math::add(mu, stan::math::multiply(x_raw, scale));
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -438,72 +440,72 @@ template <typename T0__, typename T1__, typename T2__, typename T3__,
     (void) DUMMY_VAR__;  // suppress unused var warning
     try {
       int N1 = std::numeric_limits<int>::min();
-      current_statement__ = 172;
+      current_statement__ = 174;
       N1 = stan::math::rows(y1);
       int N2 = std::numeric_limits<int>::min();
-      current_statement__ = 173;
+      current_statement__ = 175;
       N2 = stan::math::size(x2);
-      current_statement__ = 174;
+      current_statement__ = 176;
       stan::math::validate_non_negative_index("f2", "N2", N2);
       Eigen::Matrix<local_scalar_t__, -1, 1> f2 =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N2, DUMMY_VAR__);
       {
-        current_statement__ = 176;
+        current_statement__ = 178;
         stan::math::validate_non_negative_index("L_K", "N1", N1);
-        current_statement__ = 177;
+        current_statement__ = 179;
         stan::math::validate_non_negative_index("L_K", "N1", N1);
         Eigen::Matrix<local_scalar_t__, -1, -1> L_K =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N1, N1,
              DUMMY_VAR__);
-        current_statement__ = 179;
+        current_statement__ = 181;
         stan::math::validate_non_negative_index("K_div_y1", "N1", N1);
         Eigen::Matrix<local_scalar_t__, -1, 1> K_div_y1 =
            Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N1, DUMMY_VAR__);
-        current_statement__ = 181;
+        current_statement__ = 183;
         stan::math::validate_non_negative_index("k_x1_x2", "N1", N1);
-        current_statement__ = 182;
+        current_statement__ = 184;
         stan::math::validate_non_negative_index("k_x1_x2", "N2", N2);
         Eigen::Matrix<local_scalar_t__, -1, -1> k_x1_x2 =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N1, N2,
              DUMMY_VAR__);
-        current_statement__ = 184;
+        current_statement__ = 186;
         stan::math::validate_non_negative_index("v_pred", "N1", N1);
-        current_statement__ = 185;
+        current_statement__ = 187;
         stan::math::validate_non_negative_index("v_pred", "N2", N2);
         Eigen::Matrix<local_scalar_t__, -1, -1> v_pred =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N1, N2,
              DUMMY_VAR__);
-        current_statement__ = 187;
+        current_statement__ = 189;
         stan::math::validate_non_negative_index("f2_mu", "N2", N2);
         Eigen::Matrix<local_scalar_t__, -1, 1> f2_mu =
            Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N2, DUMMY_VAR__);
-        current_statement__ = 189;
+        current_statement__ = 191;
         stan::math::validate_non_negative_index("cov_f2", "N2", N2);
-        current_statement__ = 190;
+        current_statement__ = 192;
         stan::math::validate_non_negative_index("cov_f2", "N2", N2);
         Eigen::Matrix<local_scalar_t__, -1, -1> cov_f2 =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N2, N2,
              DUMMY_VAR__);
-        current_statement__ = 192;
+        current_statement__ = 194;
         stan::math::validate_non_negative_index("diag_delta", "N2", N2);
-        current_statement__ = 193;
+        current_statement__ = 195;
         stan::math::validate_non_negative_index("diag_delta", "N2", N2);
         Eigen::Matrix<local_scalar_t__, -1, -1> diag_delta =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N2, N2,
              DUMMY_VAR__);
-        current_statement__ = 195;
+        current_statement__ = 197;
         stan::math::validate_non_negative_index("K", "N1", N1);
-        current_statement__ = 196;
+        current_statement__ = 198;
         stan::math::validate_non_negative_index("K", "N1", N1);
         Eigen::Matrix<local_scalar_t__, -1, -1> K =
            Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N1, N1,
              DUMMY_VAR__);
-        current_statement__ = 198;
+        current_statement__ = 200;
         stan::model::assign(K, stan::math::gp_exp_quad_cov(x1, alpha, rho),
           "assigning variable K");
-        current_statement__ = 201;
+        current_statement__ = 203;
         for (int n = 1; n <= N1; ++n) {
-          current_statement__ = 199;
+          current_statement__ = 201;
           stan::model::assign(K,
             (stan::model::rvalue(K, "K",
                stan::model::index_uni(n), stan::model::index_uni(n)) +
@@ -511,47 +513,47 @@ template <typename T0__, typename T1__, typename T2__, typename T3__,
             "assigning variable K", stan::model::index_uni(n),
                                       stan::model::index_uni(n));
         }
-        current_statement__ = 202;
+        current_statement__ = 204;
         stan::model::assign(L_K, stan::math::cholesky_decompose(K),
           "assigning variable L_K");
-        current_statement__ = 203;
+        current_statement__ = 205;
         stan::model::assign(K_div_y1,
           stan::math::mdivide_left_tri_low(L_K, y1),
           "assigning variable K_div_y1");
-        current_statement__ = 204;
+        current_statement__ = 206;
         stan::model::assign(K_div_y1,
           stan::math::transpose(
             stan::math::mdivide_right_tri_low(
               stan::math::transpose(stan::model::deep_copy(K_div_y1)), L_K)),
           "assigning variable K_div_y1");
-        current_statement__ = 205;
+        current_statement__ = 207;
         stan::model::assign(k_x1_x2,
           stan::math::gp_exp_quad_cov(x1, x2, alpha, rho),
           "assigning variable k_x1_x2");
-        current_statement__ = 206;
+        current_statement__ = 208;
         stan::model::assign(f2_mu,
           stan::math::multiply(stan::math::transpose(k_x1_x2), K_div_y1),
           "assigning variable f2_mu");
-        current_statement__ = 207;
+        current_statement__ = 209;
         stan::model::assign(v_pred,
           stan::math::mdivide_left_tri_low(L_K, k_x1_x2),
           "assigning variable v_pred");
-        current_statement__ = 208;
+        current_statement__ = 210;
         stan::model::assign(cov_f2,
           stan::math::subtract(stan::math::gp_exp_quad_cov(x2, alpha, rho),
             stan::math::multiply(stan::math::transpose(v_pred), v_pred)),
           "assigning variable cov_f2");
-        current_statement__ = 209;
+        current_statement__ = 211;
         stan::model::assign(diag_delta,
           stan::math::diag_matrix(stan::math::rep_vector(delta, N2)),
           "assigning variable diag_delta");
-        current_statement__ = 210;
+        current_statement__ = 212;
         stan::model::assign(f2,
           stan::math::multi_normal_rng(f2_mu,
             stan::math::add(cov_f2, diag_delta), base_rng__),
           "assigning variable f2");
       }
-      current_statement__ = 212;
+      current_statement__ = 214;
       return f2;
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -630,6 +632,8 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
   std::vector<Eigen::Matrix<double, -1, 1>> x;
   std::vector<Eigen::Matrix<double, -1, 1>> y;
   double sigma_gp_scale;
+  double sigma_rel_y_scale;
+  double sigma_rel_Rp_scale;
   std::vector<Eigen::Matrix<double, -1, 1>> mu;
   Eigen::Matrix<double, -1, 1> Rp__; 
   Eigen::Map<Eigen::Matrix<double, -1, 1>> tau{nullptr, 0};
@@ -660,49 +664,49 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
     try {
       int pos__ = std::numeric_limits<int>::min();
       pos__ = 1;
-      current_statement__ = 89;
+      current_statement__ = 87;
       context__.validate_dims("data initialization","N","int",
            std::vector<size_t>{});
       N = std::numeric_limits<int>::min();
       
       
-      current_statement__ = 89;
+      current_statement__ = 87;
       N = context__.vals_i("N")[(1 - 1)];
-      current_statement__ = 89;
+      current_statement__ = 87;
       stan::math::check_greater_or_equal(function__, "N", N, 1);
-      current_statement__ = 90;
+      current_statement__ = 88;
       context__.validate_dims("data initialization","D","int",
            std::vector<size_t>{});
       D = std::numeric_limits<int>::min();
       
       
-      current_statement__ = 90;
+      current_statement__ = 88;
       D = context__.vals_i("D")[(1 - 1)];
-      current_statement__ = 90;
+      current_statement__ = 88;
       stan::math::check_greater_or_equal(function__, "D", D, 1);
-      current_statement__ = 91;
+      current_statement__ = 89;
       context__.validate_dims("data initialization","M","int",
            std::vector<size_t>{});
       M = std::numeric_limits<int>::min();
       
       
-      current_statement__ = 91;
+      current_statement__ = 89;
       M = context__.vals_i("M")[(1 - 1)];
-      current_statement__ = 91;
+      current_statement__ = 89;
       stan::math::check_greater_or_equal(function__, "M", M, 1);
-      current_statement__ = 92;
+      current_statement__ = 90;
       context__.validate_dims("data initialization","K","int",
            std::vector<size_t>{});
       K = std::numeric_limits<int>::min();
       
       
-      current_statement__ = 92;
+      current_statement__ = 90;
       K = context__.vals_i("K")[(1 - 1)];
-      current_statement__ = 92;
+      current_statement__ = 90;
       stan::math::check_greater_or_equal(function__, "K", K, 1);
-      current_statement__ = 93;
+      current_statement__ = 91;
       stan::math::validate_non_negative_index("tau", "M", M);
-      current_statement__ = 94;
+      current_statement__ = 92;
       context__.validate_dims("data initialization","tau","double",
            std::vector<size_t>{static_cast<size_t>(M)});
       tau__ = 
@@ -712,26 +716,26 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       
       {
         std::vector<local_scalar_t__> tau_flat__;
-        current_statement__ = 94;
+        current_statement__ = 92;
         tau_flat__ = context__.vals_r("tau");
-        current_statement__ = 94;
+        current_statement__ = 92;
         pos__ = 1;
-        current_statement__ = 94;
+        current_statement__ = 92;
         for (int sym1__ = 1; sym1__ <= M; ++sym1__) {
-          current_statement__ = 94;
+          current_statement__ = 92;
           stan::model::assign(tau, tau_flat__[(pos__ - 1)],
             "assigning variable tau", stan::model::index_uni(sym1__));
-          current_statement__ = 94;
+          current_statement__ = 92;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 94;
+      current_statement__ = 92;
       stan::math::check_greater_or_equal(function__, "tau", tau, 0);
-      current_statement__ = 95;
+      current_statement__ = 93;
       stan::math::validate_non_negative_index("x", "N", N);
-      current_statement__ = 96;
+      current_statement__ = 94;
       stan::math::validate_non_negative_index("x", "D", D);
-      current_statement__ = 97;
+      current_statement__ = 95;
       context__.validate_dims("data initialization","x","double",
            std::vector<size_t>{static_cast<size_t>(N),
             static_cast<size_t>(D)});
@@ -743,28 +747,28 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       
       {
         std::vector<local_scalar_t__> x_flat__;
-        current_statement__ = 97;
+        current_statement__ = 95;
         x_flat__ = context__.vals_r("x");
-        current_statement__ = 97;
+        current_statement__ = 95;
         pos__ = 1;
-        current_statement__ = 97;
+        current_statement__ = 95;
         for (int sym1__ = 1; sym1__ <= D; ++sym1__) {
-          current_statement__ = 97;
+          current_statement__ = 95;
           for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
-            current_statement__ = 97;
+            current_statement__ = 95;
             stan::model::assign(x, x_flat__[(pos__ - 1)],
               "assigning variable x", stan::model::index_uni(sym2__),
                                         stan::model::index_uni(sym1__));
-            current_statement__ = 97;
+            current_statement__ = 95;
             pos__ = (pos__ + 1);
           }
         }
       }
-      current_statement__ = 98;
+      current_statement__ = 96;
       stan::math::validate_non_negative_index("y", "N", N);
-      current_statement__ = 99;
+      current_statement__ = 97;
       stan::math::validate_non_negative_index("y", "M", M);
-      current_statement__ = 100;
+      current_statement__ = 98;
       context__.validate_dims("data initialization","y","double",
            std::vector<size_t>{static_cast<size_t>(N),
             static_cast<size_t>(M)});
@@ -776,34 +780,56 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       
       {
         std::vector<local_scalar_t__> y_flat__;
-        current_statement__ = 100;
+        current_statement__ = 98;
         y_flat__ = context__.vals_r("y");
-        current_statement__ = 100;
+        current_statement__ = 98;
         pos__ = 1;
-        current_statement__ = 100;
+        current_statement__ = 98;
         for (int sym1__ = 1; sym1__ <= M; ++sym1__) {
-          current_statement__ = 100;
+          current_statement__ = 98;
           for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
-            current_statement__ = 100;
+            current_statement__ = 98;
             stan::model::assign(y, y_flat__[(pos__ - 1)],
               "assigning variable y", stan::model::index_uni(sym2__),
                                         stan::model::index_uni(sym1__));
-            current_statement__ = 100;
+            current_statement__ = 98;
             pos__ = (pos__ + 1);
           }
         }
       }
-      current_statement__ = 101;
+      current_statement__ = 99;
       context__.validate_dims("data initialization","sigma_gp_scale",
           "double", std::vector<size_t>{});
       sigma_gp_scale = std::numeric_limits<double>::quiet_NaN();
       
       
-      current_statement__ = 101;
+      current_statement__ = 99;
       sigma_gp_scale = context__.vals_r("sigma_gp_scale")[(1 - 1)];
-      current_statement__ = 101;
+      current_statement__ = 99;
       stan::math::check_greater_or_equal(function__, "sigma_gp_scale",
                                             sigma_gp_scale, 0);
+      current_statement__ = 100;
+      context__.validate_dims("data initialization","sigma_rel_y_scale",
+          "double", std::vector<size_t>{});
+      sigma_rel_y_scale = std::numeric_limits<double>::quiet_NaN();
+      
+      
+      current_statement__ = 100;
+      sigma_rel_y_scale = context__.vals_r("sigma_rel_y_scale")[(1 - 1)];
+      current_statement__ = 100;
+      stan::math::check_greater_or_equal(function__, "sigma_rel_y_scale",
+                                            sigma_rel_y_scale, 0);
+      current_statement__ = 101;
+      context__.validate_dims("data initialization","sigma_rel_Rp_scale",
+          "double", std::vector<size_t>{});
+      sigma_rel_Rp_scale = std::numeric_limits<double>::quiet_NaN();
+      
+      
+      current_statement__ = 101;
+      sigma_rel_Rp_scale = context__.vals_r("sigma_rel_Rp_scale")[(1 - 1)];
+      current_statement__ = 101;
+      stan::math::check_greater_or_equal(function__, "sigma_rel_Rp_scale",
+                                            sigma_rel_Rp_scale, 0);
       current_statement__ = 102;
       stan::math::validate_non_negative_index("mu", "K", K);
       current_statement__ = 103;
@@ -887,24 +913,28 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       current_statement__ = 135;
       stan::math::validate_non_negative_index("beta", "N", N);
       current_statement__ = 136;
-      stan::math::validate_non_negative_index("Rp_hat", "N", N);
-      current_statement__ = 137;
       stan::math::validate_non_negative_index("sigma_y", "N", N);
-      current_statement__ = 138;
+      current_statement__ = 137;
       stan::math::validate_non_negative_index("sigma_Rp", "N", N);
-      current_statement__ = 139;
+      current_statement__ = 138;
       stan::math::validate_non_negative_index("sq_sigma", "K", K);
+      current_statement__ = 139;
+      stan::math::validate_non_negative_index("y_hat", "N", N);
       current_statement__ = 140;
-      stan::math::validate_non_negative_index("y_pred", "N", N);
+      stan::math::validate_non_negative_index("y_hat", "M", M);
       current_statement__ = 141;
-      stan::math::validate_non_negative_index("y_pred", "M", M);
+      stan::math::validate_non_negative_index("Rp_hat", "N", N);
       current_statement__ = 142;
-      stan::math::validate_non_negative_index("R_raw_gp", "K", K);
+      stan::math::validate_non_negative_index("y_pred", "N", N);
       current_statement__ = 143;
-      stan::math::validate_non_negative_index("R_raw_gp", "N", N);
+      stan::math::validate_non_negative_index("y_pred", "M", M);
       current_statement__ = 144;
-      stan::math::validate_non_negative_index("R_gp", "K", K);
+      stan::math::validate_non_negative_index("R_raw_gp", "K", K);
       current_statement__ = 145;
+      stan::math::validate_non_negative_index("R_raw_gp", "N", N);
+      current_statement__ = 146;
+      stan::math::validate_non_negative_index("R_gp", "K", K);
+      current_statement__ = 147;
       stan::math::validate_non_negative_index("R_gp", "N", N);
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -1001,14 +1031,14 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       beta_trans_scale = in__.template read_constrain_lb<
                            Eigen::Matrix<local_scalar_t__, -1, 1>, 
                            jacobian__>(0, lp__, K);
-      local_scalar_t__ sigma_rel_y = DUMMY_VAR__;
+      local_scalar_t__ sigma_rel_y_raw = DUMMY_VAR__;
       current_statement__ = 13;
-      sigma_rel_y = in__.template read_constrain_lb<local_scalar_t__, 
-                      jacobian__>(0, lp__);
-      local_scalar_t__ sigma_rel_Rp = DUMMY_VAR__;
+      sigma_rel_y_raw = in__.template read_constrain_lb<local_scalar_t__, 
+                          jacobian__>(0, lp__);
+      local_scalar_t__ sigma_rel_Rp_raw = DUMMY_VAR__;
       current_statement__ = 14;
-      sigma_rel_Rp = in__.template read_constrain_lb<local_scalar_t__, 
-                       jacobian__>(0, lp__);
+      sigma_rel_Rp_raw = in__.template read_constrain_lb<local_scalar_t__, 
+                           jacobian__>(0, lp__);
       std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>> R =
          std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>>(K, 
            Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__));
@@ -1021,22 +1051,22 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>> beta =
          std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>>(K, 
            Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__));
-      Eigen::Matrix<local_scalar_t__, -1, 1> Rp_hat =
-         Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__);
       Eigen::Matrix<local_scalar_t__, -1, 1> sigma_y =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__);
       Eigen::Matrix<local_scalar_t__, -1, 1> sigma_Rp =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__);
       Eigen::Matrix<local_scalar_t__, -1, 1> sq_sigma =
          Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(K, DUMMY_VAR__);
-      current_statement__ = 22;
+      current_statement__ = 21;
       stan::model::assign(sq_sigma,
         stan::math::square(stan::math::multiply(sigma_gp_scale, sigma)),
         "assigning variable sq_sigma");
-      current_statement__ = 23;
-      stan::model::assign(Rp_hat, stan::math::rep_vector(0.0, N),
-        "assigning variable Rp_hat");
-      current_statement__ = 30;
+      std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>> y_hat =
+         std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>>(N, 
+           Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__));
+      Eigen::Matrix<local_scalar_t__, -1, 1> Rp_hat =
+         Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(N, DUMMY_VAR__);
+      current_statement__ = 29;
       for (int k = 1; k <= K; ++k) {
         current_statement__ = 24;
         stan::model::assign(R,
@@ -1077,71 +1107,91 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
                 stan::model::rvalue(beta_trans, "beta_trans",
                   stan::model::index_uni(k))), 1.0)),
           "assigning variable beta", stan::model::index_uni(k));
-        current_statement__ = 28;
-        stan::model::assign(Rp_hat,
-          stan::math::add(stan::model::deep_copy(Rp_hat),
-            stan::math::fabs(
-              stan::model::rvalue(R, "R", stan::model::index_uni(k)))),
-          "assigning variable Rp_hat");
       }
-      current_statement__ = 31;
-      stan::model::assign(sigma_y, stan::math::multiply(sigma_rel_y, Rp_hat),
+      current_statement__ = 36;
+      for (int n = 1; n <= N; ++n) {
+        current_statement__ = 30;
+        stan::model::assign(y_hat, stan::math::rep_vector(0.0, M),
+          "assigning variable y_hat", stan::model::index_uni(n));
+        current_statement__ = 33;
+        for (int k = 1; k <= K; ++k) {
+          current_statement__ = 31;
+          stan::model::assign(y_hat,
+            stan::math::add(
+              stan::model::deep_copy(
+                stan::model::rvalue(y_hat, "y_hat",
+                  stan::model::index_uni(n))),
+              stan::math::multiply(
+                stan::model::rvalue(
+                  stan::model::rvalue(R, "R", stan::model::index_uni(k)),
+                  "R[k]", stan::model::index_uni(n)),
+                ZARC_gamma(tau,
+                  stan::math::exp(
+                    stan::model::rvalue(
+                      stan::model::rvalue(lntau, "lntau", stan::model::index_uni(k)),
+                      "lntau[k]", stan::model::index_uni(n))),
+                  stan::model::rvalue(
+                    stan::model::rvalue(beta, "beta", stan::model::index_uni(k)),
+                    "beta[k]", stan::model::index_uni(n)), pstream__))),
+            "assigning variable y_hat", stan::model::index_uni(n));
+        }
+        current_statement__ = 34;
+        stan::model::assign(Rp_hat,
+          stan::math::sum(
+            stan::math::fabs(
+              stan::model::rvalue(y_hat, "y_hat", stan::model::index_uni(n)))),
+          "assigning variable Rp_hat", stan::model::index_uni(n));
+      }
+      current_statement__ = 37;
+      stan::model::assign(sigma_y,
+        stan::math::multiply((sigma_rel_y_raw * sigma_rel_y_scale), Rp_hat),
         "assigning variable sigma_y");
-      current_statement__ = 32;
+      current_statement__ = 38;
       stan::model::assign(sigma_Rp,
-        stan::math::multiply(sigma_rel_Rp, Rp_hat),
+        stan::math::multiply((sigma_rel_Rp_raw * sigma_rel_Rp_scale), Rp_hat),
         "assigning variable sigma_Rp");
       current_statement__ = 18;
       stan::math::check_greater_or_equal(function__, "beta", beta, 0);
       current_statement__ = 18;
       stan::math::check_less_or_equal(function__, "beta", beta, 1);
       current_statement__ = 19;
-      stan::math::check_greater_or_equal(function__, "Rp_hat", Rp_hat, 0);
-      current_statement__ = 20;
       stan::math::check_greater_or_equal(function__, "sigma_y", sigma_y, 0);
-      current_statement__ = 21;
+      current_statement__ = 20;
       stan::math::check_greater_or_equal(function__, "sigma_Rp", sigma_Rp, 0);
-      current_statement__ = 22;
+      current_statement__ = 21;
       stan::math::check_greater_or_equal(function__, "sq_sigma", sq_sigma, 0);
       {
-        current_statement__ = 46;
-        stan::math::validate_non_negative_index("y_hat", "N", N);
-        current_statement__ = 47;
-        stan::math::validate_non_negative_index("y_hat", "M", M);
-        std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>> y_hat =
-           std::vector<Eigen::Matrix<local_scalar_t__, -1, 1>>(N, 
-             Eigen::Matrix<local_scalar_t__, -1, 1>::Constant(M, DUMMY_VAR__));
-        current_statement__ = 49;
+        current_statement__ = 52;
         stan::math::validate_non_negative_index("L_K", "K", K);
-        current_statement__ = 50;
+        current_statement__ = 53;
         stan::math::validate_non_negative_index("L_K", "N", N);
-        current_statement__ = 51;
+        current_statement__ = 54;
         stan::math::validate_non_negative_index("L_K", "N", N);
         std::vector<Eigen::Matrix<local_scalar_t__, -1, -1>> L_K =
            std::vector<Eigen::Matrix<local_scalar_t__, -1, -1>>(K, 
              Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N, N,
                DUMMY_VAR__));
-        current_statement__ = 53;
+        current_statement__ = 56;
         stan::math::validate_non_negative_index("K_cov", "K", K);
-        current_statement__ = 54;
+        current_statement__ = 57;
         stan::math::validate_non_negative_index("K_cov", "N", N);
-        current_statement__ = 55;
+        current_statement__ = 58;
         stan::math::validate_non_negative_index("K_cov", "N", N);
         std::vector<Eigen::Matrix<local_scalar_t__, -1, -1>> K_cov =
            std::vector<Eigen::Matrix<local_scalar_t__, -1, -1>>(K, 
              Eigen::Matrix<local_scalar_t__, -1, -1>::Constant(N, N,
                DUMMY_VAR__));
-        current_statement__ = 63;
+        current_statement__ = 66;
         for (int k = 1; k <= K; ++k) {
-          current_statement__ = 57;
+          current_statement__ = 60;
           stan::model::assign(K_cov,
             stan::math::gp_exp_quad_cov(x,
               stan::model::rvalue(alpha, "alpha", stan::model::index_uni(k)),
               stan::model::rvalue(rho, "rho", stan::model::index_uni(k))),
             "assigning variable K_cov", stan::model::index_uni(k));
-          current_statement__ = 60;
+          current_statement__ = 63;
           for (int n = 1; n <= N; ++n) {
-            current_statement__ = 58;
+            current_statement__ = 61;
             stan::model::assign(K_cov,
               (stan::model::rvalue(
                  stan::model::rvalue(K_cov, "K_cov", stan::model::index_uni(k)),
@@ -1153,34 +1203,34 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
                                             stan::model::index_uni(n),
                                             stan::model::index_uni(n));
           }
-          current_statement__ = 61;
+          current_statement__ = 64;
           stan::model::assign(L_K,
             stan::math::cholesky_decompose(
               stan::model::rvalue(K_cov, "K_cov", stan::model::index_uni(k))),
             "assigning variable L_K", stan::model::index_uni(k));
         }
-        current_statement__ = 64;
+        current_statement__ = 67;
         lp_accum__.add(stan::math::inv_gamma_lpdf<propto__>(rho, 5, 5));
-        current_statement__ = 65;
+        current_statement__ = 68;
         lp_accum__.add(stan::math::std_normal_lpdf<propto__>(alpha));
-        current_statement__ = 66;
+        current_statement__ = 69;
         lp_accum__.add(stan::math::std_normal_lpdf<propto__>(sigma));
-        current_statement__ = 71;
+        current_statement__ = 74;
         for (int k = 1; k <= K; ++k) {
-          current_statement__ = 67;
+          current_statement__ = 70;
           lp_accum__.add(
             stan::math::multi_normal_cholesky_lpdf<propto__>(
               stan::model::rvalue(R_raw, "R_raw", stan::model::index_uni(k)),
               stan::model::rvalue(mu, "mu", stan::model::index_uni(k)),
               stan::model::rvalue(L_K, "L_K", stan::model::index_uni(k))));
-          current_statement__ = 68;
+          current_statement__ = 71;
           lp_accum__.add(
             stan::math::multi_normal_cholesky_lpdf<propto__>(
               stan::model::rvalue(lntau_raw, "lntau_raw",
                 stan::model::index_uni(k)),
               stan::model::rvalue(mu, "mu", stan::model::index_uni(k)),
               stan::model::rvalue(L_K, "L_K", stan::model::index_uni(k))));
-          current_statement__ = 69;
+          current_statement__ = 72;
           lp_accum__.add(
             stan::math::multi_normal_cholesky_lpdf<propto__>(
               stan::model::rvalue(beta_trans_raw, "beta_trans_raw",
@@ -1190,35 +1240,7 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
         }
         current_statement__ = 77;
         for (int n = 1; n <= N; ++n) {
-          current_statement__ = 72;
-          stan::model::assign(y_hat, stan::math::rep_vector(0.0, M),
-            "assigning variable y_hat", stan::model::index_uni(n));
           current_statement__ = 75;
-          for (int k = 1; k <= K; ++k) {
-            current_statement__ = 73;
-            stan::model::assign(y_hat,
-              stan::math::add(
-                stan::model::deep_copy(
-                  stan::model::rvalue(y_hat, "y_hat",
-                    stan::model::index_uni(n))),
-                stan::math::multiply(
-                  stan::model::rvalue(
-                    stan::model::rvalue(R, "R", stan::model::index_uni(k)),
-                    "R[k]", stan::model::index_uni(n)),
-                  ZARC_gamma(tau,
-                    stan::math::exp(
-                      stan::model::rvalue(
-                        stan::model::rvalue(lntau, "lntau", stan::model::index_uni(k)),
-                        "lntau[k]", stan::model::index_uni(n))),
-                    stan::model::rvalue(
-                      stan::model::rvalue(beta, "beta", stan::model::index_uni(k)),
-                      "beta[k]", stan::model::index_uni(n)), pstream__))),
-              "assigning variable y_hat", stan::model::index_uni(n));
-          }
-        }
-        current_statement__ = 80;
-        for (int n = 1; n <= N; ++n) {
-          current_statement__ = 78;
           lp_accum__.add(
             stan::math::normal_lpdf<propto__>(
               stan::model::rvalue(y, "y", stan::model::index_uni(n)),
@@ -1226,27 +1248,30 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
               stan::model::rvalue(sigma_y, "sigma_y",
                 stan::model::index_uni(n))));
         }
-        current_statement__ = 81;
+        current_statement__ = 78;
+        lp_accum__.add(
+          stan::math::normal_lpdf<propto__>(Rp, Rp_hat, sigma_Rp));
+        current_statement__ = 79;
         lp_accum__.add(stan::math::inv_gamma_lpdf<propto__>(R_scale, 1, 1));
-        current_statement__ = 82;
+        current_statement__ = 80;
         lp_accum__.add(
           stan::math::inv_gamma_lpdf<propto__>(lntau_scale, 1, 1));
-        current_statement__ = 83;
+        current_statement__ = 81;
         lp_accum__.add(
           stan::math::inv_gamma_lpdf<propto__>(beta_trans_scale, 1, 1));
-        current_statement__ = 84;
+        current_statement__ = 82;
         lp_accum__.add(
           stan::math::normal_lpdf<propto__>(beta_trans_mu, 0, 10));
-        current_statement__ = 85;
+        current_statement__ = 83;
         lp_accum__.add(stan::math::normal_lpdf<propto__>(R_mu, 0, 100));
-        current_statement__ = 86;
+        current_statement__ = 84;
         lp_accum__.add(stan::math::normal_lpdf<propto__>(lntau_mu, 0, 100));
-        current_statement__ = 87;
+        current_statement__ = 85;
         lp_accum__.add(
-          stan::math::inv_gamma_lpdf<propto__>(sigma_rel_y, 1, 1));
-        current_statement__ = 88;
+          stan::math::inv_gamma_lpdf<propto__>(sigma_rel_y_raw, 1, 1));
+        current_statement__ = 86;
         lp_accum__.add(
-          stan::math::inv_gamma_lpdf<propto__>(sigma_rel_Rp, 1, 1));
+          stan::math::inv_gamma_lpdf<propto__>(sigma_rel_Rp_raw, 1, 1));
       }
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -1361,14 +1386,14 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       beta_trans_scale = in__.template read_constrain_lb<
                            Eigen::Matrix<local_scalar_t__, -1, 1>, 
                            jacobian__>(0, lp__, K);
-      double sigma_rel_y = std::numeric_limits<double>::quiet_NaN();
+      double sigma_rel_y_raw = std::numeric_limits<double>::quiet_NaN();
       current_statement__ = 13;
-      sigma_rel_y = in__.template read_constrain_lb<local_scalar_t__, 
-                      jacobian__>(0, lp__);
-      double sigma_rel_Rp = std::numeric_limits<double>::quiet_NaN();
+      sigma_rel_y_raw = in__.template read_constrain_lb<local_scalar_t__, 
+                          jacobian__>(0, lp__);
+      double sigma_rel_Rp_raw = std::numeric_limits<double>::quiet_NaN();
       current_statement__ = 14;
-      sigma_rel_Rp = in__.template read_constrain_lb<local_scalar_t__, 
-                       jacobian__>(0, lp__);
+      sigma_rel_Rp_raw = in__.template read_constrain_lb<local_scalar_t__, 
+                           jacobian__>(0, lp__);
       std::vector<Eigen::Matrix<double, -1, 1>> R =
          std::vector<Eigen::Matrix<double, -1, 1>>(K, 
            Eigen::Matrix<double, -1, 1>::Constant(N,
@@ -1385,9 +1410,6 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
          std::vector<Eigen::Matrix<double, -1, 1>>(K, 
            Eigen::Matrix<double, -1, 1>::Constant(N,
              std::numeric_limits<double>::quiet_NaN()));
-      Eigen::Matrix<double, -1, 1> Rp_hat =
-         Eigen::Matrix<double, -1, 1>::Constant(N,
-           std::numeric_limits<double>::quiet_NaN());
       Eigen::Matrix<double, -1, 1> sigma_y =
          Eigen::Matrix<double, -1, 1>::Constant(N,
            std::numeric_limits<double>::quiet_NaN());
@@ -1396,6 +1418,13 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
            std::numeric_limits<double>::quiet_NaN());
       Eigen::Matrix<double, -1, 1> sq_sigma =
          Eigen::Matrix<double, -1, 1>::Constant(K,
+           std::numeric_limits<double>::quiet_NaN());
+      std::vector<Eigen::Matrix<double, -1, 1>> y_hat =
+         std::vector<Eigen::Matrix<double, -1, 1>>(N, 
+           Eigen::Matrix<double, -1, 1>::Constant(M,
+             std::numeric_limits<double>::quiet_NaN()));
+      Eigen::Matrix<double, -1, 1> Rp_hat =
+         Eigen::Matrix<double, -1, 1>::Constant(N,
            std::numeric_limits<double>::quiet_NaN());
       out__.write(rho);
       out__.write(alpha);
@@ -1421,21 +1450,18 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       out__.write(lntau_scale);
       out__.write(beta_trans_mu);
       out__.write(beta_trans_scale);
-      out__.write(sigma_rel_y);
-      out__.write(sigma_rel_Rp);
+      out__.write(sigma_rel_y_raw);
+      out__.write(sigma_rel_Rp_raw);
       if (stan::math::logical_negation((stan::math::primitive_value(
             emit_transformed_parameters__) || stan::math::primitive_value(
             emit_generated_quantities__)))) {
         return ;
       } 
-      current_statement__ = 22;
+      current_statement__ = 21;
       stan::model::assign(sq_sigma,
         stan::math::square(stan::math::multiply(sigma_gp_scale, sigma)),
         "assigning variable sq_sigma");
-      current_statement__ = 23;
-      stan::model::assign(Rp_hat, stan::math::rep_vector(0.0, N),
-        "assigning variable Rp_hat");
-      current_statement__ = 30;
+      current_statement__ = 29;
       for (int k = 1; k <= K; ++k) {
         current_statement__ = 24;
         stan::model::assign(R,
@@ -1476,31 +1502,58 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
                 stan::model::rvalue(beta_trans, "beta_trans",
                   stan::model::index_uni(k))), 1.0)),
           "assigning variable beta", stan::model::index_uni(k));
-        current_statement__ = 28;
-        stan::model::assign(Rp_hat,
-          stan::math::add(stan::model::deep_copy(Rp_hat),
-            stan::math::fabs(
-              stan::model::rvalue(R, "R", stan::model::index_uni(k)))),
-          "assigning variable Rp_hat");
       }
-      current_statement__ = 31;
-      stan::model::assign(sigma_y, stan::math::multiply(sigma_rel_y, Rp_hat),
+      current_statement__ = 36;
+      for (int n = 1; n <= N; ++n) {
+        current_statement__ = 30;
+        stan::model::assign(y_hat, stan::math::rep_vector(0.0, M),
+          "assigning variable y_hat", stan::model::index_uni(n));
+        current_statement__ = 33;
+        for (int k = 1; k <= K; ++k) {
+          current_statement__ = 31;
+          stan::model::assign(y_hat,
+            stan::math::add(
+              stan::model::deep_copy(
+                stan::model::rvalue(y_hat, "y_hat",
+                  stan::model::index_uni(n))),
+              stan::math::multiply(
+                stan::model::rvalue(
+                  stan::model::rvalue(R, "R", stan::model::index_uni(k)),
+                  "R[k]", stan::model::index_uni(n)),
+                ZARC_gamma(tau,
+                  stan::math::exp(
+                    stan::model::rvalue(
+                      stan::model::rvalue(lntau, "lntau", stan::model::index_uni(k)),
+                      "lntau[k]", stan::model::index_uni(n))),
+                  stan::model::rvalue(
+                    stan::model::rvalue(beta, "beta", stan::model::index_uni(k)),
+                    "beta[k]", stan::model::index_uni(n)), pstream__))),
+            "assigning variable y_hat", stan::model::index_uni(n));
+        }
+        current_statement__ = 34;
+        stan::model::assign(Rp_hat,
+          stan::math::sum(
+            stan::math::fabs(
+              stan::model::rvalue(y_hat, "y_hat", stan::model::index_uni(n)))),
+          "assigning variable Rp_hat", stan::model::index_uni(n));
+      }
+      current_statement__ = 37;
+      stan::model::assign(sigma_y,
+        stan::math::multiply((sigma_rel_y_raw * sigma_rel_y_scale), Rp_hat),
         "assigning variable sigma_y");
-      current_statement__ = 32;
+      current_statement__ = 38;
       stan::model::assign(sigma_Rp,
-        stan::math::multiply(sigma_rel_Rp, Rp_hat),
+        stan::math::multiply((sigma_rel_Rp_raw * sigma_rel_Rp_scale), Rp_hat),
         "assigning variable sigma_Rp");
       current_statement__ = 18;
       stan::math::check_greater_or_equal(function__, "beta", beta, 0);
       current_statement__ = 18;
       stan::math::check_less_or_equal(function__, "beta", beta, 1);
       current_statement__ = 19;
-      stan::math::check_greater_or_equal(function__, "Rp_hat", Rp_hat, 0);
-      current_statement__ = 20;
       stan::math::check_greater_or_equal(function__, "sigma_y", sigma_y, 0);
-      current_statement__ = 21;
+      current_statement__ = 20;
       stan::math::check_greater_or_equal(function__, "sigma_Rp", sigma_Rp, 0);
-      current_statement__ = 22;
+      current_statement__ = 21;
       stan::math::check_greater_or_equal(function__, "sq_sigma", sq_sigma, 0);
       if (emit_transformed_parameters__) {
         for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
@@ -1523,10 +1576,15 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
             out__.write(beta[(sym2__ - 1)][(sym1__ - 1)]);
           }
         }
-        out__.write(Rp_hat);
         out__.write(sigma_y);
         out__.write(sigma_Rp);
         out__.write(sq_sigma);
+        for (int sym1__ = 1; sym1__ <= M; ++sym1__) {
+          for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
+            out__.write(y_hat[(sym2__ - 1)][(sym1__ - 1)]);
+          }
+        }
+        out__.write(Rp_hat);
       } 
       if (stan::math::logical_negation(emit_generated_quantities__)) {
         return ;
@@ -1543,14 +1601,14 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
          std::vector<Eigen::Matrix<double, -1, 1>>(K, 
            Eigen::Matrix<double, -1, 1>::Constant(N,
              std::numeric_limits<double>::quiet_NaN()));
-      current_statement__ = 41;
+      current_statement__ = 47;
       for (int n = 1; n <= N; ++n) {
-        current_statement__ = 36;
+        current_statement__ = 42;
         stan::model::assign(y_pred, stan::math::rep_vector(0.0, M),
           "assigning variable y_pred", stan::model::index_uni(n));
-        current_statement__ = 39;
+        current_statement__ = 45;
         for (int k = 1; k <= K; ++k) {
-          current_statement__ = 37;
+          current_statement__ = 43;
           stan::model::assign(y_pred,
             stan::math::add(
               stan::model::deep_copy(
@@ -1571,9 +1629,9 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
             "assigning variable y_pred", stan::model::index_uni(n));
         }
       }
-      current_statement__ = 45;
+      current_statement__ = 51;
       for (int k = 1; k <= K; ++k) {
-        current_statement__ = 42;
+        current_statement__ = 48;
         stan::model::assign(R_raw_gp,
           gp_pred_rng(x,
             stan::model::rvalue(R_raw, "R_raw", stan::model::index_uni(k)),
@@ -1583,7 +1641,7 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
             stan::model::rvalue(sq_sigma, "sq_sigma",
               stan::model::index_uni(k)), 1e-9, base_rng__, pstream__),
           "assigning variable R_raw_gp", stan::model::index_uni(k));
-        current_statement__ = 43;
+        current_statement__ = 49;
         stan::model::assign(R_gp,
           raw_to_actual(
             stan::model::rvalue(R_raw_gp, "R_raw_gp",
@@ -1724,12 +1782,12 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
           "assigning variable beta_trans_scale", stan::model::index_uni(sym1__));
       }
       out__.write_free_lb(0, beta_trans_scale);
-      local_scalar_t__ sigma_rel_y = DUMMY_VAR__;
-      sigma_rel_y = in__.read<local_scalar_t__>();
-      out__.write_free_lb(0, sigma_rel_y);
-      local_scalar_t__ sigma_rel_Rp = DUMMY_VAR__;
-      sigma_rel_Rp = in__.read<local_scalar_t__>();
-      out__.write_free_lb(0, sigma_rel_Rp);
+      local_scalar_t__ sigma_rel_y_raw = DUMMY_VAR__;
+      sigma_rel_y_raw = in__.read<local_scalar_t__>();
+      out__.write_free_lb(0, sigma_rel_y_raw);
+      local_scalar_t__ sigma_rel_Rp_raw = DUMMY_VAR__;
+      sigma_rel_Rp_raw = in__.read<local_scalar_t__>();
+      out__.write_free_lb(0, sigma_rel_Rp_raw);
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
     }
@@ -1739,9 +1797,10 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
     
     names__ = std::vector<std::string>{"rho", "alpha", "sigma", "R_raw",
       "lntau_raw", "beta_trans_raw", "R_mu", "lntau_mu", "R_scale",
-      "lntau_scale", "beta_trans_mu", "beta_trans_scale", "sigma_rel_y",
-      "sigma_rel_Rp", "R", "lntau", "beta_trans", "beta", "Rp_hat",
-      "sigma_y", "sigma_Rp", "sq_sigma", "y_pred", "R_raw_gp", "R_gp"};
+      "lntau_scale", "beta_trans_mu", "beta_trans_scale", "sigma_rel_y_raw",
+      "sigma_rel_Rp_raw", "R", "lntau", "beta_trans", "beta", "sigma_y",
+      "sigma_Rp", "sq_sigma", "y_hat", "Rp_hat", "y_pred", "R_raw_gp",
+      "R_gp"};
     
     } // get_param_names() 
     
@@ -1768,8 +1827,9 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       std::vector<size_t>{static_cast<size_t>(K), static_cast<size_t>(N)},
       std::vector<size_t>{static_cast<size_t>(N)},
       std::vector<size_t>{static_cast<size_t>(N)},
-      std::vector<size_t>{static_cast<size_t>(N)},
       std::vector<size_t>{static_cast<size_t>(K)},
+      std::vector<size_t>{static_cast<size_t>(N), static_cast<size_t>(M)},
+      std::vector<size_t>{static_cast<size_t>(N)},
       std::vector<size_t>{static_cast<size_t>(N), static_cast<size_t>(M)},
       std::vector<size_t>{static_cast<size_t>(K), static_cast<size_t>(N)},
       std::vector<size_t>{static_cast<size_t>(K), static_cast<size_t>(N)}};
@@ -1854,8 +1914,8 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
         param_names__.emplace_back(std::string() + "beta_trans_scale" + '.' + std::to_string(sym1__));
       } 
     }
-    param_names__.emplace_back(std::string() + "sigma_rel_y");
-    param_names__.emplace_back(std::string() + "sigma_rel_Rp");
+    param_names__.emplace_back(std::string() + "sigma_rel_y_raw");
+    param_names__.emplace_back(std::string() + "sigma_rel_Rp_raw");
     if (emit_transformed_parameters__) {
       for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
         {
@@ -1895,11 +1955,6 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       }
       for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
         {
-          param_names__.emplace_back(std::string() + "Rp_hat" + '.' + std::to_string(sym1__));
-        } 
-      }
-      for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
-        {
           param_names__.emplace_back(std::string() + "sigma_y" + '.' + std::to_string(sym1__));
         } 
       }
@@ -1911,6 +1966,20 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       for (int sym1__ = 1; sym1__ <= K; ++sym1__) {
         {
           param_names__.emplace_back(std::string() + "sq_sigma" + '.' + std::to_string(sym1__));
+        } 
+      }
+      for (int sym1__ = 1; sym1__ <= M; ++sym1__) {
+        {
+          for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
+            {
+              param_names__.emplace_back(std::string() + "y_hat" + '.' + std::to_string(sym2__) + '.' + std::to_string(sym1__));
+            } 
+          }
+        } 
+      }
+      for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
+        {
+          param_names__.emplace_back(std::string() + "Rp_hat" + '.' + std::to_string(sym1__));
         } 
       }
     }
@@ -2025,8 +2094,8 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
         param_names__.emplace_back(std::string() + "beta_trans_scale" + '.' + std::to_string(sym1__));
       } 
     }
-    param_names__.emplace_back(std::string() + "sigma_rel_y");
-    param_names__.emplace_back(std::string() + "sigma_rel_Rp");
+    param_names__.emplace_back(std::string() + "sigma_rel_y_raw");
+    param_names__.emplace_back(std::string() + "sigma_rel_Rp_raw");
     if (emit_transformed_parameters__) {
       for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
         {
@@ -2066,11 +2135,6 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       }
       for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
         {
-          param_names__.emplace_back(std::string() + "Rp_hat" + '.' + std::to_string(sym1__));
-        } 
-      }
-      for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
-        {
           param_names__.emplace_back(std::string() + "sigma_y" + '.' + std::to_string(sym1__));
         } 
       }
@@ -2082,6 +2146,20 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
       for (int sym1__ = 1; sym1__ <= K; ++sym1__) {
         {
           param_names__.emplace_back(std::string() + "sq_sigma" + '.' + std::to_string(sym1__));
+        } 
+      }
+      for (int sym1__ = 1; sym1__ <= M; ++sym1__) {
+        {
+          for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
+            {
+              param_names__.emplace_back(std::string() + "y_hat" + '.' + std::to_string(sym2__) + '.' + std::to_string(sym1__));
+            } 
+          }
+        } 
+      }
+      for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
+        {
+          param_names__.emplace_back(std::string() + "Rp_hat" + '.' + std::to_string(sym1__));
         } 
       }
     }
@@ -2120,13 +2198,13 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
     
   inline std::string get_constrained_sizedtypes() const {
     
-    return std::string("[{\"name\":\"rho\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"alpha\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"lntau_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"beta_trans_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"R_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma_rel_y\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma_rel_Rp\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"R\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"lntau\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta_trans\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"Rp_hat\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_y\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_Rp\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sq_sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_pred\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_raw_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"}]");
+    return std::string("[{\"name\":\"rho\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"alpha\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"lntau_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"beta_trans_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"R_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma_rel_y_raw\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma_rel_Rp_raw\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"R\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"lntau\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta_trans\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_y\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_Rp\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sq_sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_hat\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"Rp_hat\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_pred\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_raw_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"}]");
     
     } // get_constrained_sizedtypes() 
     
   inline std::string get_unconstrained_sizedtypes() const {
     
-    return std::string("[{\"name\":\"rho\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"alpha\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"lntau_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"beta_trans_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"R_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma_rel_y\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma_rel_Rp\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"R\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"lntau\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta_trans\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"Rp_hat\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_y\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_Rp\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sq_sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_pred\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_raw_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"}]");
+    return std::string("[{\"name\":\"rho\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"alpha\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"lntau_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"beta_trans_raw\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"parameters\"},{\"name\":\"R_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"R_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"lntau_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_mu\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"beta_trans_scale\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"parameters\"},{\"name\":\"sigma_rel_y_raw\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma_rel_Rp_raw\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"R\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"lntau\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta_trans\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_y\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sigma_Rp\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"sq_sigma\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(K) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_hat\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"transformed_parameters\"},{\"name\":\"Rp_hat\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "},\"block\":\"transformed_parameters\"},{\"name\":\"y_pred\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(M) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_raw_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"},{\"name\":\"R_gp\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(K) + ",\"element_type\":{\"name\":\"vector\",\"length\":" + std::to_string(N) + "}},\"block\":\"generated_quantities\"}]");
     
     } // get_unconstrained_sizedtypes() 
     
@@ -2143,9 +2221,10 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
   (((((((((((((K + K) + K) + (K * N)) + (K * N)) + (K * N)) + K) + K) + K) +
         K) + K) + K) + 1) + 1);
       const size_t num_transformed = 
-  ((((((((K * N) + (K * N)) + (K * N)) + (K * N)) + N) + N) + N) + K);
-      const size_t num_gen_quantities = 
-  (((N * M) + (K * N)) + (K * N));
+  (((((((((K * N) + (K * N)) + (K * N)) + (K * N)) + N) + N) + K) + (N * M))
+    + N);
+      const size_t num_gen_quantities = (((N * M) + (K * N)) +
+                                                    (K * N));
       std::vector<double> vars_vec(num_params__
        + (emit_transformed_parameters * num_transformed)
        + (emit_generated_quantities * num_gen_quantities));
@@ -2167,9 +2246,10 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
   (((((((((((((K + K) + K) + (K * N)) + (K * N)) + (K * N)) + K) + K) + K) +
         K) + K) + K) + 1) + 1);
       const size_t num_transformed = 
-  ((((((((K * N) + (K * N)) + (K * N)) + (K * N)) + N) + N) + N) + K);
-      const size_t num_gen_quantities = 
-  (((N * M) + (K * N)) + (K * N));
+  (((((((((K * N) + (K * N)) + (K * N)) + (K * N)) + N) + N) + K) + (N * M))
+    + N);
+      const size_t num_gen_quantities = (((N * M) + (K * N)) +
+                                                    (K * N));
       vars.resize(num_params__
         + (emit_transformed_parameters * num_transformed)
         + (emit_generated_quantities * num_gen_quantities));
@@ -2207,8 +2287,8 @@ class gp_marginal_ZARC_model final : public model_base_crtp<gp_marginal_ZARC_mod
                               std::ostream* pstream__ = nullptr) const {
      constexpr std::array<const char*, 14> names__{"rho", "alpha", "sigma",
       "R_raw", "lntau_raw", "beta_trans_raw", "R_mu", "lntau_mu", "R_scale",
-      "lntau_scale", "beta_trans_mu", "beta_trans_scale", "sigma_rel_y",
-      "sigma_rel_Rp"};
+      "lntau_scale", "beta_trans_mu", "beta_trans_scale", "sigma_rel_y_raw",
+      "sigma_rel_Rp_raw"};
       const std::array<Eigen::Index, 14> constrain_param_sizes__{K, K, 
        K, (K * N), (K * N), (K * N), K, K, K, K, K, K, 1, 1};
       const auto num_constrained_params__ = std::accumulate(

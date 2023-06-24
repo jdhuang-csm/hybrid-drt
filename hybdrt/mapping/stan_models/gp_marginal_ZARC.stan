@@ -70,6 +70,8 @@ data {
     array[N] vector[D] x;
     array[N] vector[M] y;
     real<lower=0> sigma_gp_scale;
+    real<lower=0> sigma_rel_y_scale;
+    real<lower=0> sigma_rel_Rp_scale;
 }
 transformed data {
     array[K] vector[N] mu; // GP mean
@@ -98,8 +100,8 @@ parameters {
     vector<lower=0>[K] lntau_scale;
     vector[K] beta_trans_mu;
     vector<lower=0>[K] beta_trans_scale;
-    real<lower=0> sigma_rel_y; // relative surface noise level
-    real<lower=0> sigma_rel_Rp;
+    real<lower=0> sigma_rel_y_raw; // relative surface noise level
+    real<lower=0> sigma_rel_Rp_raw;
     // vector<lower=0>[K] alpha_lt;
     // vector<lower=0>[K] sigma_lt;
     // vector<lower=0>[K] alpha_beta;
@@ -110,30 +112,41 @@ transformed parameters {
     array[K] vector[N] lntau;
     array[K] vector[N] beta_trans;
     array[K] vector<lower=0, upper=1>[N] beta;
-    vector<lower=0>[N] Rp_hat;
+    //vector<lower=0>[N] Rp_hat;
     vector<lower=0>[N] sigma_y;
     vector<lower=0>[N] sigma_Rp;
     vector<lower=0>[K] sq_sigma = square(sigma_gp_scale * sigma);
 
-    Rp_hat = rep_vector(0.0, N);
+    // model surface
+    array[N] vector[M] y_hat;
+    vector[N] Rp_hat;
 
+    //Rp_hat = rep_vector(0.0, N);
+
+    // Transform raw RQ parameters to actual values
     for (k in 1:K) {
         R[k] = raw_to_actual(R_raw[k], R_mu[k], R_scale[k]);
         lntau[k] = raw_to_actual(lntau_raw[k], lntau_mu[k], lntau_scale[k]);
         beta_trans[k] = raw_to_actual(beta_trans_raw[k], beta_trans_mu[k], beta_trans_scale[k]);
         beta[k] = exp(beta_trans[k]) ./ (exp(beta_trans[k]) + 1.0);
 
-        Rp_hat = Rp_hat + fabs(R[k]);
+        //Rp_hat = Rp_hat + fabs(R[k]);
     }
 
-    sigma_y = sigma_rel_y * Rp_hat;
-    sigma_Rp = sigma_rel_Rp * Rp_hat;
+    // calculate model surface
+    for (n in 1:N) {
+        y_hat[n] = rep_vector(0.0, M);
+        for (k in 1:K) {
+            y_hat[n] = y_hat[n] + R[k][n] * ZARC_gamma(tau, exp(lntau[k][n]), beta[k][n]);
+        }
+        Rp_hat[n] = sum(fabs(y_hat[n]));
+    }
+
+    // Calculate noise level
+    sigma_y = sigma_rel_y_raw * sigma_rel_y_scale * Rp_hat;
+    sigma_Rp = sigma_rel_Rp_raw * sigma_rel_Rp_scale * Rp_hat;
 }
 model {
-    // model surface
-    array[N] vector[M] y_hat;
-
-
     // cov matrix for each element
     array[K] matrix[N, N] L_K;
     array[K] matrix[N, N] K_cov;
@@ -152,24 +165,18 @@ model {
     alpha ~ std_normal();
     sigma ~ std_normal();
 
+    // Gaussian process for RQ parameters
     for (k in 1:K) {
         R_raw[k] ~ multi_normal_cholesky(mu[k], L_K[k]);
         lntau_raw[k] ~ multi_normal_cholesky(mu[k], L_K[k]);
         beta_trans_raw[k] ~ multi_normal_cholesky(mu[k], L_K[k]);
     }
 
-    // calculate model surface
-    for (n in 1:N) {
-        y_hat[n] = rep_vector(0.0, M);
-        for (k in 1:K) {
-            y_hat[n] = y_hat[n] + R[k][n] * ZARC_gamma(tau, exp(lntau[k][n]), beta[k][n]);
-        }
-    }
-
+    // Relaxation surface
     for (n in 1:N) {
         y[n] ~ normal(y_hat[n], sigma_y[n]);
     }
-    // Rp ~ normal(Rp_hat, sigma_Rp);
+    Rp ~ normal(Rp_hat, sigma_Rp);
 
     // ZARC priors
     R_scale ~ inv_gamma(1, 1);
@@ -180,8 +187,8 @@ model {
     lntau_mu ~ normal(0, 100);
 
     // Relative noise level prior
-    sigma_rel_y ~ inv_gamma(1, 1);
-    sigma_rel_Rp ~ inv_gamma(1, 1);
+    sigma_rel_y_raw ~ inv_gamma(1, 1);
+    sigma_rel_Rp_raw ~ inv_gamma(1, 1);
 }
 generated quantities {
     array[N] vector[M] y_pred;
