@@ -3,6 +3,7 @@ from scipy import ndimage
 from scipy.signal import find_peaks
 from skimage.filters import scharr
 import matplotlib.pyplot as plt
+import itertools
 
 from ..filters import flexible_hysteresis_threshold, gaussian_laplace1d, iterative_gaussian_filter, \
     nonuniform_gaussian_filter1d
@@ -112,7 +113,7 @@ def find_starting_lines_3d(ridge_prob, start_row, max_slope=3, **find_peaks_kw):
         lps = np.empty(len(slopes))
         for k, slope in enumerate(slopes):
             # col_index = np.round(peak + slope * np.arange(num_slices)).astype(int)
-            col_index = columns_from_slope(peak, slope, num_slices)
+            col_index = columns_from_slope(peak, slope, num_slices, (0, ridge_prob.shape[-1]))
             lp = np.sum(get_line_3d(log_prob, start_row, col_index))
             lps[k] = lp
             # print(slope, lp)
@@ -127,13 +128,17 @@ def get_line_3d(a, row, cols):
     return [a[i, row, cols[i]] for i in range(len(cols))]
 
 
-def columns_from_slope(col, slope, num_slices):
-    return np.round(col + slope * np.arange(num_slices)).astype(int)
+def columns_from_slope(col, slope, num_slices, bounds):
+    cols = np.round(col + slope * np.arange(num_slices)).astype(int)
+    # Clip to bounds
+    if bounds is not None:
+        cols = np.clip(cols, bounds[0], bounds[1])
+    return cols
 
 
 def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cost=0.1, momentum=0.1,
                  slope_offset_cost=0.1, slope_momentum=0.1, max_slope=3,
-                 max_energy=np.inf, grad_strength=2, grad_sigma=2):
+                 max_energy=np.inf, grad_strength=2, grad_sigma=2, bounds=None):
     num_slices = energy.shape[0]
     direction = np.sign(end_row - start_row)
     energy = np.nan_to_num(energy)
@@ -143,6 +148,10 @@ def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cos
     n_steps = abs(end_row - start_row)
     col_coords = np.empty((num_slices, n_steps + 1), dtype=int)
     col_coords[:, 0] = start_cols
+
+    # Bound at image edges
+    if bounds is None:
+        bounds = (0, energy.shape[-1])
 
     # Add gradient contribution to energy to keep path in low-energy valleys
     if grad_strength > 0:
@@ -183,11 +192,11 @@ def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cos
         slope_cols = np.empty((len(slopes), len(cols)), dtype=int)
         slope_offsets = np.empty(len(slopes), dtype=int)
         for k, test_slope in enumerate(slopes):
-            slope_test_cols = columns_from_slope(cols[0], test_slope, num_slices)
+            slope_test_cols = columns_from_slope(cols[0], test_slope, num_slices, bounds)
 
             # Clip offsets that go past image edge
-            offset_is_valid = (np.min(slope_test_cols) + offsets >= 0) & \
-                              (np.max(slope_test_cols) + offsets < energy.shape[-1])
+            offset_is_valid = (np.min(slope_test_cols) + offsets >= bounds[0]) & \
+                              (np.max(slope_test_cols) + offsets < bounds[1])
             offsets_k = offsets[offset_is_valid]
             offset_costs_k = offset_costs[offset_is_valid]
 
@@ -212,8 +221,8 @@ def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cos
         # Check if exceeded energy threshold
         next_energy = get_line_3d(energy, row, slope_cols[slope_index])
         if np.min(next_energy) > max_energy:
-            end = row
-            col_coords = col_coords[:, n + 1]
+            end = row - direction
+            col_coords = col_coords[:, :n + 1]
             break
 
         row = row + direction
@@ -230,7 +239,9 @@ def find_path_3d(energy, start_row, start_cols, end_row, *, offset=2, offset_cos
 
 def find_paths_3d(ridge_prob, start_row, end_row, offset=2, offset_cost=0.1, momentum=0.1,
                   slope_offset_cost=0.1, slope_momentum=0.1,
-                  min_prob=0, grad_strength=2, grad_sigma=2, max_slope=3, **find_peaks_kw):
+                  min_prob=0, grad_strength=2, grad_sigma=2, max_slope=3,
+                  bounds=None,
+                  **find_peaks_kw):
     start_lines = find_starting_lines_3d(ridge_prob, start_row, max_slope=max_slope, **find_peaks_kw)
     energy = energy_from_prob(ridge_prob + 1e-10)
 
@@ -239,13 +250,34 @@ def find_paths_3d(ridge_prob, start_row, end_row, offset=2, offset_cost=0.1, mom
     paths = []
     costs = []
 
-    for start_line in start_lines:
-        path, cost = find_path_3d(energy, start_row, start_line, end_row, offset=offset, offset_cost=offset_cost,
-                                  momentum=momentum,
-                                  slope_offset_cost=slope_offset_cost, slope_momentum=slope_momentum,
-                                  max_slope=max_slope,
+    if type(bounds) == tuple or bounds is None:
+        bounds = [bounds] * len(start_lines)
+
+    if np.isscalar(offset):
+        offset = [offset] * len(start_lines)
+    if np.isscalar(offset_cost):
+        offset_cost = [offset_cost] * len(start_lines)
+    if np.isscalar(momentum):
+        momentum = [momentum] * len(start_lines)
+    if np.isscalar(slope_offset_cost):
+        slope_offset_cost = [slope_offset_cost] * len(start_lines)
+    if np.isscalar(slope_momentum):
+        slope_momentum = [slope_momentum] * len(start_lines)
+    if np.isscalar(max_slope):
+        max_slope = [max_slope] * len(start_lines)
+    if np.isscalar(grad_strength):
+        grad_strength = [grad_strength] * len(start_lines)
+    if np.isscalar(grad_sigma):
+        grad_sigma = [grad_sigma] * len(start_lines)
+
+    for k, start_line in enumerate(start_lines):
+        path, cost = find_path_3d(energy, start_row, start_line, end_row, offset=offset[k], offset_cost=offset_cost[k],
+                                  momentum=momentum[k],
+                                  slope_offset_cost=slope_offset_cost[k], slope_momentum=slope_momentum[k],
+                                  max_slope=max_slope[k],
                                   max_energy=max_energy,
-                                  grad_strength=grad_strength, grad_sigma=grad_sigma)
+                                  grad_strength=grad_strength[k], grad_sigma=grad_sigma[k],
+                                  bounds=bounds[k])
         paths.append(path)
         costs.append(cost)
 
@@ -389,13 +421,25 @@ def paths_to_mask_3d(shape, paths, increment_labels=False, fill_nan=False):
     if increment_labels:
         output = np.zeros(shape, dtype=int)
         for i, path in enumerate(paths):
-            for k, col_index in enumerate(path[1]):
-                output[(np.ones(len(path[0]), dtype=int) * k, path[0], col_index)] = i + 1
+            it = np.nditer(path[1], op_axes=[list(np.arange(len(shape) - 2))], flags=['multi_index'])
+            for _ in it:
+                # print(it.multi_index)
+                # print(path[1][it.multi_index].shape)
+                ijk = tuple([index * np.ones(len(path[0]), dtype=int) for index in it.multi_index])
+                # print(ijk)
+                # print(path[0])
+                output[ijk + (path[0], path[1][it.multi_index])] = i + 1
+            # for k, col_index in enumerate(path[1]):
+            #     output[..., path[0], col_index] = i + 1
     else:
         output = np.zeros(shape, dtype=bool)
         for path in paths:
-            for k, col_index in enumerate(path[1]):
-                output[(np.ones(len(path[0]), dtype=int) * k, path[0], col_index)] = 1
+            it = np.nditer(path[1], op_axes=[list(np.arange(len(shape) - 2))], flags=['multi_index'])
+            for _ in it:
+                ijk = tuple([index * np.ones(len(path[0]), dtype=int) for index in it.multi_index])
+                output[ijk + (path[0], path[1][it.multi_index])] = 1
+            # for k, col_index in enumerate(path[1]):
+            #     output[(np.ones(len(path[0]), dtype=int) * k, path[0], col_index)] = 1
 
     if fill_nan:
         output = output.astype(float)
@@ -421,45 +465,186 @@ def paths_to_mask(shape, paths, increment_labels=False, fill_nan=False):
     return output
 
 
+def smooth_path(path, sigma):
+    smooth_indices = ndimage.gaussian_filter(path[1].astype(float), sigma=sigma, mode='nearest')
+    smooth_indices = np.round(smooth_indices, 0).astype(int)
+    return path[0], smooth_indices
+
+
+def smooth_paths(paths, sigma):
+    return [smooth_path(path, sigma) for path in paths]
+
+
+# ==============================
+# Path comparison and merging
+# ==============================
 def path_pair_metrics(path1, path2):
     _, index1, index2 = np.intersect1d(path1[0], path2[0], return_indices=True)
 
-    j1 = np.array(path1[1][index1]).astype(float)
-    j2 = np.array(path2[1][index2]).astype(float)
+    j1 = np.array(path1[1][..., index1]).flatten().astype(float)
+    j2 = np.array(path2[1][..., index2]).flatten().astype(float)
 
     corr = np.corrcoef(j1, j2)[0, 1]
 
     rss = np.sum((j1 - j2) ** 2) / len(j1)
 
-    return (1 - corr) * rss
+    return corr, rss
 
 
-def find_bounding_troughs(trough_mask, path, path_ndim=3, tidy=False):
-    if path_ndim == 3:
-        row_index = path[0]
-        col_indices = path[1]
+def compare_paths(path_list1, path_list2):
+    n1 = len(path_list1)
+    n2 = len(path_list2)
+    prod = itertools.product(range(n1), range(n2))
+
+    rss_mat = np.empty((n1, n2))
+    corr_mat = np.empty((n1, n2))
+    for i, j in prod:
+        corr, rss = path_pair_metrics(path_list1[i], path_list2[j])
+        corr_mat[i, j] = corr
+        rss_mat[i, j] = rss
+
+    return corr_mat, rss_mat
+
+
+def match_paths(path_list1, path_list2, rss_thresh=1.0):
+    _, rss_mat = compare_paths(path_list1, path_list2)
+
+    # TODO: ensure one-to-one matching
+    # Merge matching paths
+    match_indices = np.where(rss_mat <= rss_thresh)
+
+    return match_indices
+
+
+def merge_paths(path_list1, path_list2, rss_thresh=1.0, sort=True):
+    # Merge matching paths
+    match_indices = match_paths(path_list1, path_list2, rss_thresh=rss_thresh)
+    # print(match_indices)
+    merged_paths = []
+    labels = (np.zeros(len(path_list1), dtype=int), np.zeros(len(path_list2), dtype=int))
+    for n, (i, j) in enumerate(zip(*match_indices)):
+        # print(i, j)
+        path1 = path_list1[i]
+        path2 = path_list2[j]
+        # TODO: account for case in which paths cover different row indices
+        #  Currently, the merged path will only contain the intersecting indices
+        #  Future logic: merge intersecting indices, union with non-intersecting
+        _, index1, index2 = np.intersect1d(path1[0], path2[0], return_indices=True)
+        indices1 = np.array(path1[1][..., index1]).astype(float)
+        indices2 = np.array(path2[1][..., index2]).astype(float)
+        mean_indices = np.mean([indices1, indices2], axis=0)
+        mean_indices = np.round(mean_indices, 0).astype(int)
+        merged_paths.append((path1[0][index1], mean_indices))
+        labels[0][i] = n
+        labels[1][j] = n
+
+    # Include any unmatched paths
+    # n = len(merged_paths) - 1
+    for i, (path_list, match_index) in enumerate(zip([path_list1, path_list2], match_indices)):
+        unmatched = list(set(np.arange(len(path_list))) - set(match_index))
+        for k in unmatched:
+            merged_paths.append(path_list[k])
+            labels[i][k] = len(merged_paths) - 1
+            # n += 1
+
+    if sort:
+        def get_mean_col(path):
+            return np.mean(path[1])
+
+        sort_index = np.argsort([get_mean_col(p) for p in merged_paths])
+        # print(sort_index)
+        label_map = {old: new for new, old in enumerate(sort_index)}
+        merged_paths = [merged_paths[i] for i in sort_index]
+        labels = tuple([np.array([label_map[ll] for ll in label]) for label in labels])
+
+    # # Start labeling at 1
+    # for label in labels:
+    #     label += 1
+
+    return merged_paths, labels
+
+
+# ======================
+# Path quantification
+# ======================
+# def find_bounding_troughs(trough_mask, path, path_ndim=3, tidy=False):
+#     if path_ndim == 3:
+#         row_index = path[0]
+#         col_indices = path[1]
+#         left_indices = np.empty_like(col_indices)
+#         right_indices = np.empty_like(col_indices)
+#
+#         for i, col_index in enumerate(col_indices):
+#             # 2-d slice
+#             for j, row in enumerate(row_index):
+#                 trough_index = np.where(trough_mask[i, row])[0]
+#                 # Add start and end indices to ensure that a trough is found
+#                 trough_index = np.unique(np.concatenate([trough_index, [0, trough_mask.shape[-1] - 1]]))
+#                 left_indices[i, j] = trough_index[nearest_index(trough_index, col_index[j], -1)]
+#                 right_indices[i, j] = trough_index[nearest_index(trough_index, col_index[j], 1)]
+#
+#         if tidy:
+#             # Clean up indices
+#             for raw_index in (left_indices, right_indices):
+#                 med = ndimage.median_filter(raw_index, size=(3, 5))
+#                 bad_index = np.abs(raw_index - med) > 5
+#                 raw_index[bad_index] = med[bad_index]
+#                 # raw_index[...] = ndimage.gaussian_filter(raw_index, sigma=(0.5, 1))
+#                 raw_index[...] = iterative_gaussian_filter(raw_index, sigma=(0.5, 1))
+#
+#         return left_indices, right_indices
+
+def find_bounding_troughs_2d(trough_mask, path):
+    row_index, col_index = path
+    
+    left_indices = np.empty_like(col_index)
+    right_indices = np.empty_like(col_index)
+
+    for i, (row, col) in enumerate(zip(row_index, col_index)):
+        # Loop through rows
+        trough_index = np.where(trough_mask[row])[0]
+        # Add start and end indices to ensure that a trough is found
+        trough_index = np.unique(np.concatenate([trough_index, [0, trough_mask.shape[-1] - 1]]))
+        left_indices[i] = trough_index[nearest_index(trough_index, col, -1)]
+        right_indices[i] = trough_index[nearest_index(trough_index, col, 1)]
+
+    return left_indices, right_indices
+
+
+def find_bounding_troughs(trough_mask, path, tidy=False, median_size=3, sigma=1):
+    row_index = path[0]
+    col_indices = path[1]
+
+    # Generic code for finding bounding troughs for paths of any dimensionality
+    # Requires: last axis is tau, 2nd to last index is path travel dimension
+    if np.ndim(col_indices) > 1:
+        # 3 or more dimensions
         left_indices = np.empty_like(col_indices)
         right_indices = np.empty_like(col_indices)
+        it = np.nditer(col_indices, op_axes=[list(range(np.ndim(col_indices) - 1))], flags=['multi_index'])
 
-        for i, col_index in enumerate(col_indices):
-            # 2-d slice
-            for j, row in enumerate(row_index):
-                trough_index = np.where(trough_mask[i, row])[0]
-                # Add start and end indices to ensure that a trough is found
-                trough_index = np.unique(np.concatenate([trough_index, [0, trough_mask.shape[-1] - 1]]))
-                left_indices[i, j] = trough_index[nearest_index(trough_index, col_index[j], -1)]
-                right_indices[i, j] = trough_index[nearest_index(trough_index, col_index[j], 1)]
+        for _ in it:
+            # print(it.multi_index)
+            path_2d = (row_index, col_indices[it.multi_index])
+            trough_2d = trough_mask[it.multi_index]
+            # print(col_indices[it.multi_index].shape)
+            # print(trough_2d.shape)
+            left, right = find_bounding_troughs_2d(trough_2d, path_2d)
+            left_indices[it.multi_index] = left
+            right_indices[it.multi_index] = right
+    else:
+        left_indices, right_indices = find_bounding_troughs_2d(trough_mask, path)
 
-        if tidy:
-            # Clean up indices
-            for raw_index in (left_indices, right_indices):
-                med = ndimage.median_filter(raw_index, size=(3, 5))
-                bad_index = np.abs(raw_index - med) > 5
-                raw_index[bad_index] = med[bad_index]
-                # raw_index[...] = ndimage.gaussian_filter(raw_index, sigma=(0.5, 1))
-                raw_index[...] = iterative_gaussian_filter(raw_index, sigma=(0.5, 1))
+    if tidy:
+        # Clean up indices
+        for raw_index in (left_indices, right_indices):
+            med = ndimage.median_filter(raw_index, size=median_size)
+            bad_index = np.abs(raw_index - med) > 5
+            raw_index[bad_index] = med[bad_index]
+            # raw_index[...] = ndimage.gaussian_filter(raw_index, sigma=(0.5, 1))
+            raw_index[...] = iterative_gaussian_filter(raw_index, sigma=sigma)
 
-        return left_indices, right_indices
+    return left_indices, right_indices
 
 
 def get_path_tau(tau, paths, shape=None):
@@ -476,40 +661,80 @@ def get_path_tau(tau, paths, shape=None):
             if len(shape) == 2:
                 path_tau[k, path[0]] = tau[path[1]]
             else:
-                path_tau[k][:, path[0]] = tau[path[1]]
+                # print(path[0], path[1])
+                path_tau[k][:, ..., path[0]] = tau[path[1]]
         else:
-            path_tau[k] = tau[path[1]]
+            path_tau.append(tau[path[1]])
 
     return path_tau
 
 
-def integrate_paths(tau, f, rp, paths, troughs, width_sigma=1):
+def integrate_paths(tau, f, paths, troughs=None, widths=None, weight_multipliers=None, width_sigma=1,
+                    constrain_sign=False, smooth_tau=False, smooth_sigma=1):
+    if troughs is None and widths is None:
+        raise ValueError('Either troughs or widths must be provided')
+
+    # Check weight_multipliers shape
+    if weight_multipliers is None:
+        weight_multipliers = 1
+    if np.isscalar(weight_multipliers) or np.shape(weight_multipliers) == f.shape:
+        weight_multipliers = [weight_multipliers] * len(paths)
+
     # Set up for 3d only
     path_weights = np.zeros((len(paths), *f.shape))
 
-    num_slices = f.shape[0]
+    if widths is not None:
+        if np.isscalar(widths):
+            widths = [widths] * len(paths)
 
-    for k, (path, trough) in enumerate(zip(paths, troughs)):
+    for k, path in enumerate(paths):
         row_indices, path_indices = path
-        left_indices, right_indices = trough
-
         k_mask = paths_to_mask_3d(f.shape, [path]).astype(float)
-        f_path = k_mask * f * rp ** 0.5
+        print(k_mask.shape)
+        # if smooth_tau:
+        #     k_mask = ndimage.gaussian_filter(k_mask, sigma=smooth_sigma)
 
-        right_radius = right_indices - path_indices
-        left_radius = path_indices - left_indices
-        widths = 2 * np.minimum(left_radius, right_radius).astype(float)
+        f_path = k_mask * f * weight_multipliers[k]  # rp ** 0.5
+
+        if troughs is not None:
+            left_indices, right_indices = troughs[k]
+            print(left_indices.shape)
+            if smooth_tau:
+                left_indices = ndimage.gaussian_filter(left_indices.astype(float), sigma=smooth_sigma[:-1])
+                right_indices = ndimage.gaussian_filter(right_indices.astype(float), sigma=smooth_sigma[:-1])
+
+            right_radius = np.zeros(f.shape[:-1])
+            left_radius = np.zeros(f.shape[:-1])
+            right_radius[..., row_indices] = right_indices - path_indices
+            left_radius[..., row_indices] = path_indices - left_indices
+            path_widths = 2 * np.minimum(left_radius, right_radius).astype(float)
+        else:
+            path_widths = widths[k]
+        # print(widths.shape)
         # widths = (right_indices - left_indices).astype(float)
-        if width_sigma is not None:
-            widths = ndimage.gaussian_filter(widths, sigma=width_sigma)
-        sigmas = widths / 2
+        if width_sigma is not None and not np.isscalar(path_widths):
+            path_widths = ndimage.gaussian_filter(path_widths, sigma=width_sigma)
+        sigmas = path_widths / 2
         # print(sigmas)
-        sigmas = np.tile(sigmas, (f.shape[-1], 1, 1))
+        # Expand sigma along the tau axis
+        sigmas = np.tile(sigmas, (f.shape[-1],) + (1,) * np.ndim(sigmas))
         sigmas = np.moveaxis(sigmas, 0, -1)
+        print(k, np.mean(sigmas))
 
         # print(f_path.shape, widths.shape, sigmas.shape)
 
-        path_weights[k] = nonuniform_gaussian_filter1d(f_path, sigmas, axis=-1)
+        path_weights[k] = nonuniform_gaussian_filter1d(f_path, sigmas, axis=-1, truncate=6)
+
+        if constrain_sign:
+            # Only include surface sections with same sign as peak
+            # print(f_path)
+            path_sign = np.sign(np.nanmedian(f_path[f_path != 0]))
+            print(path_sign)
+            path_weights[k][np.sign(f) != path_sign] = 0
+
+
+        # path_weights[k] *= weight_multipliers[k]
+
 
     # Normalize weights
     weight_sum = np.sum(path_weights, axis=0)[None, :]
@@ -522,7 +747,21 @@ def integrate_paths(tau, f, rp, paths, troughs, width_sigma=1):
     return path_dist, path_sizes
 
 
-# ==================git
+# def integrate_path_nd(tau, f, rp, path, trough=None, fixed_width=None, width_sigma=None):
+#     if trough is None and fixed_width is None:
+#         raise ValueError('Either trough or fixed_width must be provided')
+#
+#     row_indices, path_indices = path
+#     if trough is not None:
+#         left_indices, right_indices = trough
+
+def clip_path(path, row_limits):
+    row_index, col_index = path
+    clip_index = (row_index >= row_limits[0]) & (row_index <= row_limits[1])
+    return row_index[clip_index], col_index[..., clip_index]
+
+
+# ==================
 # Visualization
 # ==================
 def plot_paths_and_troughs(paths, troughs, shape, slice_index=None, slice_axis=None, ax=None):
