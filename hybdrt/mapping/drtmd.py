@@ -680,7 +680,7 @@ class DRTMD(object):
 
         return x
 
-    def predict_drt(self, psi, tau=None, x=None, order=0, factor_index=None, normalize=False, **kw):
+    def predict_drt(self, psi=None, tau=None, x=None, order=0, factor_index=None, normalize=False, **kw):
         if x is None:
             x = self.predict_x(psi, factor_index=factor_index, normalize=False, **kw)
 
@@ -689,7 +689,7 @@ class DRTMD(object):
             x = x / rp[:, None]
 
         if tau is None:
-            tau = self.get_tau_eval(20)
+            tau = self.tau_supergrid  # self.get_tau_eval(20)
 
         basis_mat = basis.construct_func_eval_matrix(np.log(self.tau_supergrid), np.log(tau), self.tau_basis_type,
                                                      self.tau_epsilon, order=order)
@@ -1084,7 +1084,7 @@ class DRTMD(object):
         else:
             return self.obs_psi[psi_index].copy()
 
-    def get_tau_eval(self, ppd, extend_decades=1):
+    def get_tau_eval(self, ppd, extend_decades=0):
         """
         Get tau grid for DRT evaluation and plotting
         :param ppd: points per decade
@@ -1242,7 +1242,7 @@ class DRTMD(object):
         :return:
         """
         for k, v in att_dict.items():
-            setattr(self, k, v)
+            setattr(self, k, deepcopy(v))
 
         # If observations are provided without fit data, clear fits
         if 'obs_psi' in att_dict.keys() and 'obs_x' not in att_dict.keys():
@@ -1347,4 +1347,4 @@ class DRTMD(object):
             'frequency_precision', 'time_precision', 'input_signal_precision',
             'print_diagnostics', 'warn'
         ]:
-            setattr(self.drt1d, name, value)
+            setattr(self.drt1d, name, deepcopy(value))

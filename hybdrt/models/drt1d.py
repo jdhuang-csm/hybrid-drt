@@ -13,7 +13,7 @@ from .. import utils, preprocessing as pp
 from ..utils import stats
 from ..matrices import mat1d, basis, phasance
 from . import qphb, peaks, elements, pfrt, background
-from ..evaluation import get_similarity_function
+from .. import evaluation
 from .drtbase import DRTBase
 from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
 
@@ -857,7 +857,7 @@ class DRT(DRTBase):
             curv_matrix[:, self.get_qp_mat_offset():] = drt_curv_matrix
             peak_indices = np.array([utils.array.nearest_index(np.log(self.basis_tau), np.log(pl))
                                      for pl in peak_locations])
-            curv_spread_func = get_similarity_function('gaussian')
+            curv_spread_func = evaluation.get_similarity_function('gaussian')
         else:
             curv_matrix = None
             peak_indices = None
@@ -2941,7 +2941,7 @@ class DRT(DRTBase):
         if tau is None:
             tau = self.get_tau_eval(ppd)
 
-        spread_func = get_similarity_function('gaussian')
+        spread_func = evaluation.get_similarity_function('gaussian')
 
         pdrt = np.zeros(len(tau))
 
@@ -3271,7 +3271,7 @@ class DRT(DRTBase):
         if smooth:
             # Smooth to aggregate neighboring peak probs, which may arise due to
             # slight peak shifts with hyperparameter changes
-            spread_func = get_similarity_function('gaussian')
+            spread_func = evaluation.get_similarity_function('gaussian')
             if smooth_kw is None:
                 smooth_kw = {'order': 2, 'epsilon': 5}
             xx_basis, xx_eval = np.meshgrid(np.log(tau_pfrt), np.log(tau))
@@ -4505,11 +4505,13 @@ class DRT(DRTBase):
                 # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
                 # normalize_tau = np.array(data_tau_lim)
                 normalize_tau = self.basis_tau
-            else:
-                normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
+            # else:
+            #     normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
             normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
         else:
             normalize_by = 1
+
+        # print(normalize_by)
 
         dop /= normalize_by
 
@@ -4724,6 +4726,30 @@ class DRT(DRTBase):
     #     y_hat = self.predict_response(**self.fit_kwargs)
     #
     #     return y_hat - self.raw_response_signal
+
+    # ----------------------------------------------------
+    # Fit quantification
+    # ----------------------------------------------------
+    def evaluate_chi_sq(self, frequencies=None, z=None, x=None, weights=None, **predict_kw):
+        # Get fit frequencies
+        if frequencies is None:
+            frequencies = self.get_fit_frequencies()
+
+        if z is None:
+            z = self.z_fit
+
+        # Get weights
+        if weights is not None:
+            if weights == 'modulus':
+                weights = 1 / np.abs(z)
+            elif np.shape(weights) != np.shape(z):
+                raise ValueError('Weights must have same shape as frequencies')
+
+        # Get model impedance
+        z_hat = self.predict_z(frequencies, x=x, **predict_kw)
+
+        # Calculate residuals
+        return evaluation.chi_sq(z, z_hat, weights=weights)
 
     # ----------------------------------------------------
     # Peak finding
@@ -5596,7 +5622,7 @@ class DRT(DRTBase):
                 y_meas = y_meas - self.raw_response_background
 
         # Calculate residuals
-        y_err = y_hat - y_meas
+        y_err = y_meas - y_hat
 
         # Get appropriate scale
         if scale_prefix is None:
@@ -5639,7 +5665,7 @@ class DRT(DRTBase):
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
                     scale_prefix=scale_prefix,
-                    tight_layout=tight_layout, **kw)
+                    tight_layout=tight_layout, alpha=alpha, **kw)
 
         # ax.scatter(x_plot, y_err / scale_factor, s=s, alpha=alpha, **kw)
 
@@ -5662,9 +5688,9 @@ class DRT(DRTBase):
 
         # Labels
         if self.chrono_mode == 'galv':
-            ax.set_ylabel(f'$\hat{{v}} - v$ ({scale_prefix}V)')
+            ax.set_ylabel(f'$v - \hat{{v}}$ ({scale_prefix}V)')
         elif self.chrono_mode == 'pot':
-            ax.set_ylabel(f'$\hat{{i}} - i$ ({scale_prefix}A)')
+            ax.set_ylabel(f'$i - \hat{{i}}$ ({scale_prefix}A)')
 
         fig.tight_layout()
 
@@ -5832,7 +5858,7 @@ class DRT(DRTBase):
         y_hat = self.predict_z(f_fit, x=x, **predict_kw)
 
         # Calculate residuals
-        y_err = y_hat - self.z_fit
+        y_err = self.z_fit - y_hat
 
         # Get scale prefix
         if scale_prefix is None:
@@ -5879,10 +5905,10 @@ class DRT(DRTBase):
 
         # Update axis labels
         if 'Zreal' in bode_cols:
-            axes[bode_cols.index('Zreal')].set_ylabel(fr'$\hat{{Z}}^{{\prime}}-Z^{{\prime}}$ ({scale_prefix}$\Omega$)')
+            axes[bode_cols.index('Zreal')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
         if 'Zimag' in bode_cols:
             axes[bode_cols.index('Zimag')].set_ylabel(
-                fr'$-(\hat{{Z}}^{{\prime\prime}}-Z^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
+                fr'$-(Z^{{\prime\prime}} - \hat{{Z}}^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
 
         fig.tight_layout()
 
@@ -7088,7 +7114,7 @@ class DRT(DRTBase):
 
     def set_attributes(self, att_dict):
         for k, v in att_dict.items():
-            setattr(self, k, v)
+            setattr(self, k, deepcopy(v))
 
     def save_attributes(self, which, dest):
         att_dict = self.get_attributes(which)

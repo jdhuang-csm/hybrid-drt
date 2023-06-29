@@ -670,7 +670,7 @@ def get_path_tau(tau, paths, shape=None):
 
 
 def integrate_paths(tau, f, paths, troughs=None, widths=None, weight_multipliers=None, width_sigma=1,
-                    constrain_sign=False, smooth_tau=False, smooth_sigma=1):
+                    constrain_sign=False, smooth=False, smooth_sigma=None):
     if troughs is None and widths is None:
         raise ValueError('Either troughs or widths must be provided')
 
@@ -687,21 +687,34 @@ def integrate_paths(tau, f, paths, troughs=None, widths=None, weight_multipliers
         if np.isscalar(widths):
             widths = [widths] * len(paths)
 
+    if smooth:
+        if smooth_sigma is None:
+            raise ValueError("If smooth=True, must provide smooth_sigma")
+        if np.isscalar(smooth_sigma):
+            # Smooth along all axes except tau
+            smooth_sigma = (smooth_sigma, ) * (np.ndim(f) - 1)
+        else:
+            smooth_sigma = tuple(list(smooth_sigma))
+            if len(smooth_sigma) != np.ndim(f) - 1:
+                raise ValueError("smooth_sigma is applied along all axes except tau axis. "
+                                 f"Given f of shape {f.shape}, expected smooth_sigma of length {np.ndim(f) - 1}, "
+                                 f"but received smooth_sigma of length {len(smooth_sigma)}")
+
     for k, path in enumerate(paths):
         row_indices, path_indices = path
         k_mask = paths_to_mask_3d(f.shape, [path]).astype(float)
         print(k_mask.shape)
-        # if smooth_tau:
-        #     k_mask = ndimage.gaussian_filter(k_mask, sigma=smooth_sigma)
+        if smooth:
+            k_mask = ndimage.gaussian_filter(k_mask, sigma=smooth_sigma + (0, ))
 
         f_path = k_mask * f * weight_multipliers[k]  # rp ** 0.5
 
         if troughs is not None:
             left_indices, right_indices = troughs[k]
             print(left_indices.shape)
-            if smooth_tau:
-                left_indices = ndimage.gaussian_filter(left_indices.astype(float), sigma=smooth_sigma[:-1])
-                right_indices = ndimage.gaussian_filter(right_indices.astype(float), sigma=smooth_sigma[:-1])
+            if smooth:
+                left_indices = ndimage.gaussian_filter(left_indices.astype(float), sigma=smooth_sigma)
+                right_indices = ndimage.gaussian_filter(right_indices.astype(float), sigma=smooth_sigma)
 
             right_radius = np.zeros(f.shape[:-1])
             left_radius = np.zeros(f.shape[:-1])
@@ -735,6 +748,45 @@ def integrate_paths(tau, f, paths, troughs=None, widths=None, weight_multipliers
 
         # path_weights[k] *= weight_multipliers[k]
 
+
+    # Normalize weights
+    weight_sum = np.sum(path_weights, axis=0)[None, :]
+    weight_sum[weight_sum == 0] = 1
+    norm_weights = path_weights / weight_sum
+
+    path_dist = norm_weights * f[None, :]
+    path_sizes = np.trapz(path_dist, x=np.log(tau), axis=-1)
+
+    return path_dist, path_sizes
+
+
+def integrate_paths_old(tau, f, rp, paths, troughs, width_sigma=1):
+    # Set up for 3d only
+    path_weights = np.zeros((len(paths), *f.shape))
+
+    num_slices = f.shape[0]
+
+    for k, (path, trough) in enumerate(zip(paths, troughs)):
+        row_indices, path_indices = path
+        left_indices, right_indices = trough
+
+        k_mask = paths_to_mask_3d(f.shape, [path]).astype(float)
+        f_path = k_mask * f * rp ** 0.5
+
+        right_radius = right_indices - path_indices
+        left_radius = path_indices - left_indices
+        widths = 2 * np.minimum(left_radius, right_radius).astype(float)
+        # widths = (right_indices - left_indices).astype(float)
+        if width_sigma is not None:
+            widths = ndimage.gaussian_filter(widths, sigma=width_sigma)
+        sigmas = widths / 2
+        # print(sigmas)
+        sigmas = np.tile(sigmas, (f.shape[-1], 1, 1))
+        sigmas = np.moveaxis(sigmas, 0, -1)
+
+        # print(f_path.shape, widths.shape, sigmas.shape)
+
+        path_weights[k] = nonuniform_gaussian_filter1d(f_path, sigmas, axis=-1)
 
     # Normalize weights
     weight_sum = np.sum(path_weights, axis=0)[None, :]

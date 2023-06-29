@@ -951,6 +951,13 @@ def r2_score(y_true, y_est, weights=None):
     return 1 - ss_resid / ss_tot
 
 
+def chi_sq(y_true, y_est, weights=None):
+    if weights is None:
+        weights = 1
+
+    return np.sum((weights * np.abs(y_true - y_est)) ** 2)
+
+
 def rss_array(p, q, weights=None, sigma_uniform=None, normalize=False):
     if weights is None:
         # Assume the variance has proportional and uniform components. Sum them to get the total variance

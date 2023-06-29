@@ -88,7 +88,7 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         if transform_time:
             ax.set_xlabel('$f(t)$')
         else:
-            ax.set_xlabel('$t$ (s)')
+            ax.set_xlabel('Time (s)')
 
         y_label = f'{y_label_tuple[0]} ({scale_prefix_y}{y_label_tuple[1]})'
         ax.set_ylabel(y_label)
