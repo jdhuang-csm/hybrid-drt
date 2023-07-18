@@ -4619,7 +4619,10 @@ class DRT(DRTBase):
 
                 return rm_bkg @ y_resid
 
-    def predict_z(self, frequencies, include_vz_offset=True, x=None):
+    def predict_z(self, frequencies, include_vz_offset=True, x=None,
+                  include_dop=True, include_drt=True, include_inductance=True,
+                  include_ohmic=True, include_cap=True
+                  ):
         # Get matrix
         zm, zm_dop = self._prep_impedance_prediction_matrix(frequencies)
 
@@ -4635,9 +4638,19 @@ class DRT(DRTBase):
         induc = fit_parameters.get('inductance', 0)
         c_inv = fit_parameters.get('C_inv', 0)
 
-        z = zm @ x_drt + r_inf + induc * 2j * np.pi * frequencies + c_inv * (2j * np.pi * frequencies) ** -1
+        z = np.zeros(len(frequencies), dtype=complex)
 
-        if x_dop is not None:
+        if include_drt:
+            z += zm @ x_drt
+
+        if include_ohmic:
+            z += r_inf
+        if include_inductance:
+            z += induc * 2j * np.pi * frequencies
+        if include_cap:
+            z+= c_inv * (2j * np.pi * frequencies) ** -1
+
+        if x_dop is not None and include_dop:
             z += zm_dop @ x_dop
 
         if include_vz_offset:
