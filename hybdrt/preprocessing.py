@@ -283,7 +283,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     #     sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
     #     sample_index = np.unique(sample_index)
 
-    if antialiased:
+    if antialiased and stepwise_sample_times:
         # Apply an antialiasing filter before downsampling
         if filter_kw is None:
             filter_kw = {}
