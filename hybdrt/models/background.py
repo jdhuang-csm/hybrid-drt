@@ -105,7 +105,7 @@ def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=No
                 lin_times = np.arange(drt.get_fit_times()[0], drt.get_fit_times()[-1] + 1e-8, linear_sample_interval)
                 x_gp, y_pred_gp, y_meas_gp, sample_index = \
                     pp.downsample_data(x_meas, y_pred, y_meas, target_times=lin_times, stepwise_sample_times=False,
-                                       method='match')
+                                       method='match', antialiased=False)
                 print('linear downsample size:', len(x_gp))
             else:
                 x_gp = x_meas[sample_index]

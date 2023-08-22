@@ -181,7 +181,7 @@ class DRT(DRTBase):
                        # Hybrid settings
                        vz_offset=True, vz_offset_scale=1, vz_offset_eps=1,
                        eis_weight_factor=None, chrono_weight_factor=None,
-                       hybrid_weight_factor_method='rp',
+                       hybrid_weight_factor_method=None,
                        # Prior hyperparameters
                        eff_hp=True, weight_factor=1,
                        # rp_scale=14, l2_lambda_0=None, l1_lambda_0=0.0, derivative_weights=None,
@@ -6114,9 +6114,9 @@ class DRT(DRTBase):
             ax.set_xlabel(r'$\nu$')
 
         if normalize:
-            ax.set_ylabel(fr'$\tilde{{\psi}}$ ({scale_prefix}$\Omega$)')
+            ax.set_ylabel(fr'$\tilde{{\rho}}$ ({scale_prefix}$\Omega$)')
         else:
-            ax.set_ylabel(fr'$\psi$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu$)')
+            ax.set_ylabel(fr'$\rho$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu$)')
 
         if tight_layout:
             fig.tight_layout()

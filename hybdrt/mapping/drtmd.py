@@ -59,7 +59,7 @@ class DRTMD(object):
         self.normalize_dop = normalize_dop
 
         # Set nu epsilon
-        if self.nu_epsilon is None and self.nu_basis_type != 'delta':
+        if self.nu_epsilon is None and self.nu_basis_type != 'delta' and self.fit_dop:
             dnu = np.median(self.drt1d.get_nu_basis_spacing())
             self.nu_epsilon = 1 / dnu
 
