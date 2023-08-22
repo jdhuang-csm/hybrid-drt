@@ -1,2 +1,2 @@
-from . import flow, ndx, nddata, surface, curvature, tda, segmentation, extrema, path, sheet
+from . import flow, ndx, nddata, surface, curvature, segmentation, extrema, path, sheet  # , tda
 from .drtmd import DRTMD
