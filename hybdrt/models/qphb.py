@@ -11,6 +11,12 @@ from .. import preprocessing as pp
 cvxopt.solvers.options['show_progress'] = False
 
 
+def get_num_special(special_qp_params: dict):
+    if len(special_qp_params) == 0:
+        return 0
+    else:
+        return np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+
 # ===============================================
 # Analytical solutions for hyper-lambda approach
 # ===============================================
@@ -27,7 +33,7 @@ def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
     :param str penalty_type:
     :return:
     """
-    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+    num_special = get_num_special(special_qp_params)
 
     derivative_weights = hypers['derivative_weights']
     l2_lambda_0 = hypers['l2_lambda_0']
@@ -565,7 +571,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
             x = np.insert(x, index, value)
 
     # Get number of special (non-DRT) parameters in x vector
-    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+    num_special = get_num_special(special_qp_params)
 
     # lambdas = np.zeros(3)
     # l_alphas = [10, 5, 1]
@@ -1090,7 +1096,7 @@ def iterate_md_qphb(x_in, s_vectors, rho_array, rho_diagonals, data_vector, weig
             x = np.insert(x, index, value)
 
     # Get number of special (non-DRT) parameters in x vector
-    num_special = len(special_qp_params)
+    num_special = get_num_special(special_qp_params)
 
     # lambdas = np.zeros(3)
     # l_alphas = [10, 5, 1]
