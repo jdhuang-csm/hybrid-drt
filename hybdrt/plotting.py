@@ -11,7 +11,7 @@ from .utils import validation
 from .preprocessing import identify_steps, estimate_rp
 
 
-def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
+def plot_chrono(data, chrono_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
                 transform_time=False, trans_functions=None, linear_time_axis=False, display_linear_ticks=False,
                 linear_tick_kw=None, plot_i=True, plot_v=True, i_sign_convention=1,
                 scale_prefix=None, tight_layout=True, **kw):
@@ -53,12 +53,12 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         if trans_functions is not None:
             x = trans_functions[1](times)
         else:
-            if op_mode is None and step_times is None:
+            if chrono_mode is None and step_times is None:
                 raise ValueError('One of trans_functions, chrono_mode, or step_times must be specified if '
                                  'transform_time=True')
             if step_times is None:
                 # Get step times
-                input_signal, response_signal = get_input_and_response(i_signal, v_signal, op_mode)
+                input_signal, response_signal = get_input_and_response(i_signal, v_signal, chrono_mode)
                 step_indices = identify_steps(input_signal, allow_consecutive=False)
                 step_times = times[step_indices]
             x, trans_functions = get_transformed_plot_time(times, step_times)

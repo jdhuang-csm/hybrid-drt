@@ -5503,7 +5503,7 @@ class DRT(DRTBase):
                     y_meas = y_meas - self.raw_response_background
 
             plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False, scale_prefix=scale_prefix,
                         label=data_label, tight_layout=tight_layout, **data_kw)
@@ -5515,14 +5515,14 @@ class DRT(DRTBase):
             _, y_out = utils.chrono.get_input_and_response(self.chrono_outliers[1], self.chrono_outliers[2],
                                                            self.chrono_mode)
             plot_tuple = utils.chrono.signals_to_tuple(self.chrono_outliers[0], None, y_out, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False, scale_prefix=scale_prefix,
                         tight_layout=tight_layout, **outlier_kw)
 
         # Plot fitted response
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_hat, self.chrono_mode)
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, plot_func='plot', transform_time=transform_time, trans_functions=trans_functions,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
@@ -5664,7 +5664,7 @@ class DRT(DRTBase):
             # ax.scatter(x_out, y_err_out / scale_factor, **outlier_kw)
 
             plot_tuple = utils.chrono.signals_to_tuple(t_out, None, y_err_out, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False,
                         display_linear_ticks=False,
@@ -5673,7 +5673,7 @@ class DRT(DRTBase):
 
         # Plot residuals
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_err, self.chrono_mode)
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
@@ -5734,7 +5734,7 @@ class DRT(DRTBase):
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas, self.chrono_mode)
         if raw_kw is None:
             raw_kw = {'label': 'Raw', 'plot_func': 'plot'}
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time,
                     linear_time_axis=False, scale_prefix=scale_prefix,
                     tight_layout=False, **raw_kw)
@@ -5755,7 +5755,7 @@ class DRT(DRTBase):
             if background_kw is None:
                 background_kw = {'label': 'Background', 'plot_func': 'plot', 'c': 'r', 'alpha': 0.75}
 
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax_bkg, transform_time=transform_time,
                         linear_time_axis=False, scale_prefix=bkg_scale_prefix,
                         tight_layout=False, **background_kw)
@@ -5770,7 +5770,7 @@ class DRT(DRTBase):
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas - y_bkg, self.chrono_mode)
         if corrected_kw is None:
             corrected_kw = {'label': 'Corrected', 'plot_func': 'plot', 'c': 'k', 'alpha': 0.75}
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
