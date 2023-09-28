@@ -1,0 +1,11 @@
+name: hybdrt
+channels:
+  - conda-forge
+dependencies:
+  - matplotlib
+  - numpy
+  - cvxopt
+  - pandas
+  - scipy
+  - scikit-learn
+  - ipykernel

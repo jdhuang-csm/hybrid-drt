@@ -4,4 +4,3 @@ scipy
 cvxopt
 matplotlib
 scikit-learn
-scikit-image
