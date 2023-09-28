@@ -321,6 +321,16 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
     ax.set_xscale('log')
     ax.set_xlabel(r'$\tau$ (s)')
 
+    if normalize_by is not None:
+        y_label = r'$\gamma \, / \, R_p$'
+    else:
+        if area is not None:
+            y_units = r'$\Omega \cdot \mathrm{cm}^2$'
+        else:
+            y_units = r'$\Omega$'
+        y_label = fr'$\gamma$ ({scale_prefix}{y_units})'
+    ax.set_ylabel(y_label)
+
     # Add frequency axis
     if freq_axis:
         def ft_trans(x):
