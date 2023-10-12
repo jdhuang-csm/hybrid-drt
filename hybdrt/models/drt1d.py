@@ -5410,12 +5410,14 @@ class DRT(DRTBase):
         x_hat = history_entry['x']
         rho_vector = history_entry['rho_vector']
         s_vectors = history_entry['s_vectors']
+        dop_rho_vector = history_entry['dop_rho_vector']
 
         if weights is None:
             weights = self.qphb_params['est_weights']
 
-        lml = qphb.evaluate_lml(x_hat, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector, rho_vector,
-                                s_vectors, weights, rm, rv)
+        lml = qphb.evaluate_lml(x_hat, penalty_matrices, penalty_type, qphb_hypers, 
+                                l1_lambda_vector, rho_vector, dop_rho_vector,
+                                s_vectors, weights, rm, rv, self.special_qp_params)
 
         return lml
 
