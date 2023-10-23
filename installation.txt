@@ -4,12 +4,14 @@ Anaconda/Conda users:
 1. Launch Anaconda Prompt (Windows) or Terminal (Mac).
 2. Create a new conda environment from the provided configuration file:
 	conda env create -f hybdrt.yml
-3. Manually install the mittag-leffler package: navigate to the top-level mittag-leffler directory that containts the setup.py file, then install it with:
+3. Activate the new environment:
+	conda activate hybdrt
+4. Manually install the mittag-leffler package: navigate to the top-level mittag-leffler directory that containts the setup.py file, then install it with:
 	conda develop .
-4. Finally, install hybrid-drt. Navigate to the top-level hybrid-drt directory that containts the setup.py file, then install it with with:
+5. Finally, install hybrid-drt. Navigate to the top-level hybrid-drt directory that containts the setup.py file, then install it with with:
 	conda develop .
 
-Troubleshooting note: it seems that "conda develop ." does not always work. If you find that you cannot import hybrid-drt when running the tutorial (ModuleNotFoundError), you can repeat steps 3-4 above using "pip install ." instead of "conda develop .".
+Troubleshooting note: it seems that "conda develop ." does not always work. If you find that you cannot import hybrid-drt when running the tutorial (ModuleNotFoundError), you can repeat steps 4-5 above using "pip install ." instead of "conda develop .".
 
 Pip users:
 1. Launch Command Prompt (Windows) or Terminal (Mac).

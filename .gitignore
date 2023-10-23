@@ -1,0 +1,13 @@
+.ipynb_checkpoints/*
+.ipynb_checkpoints
+.idea/*
+.idea
+test_code
+test_code/*
+**/__pycache__
+*.png
+*.pptx
+OBSOLETE
+OBSOLETE/*
+hybdrt/mapping/stan_models/*.hpp
+hybdrt/mapping/stan_models/*.exe
