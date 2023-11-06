@@ -196,7 +196,7 @@ def read_chrono(file, source=None):
     else:
         raise ValueError(f'read_chrono is not implemented for source {source}')
 
-        return data
+    return data
 
 
 def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None,
