@@ -29,6 +29,15 @@ def get_file_source(file):
 
     return source
 
+def read_txt(file):
+    try:
+        with open(file, 'r') as f:
+            txt = f.read()
+    except UnicodeDecodeError:
+        with open(file, 'r', encoding='latin1') as f:
+            txt = f.read()
+    return txt
+
 
 def check_source(file, source=None):
     known_sources = ['gamry', 'zplot', 'biologic']
@@ -47,8 +56,7 @@ def check_source(file, source=None):
 
 
 def get_custom_file_time(file):
-    with open(file, 'r') as f:
-        txt = f.read()
+    txt = read_txt(file)
 
     date_start = txt.find('DATE')
     date_end = txt[date_start:].find('\n') + date_start
@@ -71,12 +79,7 @@ def get_custom_file_time(file):
 
 def get_timestamp(file, source=None):
     """Get experiment start timestamp from file"""
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     source = check_source(file, source)
 
@@ -120,12 +123,7 @@ def find_time_column(df):
 
 
 def read_header(file):
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     # find start of curve data
     table_index = txt.upper().find('\nCURVE\tTABLE')
@@ -142,12 +140,7 @@ def read_chrono(file, source=None, return_tuple=False):
     Args:
         file: file to read
     """
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     source = check_source(file, source)
 
@@ -302,12 +295,7 @@ def concatenate_eis_data(eis_data_list, loop=False, print_progress=False):
 
 def read_eis(file, source=None, warn=True, return_tuple=False):
     """read EIS zcurve data from Gamry .DTA file"""
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     source = check_source(file, source)
 

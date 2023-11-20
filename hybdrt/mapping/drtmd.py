@@ -283,7 +283,7 @@ class DRTMD(object):
         chrono_data, eis_data = self.obs_data[obs_index]
 
         # Load chrono data
-        if type(chrono_data) in (str, Path, WindowsPath):
+        if isinstance(chrono_data, str) or isinstance(chrono_data, Path):
             chrono_data = self.chrono_reader(chrono_data)
         elif type(chrono_data) == pd.DataFrame:
             chrono_data = fl.get_chrono_tuple(chrono_data)
@@ -294,7 +294,7 @@ class DRTMD(object):
                              f'Received data of type {type(chrono_data)}')
 
         # Load EIS data
-        if type(eis_data) in (str, Path, WindowsPath):
+        if isinstance(eis_data, str) or isinstance(eis_data, Path):
             eis_data = self.eis_reader(eis_data)
         elif type(eis_data) == pd.DataFrame:
             eis_data = fl.get_eis_tuple(eis_data)
