@@ -6063,7 +6063,8 @@ class DRT(DRTBase):
             return ax
 
     def plot_dop(self, nu=None, x=None, ax=None, scale_prefix=None, normalize=False, normalize_tau=None,
-                 invert_nu=True, plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
+                 invert_nu=True, phase=True,
+                 plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
                  delta_density=False, include_ideal=True,
                  tight_layout=True, return_line=False, normalize_quantiles=(0.25, 0.75), **kw):
 
@@ -6079,8 +6080,17 @@ class DRT(DRTBase):
         # Invert nu for more intuitive visualization
         if invert_nu:
             nu_plot = -nu
+            x_label_sign = '-'
         else:
             nu_plot = nu
+            x_label_sign = ''
+
+        # Convert nu to phase for easier interpretation
+        if phase:
+            nu_plot = nu_plot * 90 #np.pi / 2
+            x_label = fr'${x_label_sign}\theta$ ($^\circ$)'
+        else:
+            x_label = fr'${x_label_sign}\nu$'
 
         # Get scale factor
         if scale_prefix is None:
@@ -6111,9 +6121,9 @@ class DRT(DRTBase):
                     ax.fill_between(nu_plot, dop_lo / scale_factor, dop_hi / scale_factor, **ci_kw)
 
         if invert_nu:
-            ax.set_xlabel(r'$-\nu$')
+            ax.set_xlabel(x_label)
         else:
-            ax.set_xlabel(r'$\nu$')
+            ax.set_xlabel(x_label)
 
         if normalize:
             ax.set_ylabel(fr'$\tilde{{\rho}}$ ({scale_prefix}$\Omega$)')
