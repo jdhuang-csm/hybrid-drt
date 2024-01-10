@@ -202,9 +202,9 @@ class DRT(DRTBase):
 
         if solve_rp and not scale_data and self.warn:
             warnings.warn('solve_rp is ignored if scale_data=False')
-        if (self.fit_dop or not nonneg) and not solve_rp and self.warn:
-            warnings.warn('For best results, set solve_rp=True when performing DRT-DOP fits '
-                          'or DRT fits without a non-negativity constraint')
+        # if (self.fit_dop or not nonneg) and not solve_rp and self.warn:
+        #     warnings.warn('For best results, set solve_rp=True when performing DRT-DOP fits '
+        #                   'or DRT fits without a non-negativity constraint')
 
         if series_neg and not nonneg:
             raise ValueError('Only one of series_neg and nonneg may be True')
@@ -5435,7 +5435,7 @@ class DRT(DRTBase):
 
         return trans_functions
 
-    def plot_chrono_fit(self, ax=None, transform_time=True, linear_time_axis=None,
+    def plot_chrono_fit(self, ax=None, transform_time=False, linear_time_axis=None,
                         display_linear_ticks=None, linear_tick_kw=None,
                         plot_data=True, data_kw=None, data_label='',
                         scale_prefix=None, x=None, subtract_background=True, y_bkg=None,

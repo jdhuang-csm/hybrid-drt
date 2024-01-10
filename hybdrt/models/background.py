@@ -89,7 +89,7 @@ def estimate_chrono_background(drt, times, i_signal, v_signal, max_iter=1, gp=No
         drt.fit_chrono(times, i_signal, v_signal, **fit_kw)
 
         x_meas = drt.get_fit_times()
-        y_pred = drt.predict_response(x_meas)
+        y_pred = drt.predict_response(times=x_meas)
         y_meas = drt.raw_response_signal.copy()
 
         if y_bkg is None:
