@@ -1187,7 +1187,7 @@ class DRTMD(object):
                 'tau_supergrid', 'tau_basis_type', 'tau_epsilon',
                 'fit_inductance', 'fit_capacitance', 'fit_ohmic',
                 # Distribution of phasances
-                'fixed_basis_nu', 'nu_basis_type', 'fit_dop', 'normalize_dop',
+                'fixed_basis_nu', 'nu_basis_type', 'nu_epsilon', 'fit_dop', 'normalize_dop',
                 # Chrono settings
                 'step_model', 'chrono_mode',
                 # Data readers
