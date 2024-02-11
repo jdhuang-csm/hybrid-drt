@@ -6181,7 +6181,8 @@ class DRT(DRTBase):
         else:
             if distribution_kw is None:
                 distribution_kw = {}
-            self.plot_distribution(x=x, ax=drt_ax, plot_ci=True, c='k', **distribution_kw)
+            self.plot_distribution(x=x, ax=drt_ax, **dict(plot_ci=True, c='k') | distribution_kw)
+            
         drt_ax.set_title('DRT')
 
         # Plot EIS fit and residuals
