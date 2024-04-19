@@ -3082,7 +3082,7 @@ class DRT(DRTBase):
         return dnu
 
     def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False,
-                    normalize_quantiles=(0.25, 0.75), delta_density=False, include_ideal=True):
+                    normalize_quantiles=(0, 1), delta_density=False, include_ideal=True):
         if nu is None:
             nu = np.linspace(-1, 1, 401)
             # Ensure basis_nu is included
@@ -3158,14 +3158,15 @@ class DRT(DRTBase):
             return dop
         
     def get_dop_norm(self, nu, normalize: bool = False, normalize_tau: Optional[tuple] = None, 
-                     normalize_quantiles: tuple = (0.25, 0.75)):
+                     normalize_quantiles: tuple = (0, 1)):
         if normalize:
             if normalize_tau is None:
-                # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
-                # normalize_tau = np.array(data_tau_lim)
-                normalize_tau = self.basis_tau
-            # else:
-            #     normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
+                data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
+                normalize_tau = np.array(data_tau_lim)
+                print(normalize_tau)
+                # # By default
+                # normalize_tau = self.basis_tau[10:-10]
+            
             normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
             normalize_by /= self.nu_basis_area
         else:
@@ -4740,7 +4741,7 @@ class DRT(DRTBase):
                  invert_nu=True, phase=True,
                  plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
                  delta_density=False, include_ideal=True,
-                 tight_layout=True, return_line=False, normalize_quantiles=(0.25, 0.75), **kw):
+                 tight_layout=True, return_line=False, normalize_quantiles=(0, 1), **kw):
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))

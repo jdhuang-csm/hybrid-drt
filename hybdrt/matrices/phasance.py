@@ -162,7 +162,7 @@ def construct_phasor_v_matrix(times, basis_nu, nu_basis_type, nu_epsilon, step_m
 #     return scale_vector
 
 
-def phasor_scale_vector(nu, basis_tau, quantiles=(0.25, 0.75)):
+def phasor_scale_vector(nu, basis_tau, quantiles=(0, 1)):
     """
     Get vector for scaling phasor coefficients
     :param nu:
