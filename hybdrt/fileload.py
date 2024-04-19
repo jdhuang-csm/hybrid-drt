@@ -18,12 +18,15 @@ def get_file_source(file):
             txt = f.read()
 
     # Determine	format
-    if txt.split('\n')[0] == 'EXPLAIN':
+    header = txt.split('\n')[0]
+    if header == 'EXPLAIN':
         source = 'gamry'
-    elif txt.split('\n')[0] == 'ZPLOT2 ASCII':
+    elif header == 'ZPLOT2 ASCII':
         source = 'zplot'
-    elif txt.split('\n')[0] == 'EC-Lab ASCII FILE':
+    elif header == 'EC-Lab ASCII FILE':
         source = 'biologic'
+    elif header == 'RelaxIS 3.0 Spectrum export':
+        source = 'relaxis'
     else:
         source = None
 
@@ -40,7 +43,7 @@ def read_txt(file):
 
 
 def check_source(file, source=None):
-    known_sources = ['gamry', 'zplot', 'biologic']
+    known_sources = ['gamry', 'zplot', 'biologic', 'relaxis']
 
     if source is None:
         source = get_file_source(file)
@@ -422,7 +425,32 @@ def read_eis(file, source=None, warn=True, return_tuple=False):
         data = data.rename(rename, axis=1)
 
         data['Zimag'] *= -1
-
+    elif source == 'relaxis':
+        # Find header line
+        header_index = txt.find('\nData: ')
+        # Skip next two rows of metadata
+        skiprows = len(txt[:header_index].split('\n')) + 2
+        
+        # Get data headers and rename
+        header_line = txt[header_index + 1:].split('\n')[0]
+        header_items = header_line.split('\t')
+        header = [h.replace('Data: ', '') for h in header_items]
+        
+        # Read table
+        data = pd.read_csv(file, sep='\t', skiprows=skiprows, encoding=None, 
+                           header=None, names=header,
+                           encoding_errors='ignore')
+        
+        # Rename to standard fields
+        rename = {
+            "Frequency": "Freq", 
+            "Z'": "Zreal", 
+            "Z''": "Zimag", 
+            "|Z|": "Zmod",
+            "Theta (Z)": "Zphz"
+        }
+        
+        data = data.rename(rename, axis=1)        
     else:
         raise ValueError('Unrecognized file format')
 
