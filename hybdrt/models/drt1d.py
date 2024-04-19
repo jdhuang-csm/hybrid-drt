@@ -8,6 +8,9 @@ import pandas as pd
 from scipy import signal, ndimage
 from copy import deepcopy
 import pickle
+from typing import Optional
+
+from numpy import ndarray
 
 from .. import utils, preprocessing as pp
 from ..utils import stats
@@ -4234,8 +4237,22 @@ class DRT(DRTBase):
             x = self.fit_parameters['x_dop']
 
         return x
+    
+    def get_drt_norm(self, normalize: bool, normalize_by: Optional[float] = None, 
+                     x: Optional[ndarray] = None):
+        if normalize_by is not None:
+            normalize = True
+            
+        if normalize:
+            if normalize_by is None:
+                normalize_by = self.predict_r_p(x=x)
+        else:
+            normalize_by = 1
+            
+        return normalize_by
 
-    def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, normalize=False):
+    def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                             normalize=False, normalize_by: Optional[float] = None):
         """
         Predict distribution as function of tau
         :param ndarray tau: tau values at which to evaluate the distribution
@@ -4252,17 +4269,15 @@ class DRT(DRTBase):
 
         x = self.get_drt_params(x, sign)
 
-        if normalize:
-            normalize_by = self.predict_r_p(x=x)
-        else:
-            normalize_by = 1
+        normalize_by = self.get_drt_norm(normalize, normalize_by, x=x)
 
         return basis_matrix @ x / normalize_by
 
-    def estimate_distribution_cov(self, tau=None, ppd=20, p_matrix=None, sign=1, order=0, normalize=False,
+    def estimate_distribution_cov(self, tau=None, ppd=20, p_matrix=None, sign=1, order=0, 
+                                  normalize=False, normalize_by: Optional[float] = None,
                                   var_floor=0.0, tau_data_limits=None, extend_var=False):
         """
-        Predict distribution as function of tau
+        DRT parameter covariance matrix
         :param ndarray tau: tau values at which to evaluate the distribution
         :return: array of distribution density values
         """
@@ -4275,10 +4290,9 @@ class DRT(DRTBase):
                                                         self.tau_basis_type, epsilon=self.tau_epsilon,
                                                         order=order, zga_params=self.zga_params)
 
-        if normalize:
-            normalize_by = self.predict_r_p() ** 2
-        else:
-            normalize_by = 1
+        # Get normalization - square for covariance
+        normalize_by = self.get_drt_norm(normalize, normalize_by)
+        normalize_by **= 2
 
         # Get parameter covariance
         x_cov = self.estimate_param_cov(p_matrix)
@@ -4344,8 +4358,10 @@ class DRT(DRTBase):
             # Error in precision matrix inversion
             return None
 
-    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, var_floor=0.0, order=0,
-                         normalize_quantiles=(0.25, 0.75), delta_density=False):
+    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, 
+                         normalize_tau=None, normalize_quantiles=(0.25, 0.75), 
+                         var_floor=0.0, order=0,
+                         delta_density=False):
         # If tau is not provided, go one decade beyond self.basis_tau with finer spacing
         if nu is None:
             nu = self.basis_nu
@@ -4356,10 +4372,8 @@ class DRT(DRTBase):
                                                         order=order, zga_params=None)
 
         # Normalize
-        if normalize:
-            normalize_by = phasance.phasor_scale_vector(nu, self.basis_tau, normalize_quantiles) ** 2
-        else:
-            normalize_by = 1
+        normalize_by = self.get_dop_norm(nu, normalize, normalize_tau, normalize_quantiles)
+        normalize_by **= 2
 
         # Get parameter covariance
         x_cov = self.estimate_param_cov(p_matrix)
@@ -4391,15 +4405,18 @@ class DRT(DRTBase):
             # Error in precision matrix inversion
             return None
 
-    def predict_distribution_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, normalize=False,
+    def predict_distribution_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                                normalize=False, normalize_by: Optional[float] = None,
                                 quantiles=[0.025, 0.975]):
         # Get distribution std
-        dist_cov = self.estimate_distribution_cov(tau=tau, ppd=ppd, order=order, sign=sign, normalize=normalize)
+        dist_cov = self.estimate_distribution_cov(tau=tau, ppd=ppd, order=order, sign=sign, 
+                                                  normalize=normalize, normalize_by=normalize_by)
         if dist_cov is not None:
             dist_sigma = np.diag(dist_cov) ** 0.5
 
             # Distribution mean
-            dist_mu = self.predict_distribution(tau=tau, ppd=ppd, x=x, order=order, sign=sign, normalize=normalize)
+            dist_mu = self.predict_distribution(tau=tau, ppd=ppd, x=x, order=order, sign=sign, 
+                                                normalize=normalize, normalize_by=normalize_by)
 
             # Determine number of std devs to obtain quantiles
             s_lo, s_hi = stats.std_normal_quantile(quantiles)
@@ -4415,7 +4432,8 @@ class DRT(DRTBase):
     def predict_dop_ci(self, nu=None, x=None, normalize=False, normalize_tau=None, quantiles=[0.025, 0.975],
                        order=0, normalize_quantiles=(0.25, 0.75), delta_density=False, include_ideal=True):
         # Get distribution std
-        dist_cov = self.estimate_dop_cov(nu, normalize=normalize, order=order,
+        dist_cov = self.estimate_dop_cov(nu, order=order, normalize=normalize, 
+                                         normalize_tau=normalize_tau,
                                          normalize_quantiles=normalize_quantiles,
                                          delta_density=delta_density)
         if dist_cov is not None:
@@ -4476,6 +4494,14 @@ class DRT(DRTBase):
 
         dop = basis_matrix @ x
 
+
+        # TODO: revisit normalization
+        normalize_by = self.get_dop_norm(nu, normalize, normalize_tau, normalize_quantiles)
+
+        # print(normalize_by)
+
+        dop /= normalize_by
+        
         # Add pure inductance, resistance, and capacitance
         if include_ideal:
             ohmic_index = np.where(nu == 0)
@@ -4483,13 +4509,24 @@ class DRT(DRTBase):
                 r_inf = self.fit_parameters['R_inf']
                 if delta_density:
                     r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    r_inf = r_inf / (normalize_by[ohmic_index] * self.nu_basis_area)
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
                 dop[ohmic_index] += r_inf
+    
     
             induc_index = np.where(nu == 1)
             if len(induc_index) == 1:
                 induc = self.fit_parameters['inductance']
                 if delta_density:
                     induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    induc = induc / (normalize_by[induc_index] * self.nu_basis_area)
                 dop[induc_index] += induc
     
             cap_index = np.where(nu == -1)
@@ -4497,9 +4534,19 @@ class DRT(DRTBase):
                 c_inv = self.fit_parameters['C_inv']
                 if delta_density:
                     c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    c_inv = c_inv / (normalize_by[cap_index] * self.nu_basis_area)
                 dop[cap_index] += c_inv
 
-        # TODO: revisit normalization
+        if return_nu:
+            return nu, dop
+        else:
+            return dop
+        
+    def get_dop_norm(self, nu, normalize: bool = False, normalize_tau: Optional[tuple] = None, 
+                     normalize_quantiles: tuple = (0.25, 0.75)):
         if normalize:
             if normalize_tau is None:
                 # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
@@ -4508,17 +4555,11 @@ class DRT(DRTBase):
             # else:
             #     normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
             normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
+            normalize_by /= self.nu_basis_area
         else:
             normalize_by = 1
-
-        # print(normalize_by)
-
-        dop /= normalize_by
-
-        if return_nu:
-            return nu, dop
-        else:
-            return dop
+            
+        return normalize_by
 
     def predict_response(self, times=None, input_signal=None, step_times=None, step_sizes=None, op_mode=None,
                          offset_steps=None,
@@ -4965,7 +5006,7 @@ class DRT(DRTBase):
         return peak_gammas
 
     def mark_peaks(self, ax, x=None, sign=1, peak_tau=None, find_peaks_kw=None, scale_prefix=None, area=None,
-                   normalize=False,
+                   normalize=False, normalize_by: Optional[float] = None,
                    **plot_kw):
         if find_peaks_kw is None:
             find_peaks_kw = {}
@@ -4974,7 +5015,9 @@ class DRT(DRTBase):
         if peak_tau is None:
             peak_tau = self.find_peaks(x=x, sign=sign, **find_peaks_kw)
 
-        gamma_peaks = self.predict_distribution(peak_tau, normalize=normalize, x=x, sign=sign)
+        gamma_peaks = self.predict_distribution(peak_tau, 
+                                                normalize=normalize, normalize_by=normalize_by, 
+                                                x=x, sign=sign)
 
         if area is not None:
             gamma_peaks *= area
@@ -5041,9 +5084,9 @@ class DRT(DRTBase):
         :return: covariance matrix
         """
         if p_matrix is None:
-            p_matrix = self.fit_parameters['p_matrix']
+            p_matrix = self.fit_parameters.get('p_matrix', None)
 
-        if self.fit_type.find('qphb') > -1:
+        if p_matrix is not None:
             try:
                 p_inv = np.linalg.inv(p_matrix)
                 # Invert DOP scaling
@@ -5058,6 +5101,13 @@ class DRT(DRTBase):
                 return None
         else:
             raise Exception('Parameter covariance estimation is only available for qphb fits')
+        
+    def fisher_matrix(self, weighted: bool = True):
+        rm = self.qphb_params['rm']
+        if weighted:
+            w = self.qphb_params['weights']
+            rm = np.diag(w) @ rm
+        return rm.T @ rm
 
     def generate_map_samples(self, max_iter=2, shift_frac=0.05, shift_scale=1.5, random_seed=None):
         # Generate samples if no existing samples OR sampling arguments have changed
@@ -5930,7 +5980,7 @@ class DRT(DRTBase):
         return axes
 
     def plot_distribution(self, tau=None, ppd=20, x=None, ax=None, scale_prefix=None, plot_bounds=False,
-                          normalize=False, sign=None,
+                          normalize=False, normalize_by=None, sign=None,
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
                           area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
                           return_line=False, freq_axis=False,
@@ -5955,11 +6005,14 @@ class DRT(DRTBase):
         #     sample_kw = self.map_sample_kw
 
         # Normalize
+        if normalize_by is not None:
+            normalize = True
+        
         if normalize:
-            r_p = self.predict_r_p(x=x, absolute=True)
+            if normalize_by is None:
+                normalize_by = self.predict_r_p(x=x, absolute=True)
             scale_prefix = ''
-        else:
-            r_p = None
+            # print('r_p:', r_p)
 
         # Get common scale prefix if plotting multiple signs
         if self.series_neg and len(signs) > 1 and scale_prefix is None:
@@ -5981,19 +6034,27 @@ class DRT(DRTBase):
             # else:
             #     raise ValueError(f"Invalid line argument {line}. Options: 'mode', 'mean'")
 
-            ax, info = plot_distribution(tau, gamma, ax, area, scale_prefix, normalize_by=r_p, freq_axis=freq_axis,
+            ax, info = plot_distribution(tau, gamma, ax, area, scale_prefix, 
+                                         normalize_by=normalize_by, freq_axis=freq_axis,
                                          return_info=True, **kw)
             line, scale_prefix, scale_factor = info
             lines.append(line)
 
             if plot_ci:
                 if self.fit_type.find('qphb') > -1:
-                    gamma_lo, gamma_hi = self.predict_distribution_ci(tau, ppd, x=x, order=order, sign=sign,
-                                                                      normalize=normalize,
-                                                                      quantiles=ci_quantiles)
+                    gamma_lo, gamma_hi = self.predict_distribution_ci(
+                        tau, ppd, x=x, order=order, sign=sign, 
+                        normalize=normalize, normalize_by=normalize_by,
+                        quantiles=ci_quantiles
+                    )
+                    
                     if area is not None:
                         for g in (gamma_lo, gamma_hi):
                             g *= area
+                            
+                    # if normalize:
+                    #     for g in (gamma_lo, gamma_hi):
+                    #         g /= r_p
 
                     # Enforce sign constraint in CI
                     if gamma_lo is not None:
@@ -6016,7 +6077,8 @@ class DRT(DRTBase):
             if mark_peaks:
                 if mark_peaks_kw is None:
                     mark_peaks_kw = {}
-                self.mark_peaks(ax, x=x, sign=sign, scale_prefix=scale_prefix, area=area, normalize=normalize,
+                self.mark_peaks(ax, x=x, sign=sign, scale_prefix=scale_prefix, area=area, 
+                                normalize=normalize, normalize_by=normalize_by,
                                 **mark_peaks_kw)
 
         if normalize:
@@ -6575,16 +6637,21 @@ class DRT(DRTBase):
         # Get DOP scale vector
         if self.fit_dop:
             if self.normalize_dop:
-                # tau_lim = np.array(pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times))
-                # print(tau_lim, self.basis_tau)
-                if self.tau_supergrid is not None:
-                    dop_eval_tau = self.tau_supergrid
-                else:
-                    dop_eval_tau = self.basis_tau
+                # We shouldn't use tau_supergrid since it is independent of the data range.
+                # Just use basis_tau
+                # if self.tau_supergrid is not None:
+                #     dop_eval_tau = self.tau_supergrid
+                # else:
+                #     dop_eval_tau = self.basis_tau
+                
+                dop_eval_tau = self.basis_tau
+                
                 self.dop_scale_vector = phasance.phasor_scale_vector(self.basis_nu, dop_eval_tau)
+                
                 # Normalize for basis function area
                 # print('nu basis area:', basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon))
-                self.dop_scale_vector /= basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon)
+                self.dop_scale_vector /= self.nu_basis_area
+                
                 # self.dop_scale_vector *= 100
                 # print(self.dop_scale_vector)
             else:

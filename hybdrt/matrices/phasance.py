@@ -175,6 +175,7 @@ def phasor_scale_vector(nu, basis_tau, quantiles=(0.25, 0.75)):
     lt_range = lt_max - lt_min
     tau_q1 = np.exp(lt_min + quantiles[0] * lt_range)
     tau_q3 = np.exp(lt_min + quantiles[1] * lt_range)
+    # print('phasor_scale_vector tau q1, q3: ({:.2e}, {:.2e})'.format(tau_q1, tau_q3))
 
     scale_vector = np.empty(len(nu))
     scale_vector[nu <= 0] = tau_q3 ** nu[nu <= 0]

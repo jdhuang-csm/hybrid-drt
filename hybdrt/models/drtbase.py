@@ -246,6 +246,10 @@ class DRTBase:
     @property
     def tau_basis_area(self):
         return basis.get_basis_func_area(self.tau_basis_type, self.tau_epsilon, self.zga_params)
+    
+    @property
+    def nu_basis_area(self):
+        return basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon)
 
     def get_tau_eval(self, ppd):
         """
