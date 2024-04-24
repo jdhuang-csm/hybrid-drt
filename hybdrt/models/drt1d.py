@@ -5252,12 +5252,12 @@ class DRT(DRTBase):
             if self.normalize_dop:
                 # We shouldn't use tau_supergrid since it is independent of the data range.
                 # Just use basis_tau
-                # if self.tau_supergrid is not None:
-                #     dop_eval_tau = self.tau_supergrid
-                # else:
-                #     dop_eval_tau = self.basis_tau
+                if self.tau_supergrid is not None:
+                    dop_eval_tau = self.tau_supergrid
+                else:
+                    dop_eval_tau = self.basis_tau
                 
-                dop_eval_tau = self.basis_tau
+                # dop_eval_tau = self.basis_tau
                 
                 self.dop_scale_vector = phasance.phasor_scale_vector(self.basis_nu, dop_eval_tau)
                 
