@@ -3107,23 +3107,6 @@ class DRT(DRTBase):
         dop = basis_matrix @ x
 
 
-        if delta_density:
-            dnu = self.get_nu_basis_spacing()
-            if self.nu_basis_type == 'delta':
-                x = x / dnu
-
-        dop = basis_matrix @ x
-
-
-        if delta_density:
-            dnu = self.get_nu_basis_spacing()
-            if self.nu_basis_type == 'delta':
-                x = x / dnu
-
-        dop = basis_matrix @ x
-
-        
-
         # TODO: revisit normalization
         normalize_by = self.get_dop_norm(nu, normalize, normalize_tau, normalize_quantiles)
 
