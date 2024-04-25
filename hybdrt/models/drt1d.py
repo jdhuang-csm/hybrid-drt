@@ -4738,7 +4738,7 @@ class DRT(DRTBase):
             return ax
 
     def plot_dop(self, nu=None, x=None, ax=None, scale_prefix=None, normalize=False, normalize_tau=None,
-                 invert_nu=True, phase=True,
+                 invert_nu=True, phase=True, area=None,
                  plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
                  delta_density=False, include_ideal=True,
                  tight_layout=True, return_line=False, normalize_quantiles=(0, 1), **kw):
@@ -4771,6 +4771,10 @@ class DRT(DRTBase):
         if scale_prefix is None:
             scale_prefix = utils.scale.get_scale_prefix(dop)
         scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
+        
+        if area is not None:
+            # Multiply by area
+            scale_factor = scale_factor / area
 
         line = ax.plot(nu_plot, dop / scale_factor, **kw)
 
@@ -4800,10 +4804,15 @@ class DRT(DRTBase):
         else:
             ax.set_xlabel(x_label)
 
-        if normalize:
-            ax.set_ylabel(fr'$\tilde{{\rho}}$ ({scale_prefix}$\Omega$)')
+        if area is not None:
+            area_units = '$\cdot \mathrm{cm}^2$'
         else:
-            ax.set_ylabel(fr'$\rho$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu$)')
+            area_units = ''
+            
+        if normalize:
+            ax.set_ylabel(fr'$\tilde{{\rho}}$ ({scale_prefix}$\Omega${area_units})')
+        else:
+            ax.set_ylabel(fr'$\rho$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu${area_units})')
 
         if tight_layout:
             fig.tight_layout()
@@ -5250,14 +5259,13 @@ class DRT(DRTBase):
         # Get DOP scale vector
         if self.fit_dop:
             if self.normalize_dop:
-                # We shouldn't use tau_supergrid since it is independent of the data range.
-                # Just use basis_tau
+                # If tau_supergrid is set, we should use this for DOP normalization
+                # to ensure consistency across spectra (e.g. for DRTMD).
+                # Otherwise, we can just use basis_tau
                 if self.tau_supergrid is not None:
                     dop_eval_tau = self.tau_supergrid
                 else:
                     dop_eval_tau = self.basis_tau
-                
-                # dop_eval_tau = self.basis_tau
                 
                 self.dop_scale_vector = phasance.phasor_scale_vector(self.basis_nu, dop_eval_tau)
                 
