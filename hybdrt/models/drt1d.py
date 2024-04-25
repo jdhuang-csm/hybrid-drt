@@ -8,12 +8,15 @@ import pandas as pd
 from scipy import signal, ndimage
 from copy import deepcopy
 import pickle
+from typing import Optional
+
+from numpy import ndarray
 
 from .. import utils, preprocessing as pp
 from ..utils import stats
-from ..matrices import mat1d, basis
+from ..matrices import mat1d, basis, phasance
 from . import qphb, peaks, elements, pfrt, background
-from ..evaluation import get_similarity_function
+from .. import evaluation
 from .drtbase import DRTBase
 from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
 
@@ -177,10 +180,11 @@ class DRT(DRTBase):
                        chrono_error_structure='uniform', eis_error_structure=None,
                        remove_outliers=False, return_outlier_index=False, outlier_thresh=0.75,
                        chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
+                       iw_l1_lambda_0=1e-4, iw_l2_lambda_0=1e-4,
                        # Hybrid settings
                        vz_offset=True, vz_offset_scale=1, vz_offset_eps=1,
                        eis_weight_factor=None, chrono_weight_factor=None,
-                       hybrid_weight_factor_method='rp',
+                       hybrid_weight_factor_method=None,
                        # Prior hyperparameters
                        eff_hp=True, weight_factor=1,
                        # rp_scale=14, l2_lambda_0=None, l1_lambda_0=0.0, derivative_weights=None,
@@ -201,9 +205,9 @@ class DRT(DRTBase):
 
         if solve_rp and not scale_data and self.warn:
             warnings.warn('solve_rp is ignored if scale_data=False')
-        if (self.fit_dop or not nonneg) and not solve_rp and self.warn:
-            warnings.warn('For best results, set solve_rp=True when performing DRT-DOP fits '
-                          'or DRT fits without a non-negativity constraint')
+        # if (self.fit_dop or not nonneg) and not solve_rp and self.warn:
+        #     warnings.warn('For best results, set solve_rp=True when performing DRT-DOP fits '
+        #                   'or DRT fits without a non-negativity constraint')
 
         if series_neg and not nonneg:
             raise ValueError('Only one of series_neg and nonneg may be True')
@@ -357,6 +361,8 @@ class DRT(DRTBase):
 
             drt_bkg, bkg_gps, y_bkg = self.estimate_chrono_background(times, i_signal, v_signal, copy_self=True,
                                                                       **estimate_background_kw)
+            if self.print_diagnostics:
+                print('Finished initial background estimation')
             y_pred_bkg = drt_bkg.predict_response()
 
             if background_corr_power is None and background_type != 'static':
@@ -419,7 +425,6 @@ class DRT(DRTBase):
             self._add_special_qp_param('background_scale', True)
 
         # DOP replaces R_inf and L
-        # TODO: incorporate delta functions for R_inf, L, and C
         if self.fit_ohmic:
             self._add_special_qp_param('R_inf', True)
 
@@ -665,9 +670,15 @@ class DRT(DRTBase):
         # Initialize data weight (IMPORTANT)
         # ----------------------------------
         # Initialize chrono and eis weights separately
+        iw_hypers = qphb_hypers.copy()
+        iw_hypers['l1_lambda_0'] = iw_l1_lambda_0
+        iw_hypers['l2_lambda_0'] = iw_l2_lambda_0
+        if 'dop_l2_lambda_0' in qphb_hypers.keys():
+            dop_drt_ratio = qphb_hypers['dop_l2_lambda_0'] / qphb_hypers['l2_lambda_0']
+            iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
         if times is not None:
             chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = \
-                qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
                                         s_vectors,
                                         rv, rm, chrono_vmm, nonneg, self.special_qp_params)
 
@@ -678,7 +689,7 @@ class DRT(DRTBase):
 
         if frequencies is not None:
             eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = \
-                qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
                                         s_vectors,
                                         zv, zm, eis_vmm, nonneg, self.special_qp_params)
 
@@ -774,9 +785,12 @@ class DRT(DRTBase):
                         # chrono_weight_factor = (rp_chrono / rp_tot) ** 0.25
                         chrono_weight_factor = rp_chrono ** 0.75 / (rp_eis ** 0.25 * rp_tot ** 0.5)
                         # chrono_weight_factor = (rp_chrono / rp_eis) ** 0.5
+                elif hybrid_weight_factor_method is None:
+                    eis_weight_factor = 1
+                    chrono_weight_factor = 1
                 else:
                     raise ValueError(f"Invalid hybrid_weight_factor_method argument {hybrid_weight_factor_method}. "
-                                     f"Options: 'weight', 'rp'")
+                                     f"Options: 'weight', 'rp', None")
 
             if self.print_diagnostics:
                 print('num_chrono / num_eis:', num_chrono / num_eis)
@@ -846,7 +860,7 @@ class DRT(DRTBase):
             curv_matrix[:, self.get_qp_mat_offset():] = drt_curv_matrix
             peak_indices = np.array([utils.array.nearest_index(np.log(self.basis_tau), np.log(pl))
                                      for pl in peak_locations])
-            curv_spread_func = get_similarity_function('gaussian')
+            curv_spread_func = evaluation.get_similarity_function('gaussian')
         else:
             curv_matrix = None
             peak_indices = None
@@ -1234,604 +1248,6 @@ class DRT(DRTBase):
                             eis_vmm_epsilon=eis_vmm_epsilon, eis_reim_cor=eis_reim_cor, vz_offset=vz_offset,
                             vz_offset_scale=vz_offset_scale, vz_offset_eps=vz_offset_eps,
                             eis_weight_factor=eis_weight_factor, chrono_weight_factor=chrono_weight_factor, **kwargs)
-
-    # def qphb_fit_chrono(self, times, i_signal, v_signal, step_times=None, nonneg=True, scale_data=True,
-    #                     offset_baseline=True, offset_steps=True, update_scale=False,
-    #                     downsample=False, downsample_kw=None, smooth_inf_response=True,
-    #                     # basic fit control
-    #                     v_baseline_penalty=0, R_inf_penalty=0, inductance_penalty=0,
-    #                     inductance_scale=1e-5,
-    #                     penalty_type='integral', error_structure='uniform',
-    #                     # Prior hyperparameters
-    #                     vmm_epsilon=0.1, reduce_factor=1, info_factor=1, weight_factor=1,
-    #                     eff_hp=True,
-    #                     # l2_lambda_0=None, l1_lambda_0=0.0,
-    #                     # rp_scale=14, derivative_weights=[1.5, 1.0, 0.5],
-    #                     # iw_alpha=1.50, iw_beta=None,
-    #                     # s_alpha=[1.5, 2.5, 25], s_0=1,
-    #                     # rho_alpha=[1.1, 1.15, 1.2], rho_0=1,
-    #                     # w_alpha=None, w_beta=None,
-    #                     # optimization control
-    #                     xtol=1e-2, max_iter=50, **kw):
-    #
-    #     utils.validation.check_error_structure(error_structure)
-    #     utils.validation.check_penalty_type(penalty_type)
-    #
-    #     # # Format list/scalar arguments into arrays
-    #     # derivative_weights = np.array(derivative_weights)
-    #     # k_range = len(derivative_weights)
-    #     # if np.shape(s_alpha) == ():
-    #     #     s_alpha = [s_alpha] * k_range
-    #     #
-    #     # if np.shape(rho_alpha) == ():
-    #     #     rho_alpha = [rho_alpha] * k_range
-    #     #
-    #     # s_alpha = np.array(s_alpha)
-    #     # rho_alpha = np.array(rho_alpha)
-    #
-    #     # Define special parameters included in quadratic programming parameter vector
-    #     self.special_qp_params = {
-    #         'v_baseline': {'index': 0, 'nonneg': False},
-    #         'R_inf': {'index': 1, 'nonneg': True}
-    #     }
-    #
-    #     if self.fit_inductance:
-    #         self.special_qp_params['inductance'] = {'index': self.get_qp_mat_offset(), 'nonneg': True}
-    #
-    #     # # If rp_scale is to be set automatically, pass a temporary value of 1 to prep_for_fit
-    #     # # rp_scale can only be determined after downsampling
-    #     # if rp_scale is None:
-    #     #     rp_scale_tmp = 1
-    #     # else:
-    #     #     rp_scale_tmp = rp_scale
-    #
-    #     # Get preprocessing hyperparameters - not dependent on data factor
-    #     pp_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
-    #     pp_hypers.update(kw)
-    #
-    #     # Process data and calculate matrices for fit
-    #     sample_data, matrices = self._prep_for_fit(times, i_signal, v_signal, frequencies=None, z=None,
-    #                                                step_times=step_times, downsample=downsample,
-    #                                                downsample_kw=downsample_kw, offset_steps=offset_steps,
-    #                                                smooth_inf_response=smooth_inf_response, scale_data=scale_data,
-    #                                                rp_scale=pp_hypers['rp_scale'], penalty_type=penalty_type,
-    #                                                derivative_weights=pp_hypers['derivative_weights'])
-    #     sample_times, sample_i, sample_v, response_baseline, _ = sample_data
-    #     rm_drt, induc_rv, inf_rv, rm_dop, _, _, _, drt_penalty_matrices = matrices  # partial matrices
-    #
-    #     # Store fit kwargs for reference (after prep_for_fit creates self.fit_kwargs)
-    #     # self.fit_kwargs.update(
-    #     #     {
-    #     #         'nonneg': nonneg,
-    #     #         'derivative_weights': derivative_weights,
-    #     #         'rho_alpha': rho_alpha,
-    #     #         'rho_0': rho_0,
-    #     #         's_alpha': s_alpha,
-    #     #         's_0': s_0,
-    #     #         'w_alpha': w_alpha,
-    #     #         'w_beta': w_beta
-    #     #     }
-    #     # )
-    #
-    #     # Set lambda_0 and iw_0 based on sample size and density
-    #     ppd = pp.get_time_ppd(sample_times, self.step_times)
-    #     num_post_step = len(sample_times[sample_times >= self.step_times[0]])
-    #     n_eff = num_post_step  # / 10
-    #     ppd_eff = ppd * info_factor  # / 10
-    #     print('ppd:', ppd)
-    #
-    #     data_factor = qphb.get_data_factor(n_eff, ppd_eff)
-    #     # data_factor = (np.sqrt(n_eff / 142) * (20 / ppd_eff))
-    #     print('data_factor:', data_factor)
-    #
-    #     # Get default hyperparameters and update with user-specified values
-    #     qphb_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
-    #     qphb_hypers.update(kw)
-    #
-    #     self.fit_kwargs.update(qphb_hypers)
-    #     self.fit_kwargs['nonneg'] = nonneg
-    #
-    #     # if l2_lambda_0 is None:
-    #     #     # lambda_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     # l2_lambda_0 = 142 * np.sqrt(len(frequencies) / 71) * (10 / ppd)
-    #     #     l2_lambda_0 = 142 * (reduce_factor * data_factor) ** -1  # * np.sqrt(n_eff / 142) * (20 / ppd_eff)  #
-    #     #
-    #     # if iw_beta is None:
-    #     #     # iw_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     # iw_beta = (4 ** 2 * 0.05) * (np.sqrt(len(frequencies) / 71) * (10 / ppd)) ** 2
-    #     #     iw_beta = 0.5 * (data_factor * reduce_factor) ** 2  # * (np.sqrt(n_eff / 142) * (20 / ppd_eff)) ** 2 #
-    #     print('lambda_0, iw_beta:', qphb_hypers['l2_lambda_0'], qphb_hypers['iw_beta'])
-    #
-    #     #
-    #     # if l2_lambda_0 is None:
-    #     #     # lambda_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     l2_lambda_0 = 142 * np.sqrt(num_post_step / 201) * (34 / ppd)
-    #     #
-    #     # if iw_beta is None:
-    #     #     # iw_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     iw_beta = 0.005 * (np.sqrt(num_post_step / 201) * (34 / ppd)) ** 2
-    #     # print('lambda_0, iw_beta:', l2_lambda_0, iw_beta)
-    #
-    #     # Offset voltage baseline
-    #     if offset_baseline:
-    #         self.scaled_response_offset = -response_baseline
-    #     else:
-    #         self.scaled_response_offset = 0
-    #     rv = self.scaled_response_signal + self.scaled_response_offset
-    #
-    #     # Update rp_scale
-    #     # if rp_scale is None:
-    #     #     # rp_scale = 14 * data_factor ** -1
-    #     #     num_decades = pp.get_num_decades(None, sample_times, self.step_times)
-    #     #     print('num decades:', num_decades)
-    #     #     rp_scale = 14 * (num_decades / 7) ** 0.5
-    #     #     rv *= rp_scale
-    #     #     self.scaled_response_offset *= rp_scale
-    #     #     self.update_data_scale(rp_scale)
-    #     # print('rp_scale:', rp_scale)
-    #
-    #     # Format matrices for QP fit
-    #     rm, _, penalty_matrices = self._format_qp_matrices(rm_drt, inf_rv, induc_rv, rm_dop, None, None, None,
-    #                                                        drt_penalty_matrices, v_baseline_penalty, R_inf_penalty,
-    #                                                        inductance_penalty, None, inductance_scale, penalty_type,
-    #                                                        qphb_hypers['derivative_weights'])
-    #
-    #     # Construct l1 lambda vectors
-    #     l1_lambda_vector = np.zeros(rm.shape[1])  # No penalty applied to v_baseline, R_inf, and inductance
-    #     l1_lambda_vector[self.get_qp_mat_offset():] = qphb_hypers['l1_lambda_0']
-    #
-    #     # Initialize s and rho vectors at prior mode
-    #     k_range = len(qphb_hypers['derivative_weights'])
-    #     rho_vector = np.ones(k_range) * qphb_hypers['rho_0']
-    #     dop_rho_vector = None
-    #     s_vectors = [np.ones(rm.shape[1]) * qphb_hypers['s_0']] * k_range
-    #
-    #     # Initialize x near zero
-    #     x = np.zeros(rm.shape[1]) + 1e-6
-    #
-    #     # Construct matrix for variance estimation
-    #     vmm = mat1d.construct_chrono_var_matrix(sample_times, self.step_times, vmm_epsilon, error_structure)
-    #     # print(vmm[0])
-    #
-    #     # Initialize data weight (IMPORTANT)
-    #     # ----------------------------------
-    #     est_weights, init_weights, x_overfit, outlier_t = qphb.initialize_weights(qphb_hypers, penalty_matrices,
-    #                                                                               penalty_type, rho_vector,
-    #                                                                               dop_rho_vector, s_vectors, rv, rm,
-    #                                                                               vmm, nonneg, self.special_qp_params)
-    #
-    #     weights = init_weights
-    #     # print(est_weights[0], weights[0])
-    #
-    #     print('Initial weight:', np.mean(weights))
-    #     # print('Initial Rp:', np.sum(x_overfit[3:]) * (np.pi ** 0.5 / self.tau_epsilon) * self.coefficient_scale)
-    #     # print('Initial R_inf:', x_overfit[2] * self.coefficient_scale)
-    #
-    #     # Initialize xmx_norms at 1
-    #     xmx_norms = [1] * k_range
-    #
-    #     self.qphb_history = []
-    #     it = 0
-    #
-    #     # est_weights *= weight_factor
-    #
-    #     # print(est_weights[0], weights[0])
-    #
-    #     while it < max_iter:
-    #
-    #         x_in = x.copy()
-    #
-    #         weights *= weight_factor
-    #
-    #         # Update data scale as Rp estimate improves to maintain specified rp_scale
-    #         if it > 1 and scale_data and update_scale:
-    #             # Get scale factor
-    #             rp = np.sum(x[self.get_qp_mat_offset():]) * np.pi ** 0.5 / self.tau_epsilon
-    #             scale_factor = (qphb_hypers['rp_scale'] / rp) ** 0.5  # Damp the scale factor to avoid oscillations
-    #             # print('scale factor:', scale_factor)
-    #             # Update data and qphb parameters to reflect new scale
-    #             # self.scaled_response_offset *= scale_factor
-    #             x_in *= scale_factor
-    #             x_overfit *= scale_factor
-    #             rv *= scale_factor
-    #             xmx_norms *= scale_factor
-    #             est_weights /= scale_factor
-    #             init_weights /= scale_factor  # update for reference only
-    #             weights /= scale_factor
-    #             # Update data scale attributes
-    #             self.update_data_scale(scale_factor)
-    #
-    #         # print(it, weights[0], weight_factor)
-    #         x, s_vectors, rho_vector, weights, outlier_t, cvx_result, converged = qphb.iterate_qphb(x_in, s_vectors,
-    #                                                                                                 rho_vector,
-    #                                                                                                 dop_rho_vector, rv,
-    #                                                                                                 weights,
-    #                                                                                                 est_weights,
-    #                                                                                                 outlier_t, rm, vmm,
-    #                                                                                                 penalty_matrices,
-    #                                                                                                 penalty_type,
-    #                                                                                                 l1_lambda_vector,
-    #                                                                                                 qphb_hypers, eff_hp,
-    #                                                                                                 xmx_norms, None,
-    #                                                                                                 None, None, nonneg,
-    #                                                                                                 self.special_qp_params,
-    #                                                                                                 xtol, 1,
-    #                                                                                                 self.qphb_history)
-    #
-    #         # Normalize to ordinary ridge solution
-    #         if it == 0:
-    #             # Only include DRT penalty in XMX norms
-    #             x_drt = x[self.get_qp_mat_offset():]
-    #             xmx_norms = np.array([x_drt.T @ drt_penalty_matrices[f'm{n}'] @ x_drt for n in range(k_range)])
-    #             print('xmx', xmx_norms)
-    #             # self.xmx_norms = xmx_norms
-    #
-    #         if converged:
-    #             break
-    #         elif it == max_iter - 1:
-    #             warnings.warn(f'Hyperparametric solution did not converge within {max_iter} iterations')
-    #
-    #         it += 1
-    #
-    #     # Store scaled weights
-    #     scaled_weights = weights * weight_factor
-    #     cov_weights = weights / (weight_factor ** 4)
-    #
-    #     # Store QPHB diagnostic parameters
-    #     p_matrix, q_vector = qphb.calculate_pq(rm, rv, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                            rho_vector, dop_rho_vector, s_vectors, scaled_weights,
-    #                                            self.special_qp_params)
-    #
-    #     p_matrix_cov, _ = qphb.calculate_pq(rm, rv, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                         rho_vector, dop_rho_vector, s_vectors, cov_weights, self.special_qp_params)
-    #
-    #     post_lp = qphb.evaluate_posterior_lp(x, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                          rho_vector, dop_rho_vector, s_vectors, weights, rm, rv, xmx_norms,
-    #                                          self.special_qp_params)
-    #
-    #     self.qphb_params = {'est_weights': est_weights.copy(),
-    #                         'init_weights': init_weights.copy(),
-    #                         'weights': scaled_weights.copy(),
-    #                         'true_weights': weights.copy(),
-    #                         'xmx_norms': xmx_norms.copy(),
-    #                         'x_overfit': x_overfit,
-    #                         'p_matrix': p_matrix,
-    #                         'p_matrix_cov': p_matrix_cov,
-    #                         'q_vector': q_vector,
-    #                         'rho_vector': rho_vector,
-    #                         's_vectors': s_vectors,
-    #                         'outlier_t': outlier_t,
-    #                         'vmm': vmm,
-    #                         'l1_lambda_vector': l1_lambda_vector,
-    #                         'posterior_lp': post_lp,
-    #                         'rm': rm,
-    #                         'rv': rv,
-    #                         'penalty_matrices': penalty_matrices,
-    #                         }
-    #
-    #     # Store final cvxopt result
-    #     self.cvx_result = cvx_result
-    #
-    #     # Get sigma vector from weights
-    #     # w_vec = format_chrono_weights(rv, weights)
-    #     sigma_vec = (weights ** -1) * self.response_signal_scale
-    #
-    #     # Extract model parameters
-    #     x_out = np.array(list(cvx_result['x']))
-    #     self.fit_parameters = self.extract_qphb_parameters(x_out)
-    #     self.fit_parameters['v_sigma_tot'] = sigma_vec
-    #     self.fit_parameters['v_sigma_res'] = None
-    #     self.fit_parameters['z_sigma_tot'] = None
-    #     # special_indices = {k: self.special_qp_params[k]['index'] for k in self.special_qp_params.keys()}
-    #     # x_out = np.array(list(cvx_result['x']))
-    #     # self.fit_parameters = {'x': x_out[self.get_qp_mat_offset():] * self.coefficient_scale,
-    #     #                        'R_inf': x_out[special_indices['R_inf']] * self.coefficient_scale,
-    #     #                        'v_baseline': (x_out[special_indices['v_baseline']] - scaled_response_offset) \
-    #     #                                      * self.response_signal_scale,
-    #     #                        'v_sigma_tot': sigma_vec,
-    #     #                        'v_sigma_res': None}
-    #     #
-    #     # if self.fit_inductance:
-    #     #     self.fit_parameters['inductance'] = x_out[special_indices['inductance']] \
-    #     #                                         * self.coefficient_scale * inductance_scale
-    #     # else:
-    #     #     self.fit_parameters['inductance'] = 0
-    #
-    #     self.fit_type = 'qphb_chrono'
-    #
-    # def qphb_fit_eis(self, frequencies, z, nonneg=True, scale_data=True, update_scale=False,
-    #                  # basic fit control
-    #                  R_inf_penalty=1e-6, inductance_penalty=1e-6,
-    #                  inductance_scale=1e-5,
-    #                  penalty_type='integral', error_structure=None,
-    #                  # Prior hyperparameters
-    #                  vmm_epsilon=0.25, vmm_reim_cor=0.25, eff_hp=True,
-    #                  weight_factor=1,
-    #                  # rp_scale=14, l2_lambda_0=None, l1_lambda_0=0.0, derivative_weights=None,
-    #                  # iw_alpha=None, iw_beta=None,
-    #                  # s_alpha=None, s_0=None,
-    #                  # rho_alpha=None, rho_0=None,
-    #                  # optimization control
-    #                  xtol=1e-2, max_iter=50,
-    #                  peak_locations=None,
-    #                  adjust_factor=1, fixed_s_vectors=None,  # remove these args
-    #                  **kw):
-    #
-    #     utils.validation.check_eis_data(frequencies, z)
-    #     utils.validation.check_error_structure(error_structure)
-    #     utils.validation.check_penalty_type(penalty_type)
-    #
-    #     ppd = pp.get_ppd(frequencies)
-    #     ppd_eff = np.sqrt(2) * ppd
-    #     n_eff = np.sqrt(2) * len(frequencies)
-    #
-    #     data_factor = qphb.get_data_factor(n_eff, ppd_eff)
-    #     if self.print_diagnostics:
-    #         print('data factor:', data_factor)
-    #
-    #     # Get default hyperparameters and update with user-specified values
-    #     qphb_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
-    #     qphb_hypers.update(kw)
-    #
-    #     # if rp_scale is None:
-    #     #     # print(np.sqrt((n_eff / (71 * np.sqrt(2)))), np.sqrt(10 * np.sqrt(2) / ppd_eff))
-    #     #     num_decades = pp.get_num_decades(frequencies, None, None)
-    #     #     rp_scale = 14 * (num_decades / 7) ** 0.5
-    #     #     # rp_scale = 14 * data_factor ** -1  # (np.sqrt(n_eff / (71 * np.sqrt(2))) * np.sqrt(10 * np.sqrt(2) / ppd_eff)) ** -1
-    #     # print('rp_scale:', rp_scale)
-    #
-    #     # if s_alpha is None:
-    #     #     s_alpha = 1 + np.array([0.5, 1.5, 24]) * data_factor  # (np.sqrt((n_eff / 142)) * (20 / ppd_eff))
-    #     # print('s_alpha:', s_alpha)
-    #
-    #     # Format list/scalar arguments into arrays
-    #     # derivative_weights = np.array(derivative_weights)
-    #     # k_range = len(derivative_weights)
-    #     # if np.shape(s_alpha) == ():
-    #     #     s_alpha = [s_alpha] * k_range
-    #     #
-    #     # if np.shape(rho_alpha) == ():
-    #     #     rho_alpha = [rho_alpha] * k_range
-    #     #
-    #     # s_alpha = np.array(s_alpha)
-    #     # rho_alpha = np.array(rho_alpha)
-    #
-    #     # Define special parameters included in quadratic programming parameter vector
-    #     self.special_qp_params = {
-    #         'R_inf': {'index': 0, 'nonneg': True}
-    #     }
-    #
-    #     if self.fit_inductance:
-    #         self.special_qp_params['inductance'] = {'index': self.get_qp_mat_offset(), 'nonneg': True}
-    #
-    #     # Process data and calculate matrices for fit
-    #     sample_data, matrices = self._prep_for_fit(None, None, None, frequencies, z, step_times=None, downsample=False,
-    #                                                downsample_kw=None, offset_steps=False, smooth_inf_response=False,
-    #                                                scale_data=scale_data, rp_scale=qphb_hypers['rp_scale'],
-    #                                                penalty_type=penalty_type,
-    #                                                derivative_weights=qphb_hypers['derivative_weights'])
-    #     _, _, _, _, z_scaled = sample_data
-    #     _, _, _, _, zm_drt, induc_zv, zm_dop, drt_penalty_matrices = matrices
-    #
-    #     # Store fit kwargs for reference (after prep_for_fit creates self.fit_kwargs)
-    #     self.fit_kwargs.update(qphb_hypers)
-    #     self.fit_kwargs['nonneg'] = nonneg
-    #     self.fit_kwargs['eff_hp'] = eff_hp
-    #     self.fit_kwargs['penalty_type'] = penalty_type
-    #     #     {
-    #     #         'nonneg': nonneg,
-    #     #         'derivative_weights': derivative_weights,
-    #     #         'rho_alpha': rho_alpha,
-    #     #         'rho_0': rho_0,
-    #     #         's_alpha': s_alpha,
-    #     #         's_0': s_0,
-    #     #         # 'w_alpha': w_alpha,
-    #     #         # 'w_beta': w_beta
-    #     #     }
-    #     # )
-    #
-    #     # Set lambda_0 and iw_0 based on sample size and density
-    #     # ppd = get_ppd(frequencies)
-    #     # ppd_eff = 2 * ppd
-    #     # n_eff = 2 * len(frequencies)
-    #
-    #     # if l2_lambda_0 is None:
-    #     #     # lambda_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     l2_lambda_0 = 142 * data_factor ** -1  # (np.sqrt(n_eff / 142) * (20 / ppd_eff))
-    #     #     # l2_lambda_0 = 142 * (np.sqrt(n_eff / 142) * (20 / ppd_eff)) ** -2
-    #     #
-    #     # if iw_beta is None:
-    #     #     # iw_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     iw_beta = 0.5 * data_factor ** 2  # (np.sqrt(n_eff / 142) * (20 / ppd_eff)  )  ** 2
-    #     #     # iw_beta = 0.5 * (14 / rp_scale) ** 2
-    #     if self.print_diagnostics:
-    #         print('lambda_0, iw_beta:', qphb_hypers['l2_lambda_0'], qphb_hypers['iw_beta'])
-    #
-    #     # Format matrices for QP fit
-    #     _, zm, penalty_matrices = self._format_qp_matrices(None, None, None, None, zm_drt, induc_zv, zm_dop,
-    #                                                        drt_penalty_matrices, 0, R_inf_penalty, inductance_penalty,
-    #                                                        None, inductance_scale, penalty_type,
-    #                                                        qphb_hypers['derivative_weights'])
-    #
-    #     # Concatenate real and imag impedance
-    #     zv = np.concatenate([z_scaled.real, z_scaled.imag])
-    #
-    #     # Construct l1 lambda vectors
-    #     l1_lambda_vector = np.zeros(zm.shape[1])  # No penalty applied to v_baseline, R_inf, and inductance
-    #     l1_lambda_vector[self.get_qp_mat_offset():] = qphb_hypers['l1_lambda_0']  # Remaining entries set to l1_lambda_0
-    #
-    #     # Initialize rho and s vectors at prior mode
-    #     k_range = len(qphb_hypers['derivative_weights'])
-    #     rho_vector = qphb_hypers['rho_0'].copy()
-    #     dop_rho_vector = None
-    #     s_vectors = [np.ones(zm.shape[1]) * qphb_hypers['s_0'][k] for k in range(k_range)]
-    #
-    #     # Initialize x near zero
-    #     x = np.zeros(zm.shape[1]) + 1e-6
-    #
-    #     # Construct matrix for variance estimation
-    #     vmm = mat1d.construct_eis_var_matrix(frequencies, vmm_epsilon, vmm_reim_cor, error_structure)
-    #
-    #     # Initialize data weight (IMPORTANT)
-    #     # ----------------------------------
-    #     est_weights, init_weights, x_overfit, outlier_t = qphb.initialize_weights(qphb_hypers, penalty_matrices,
-    #                                                                               penalty_type, np.ones(k_range),
-    #                                                                               dop_rho_vector,
-    #                                                                               [np.ones(zm.shape[1])] * k_range, zv,
-    #                                                                               zm, vmm, nonneg,
-    #                                                                               self.special_qp_params)
-    #
-    #     # init_weights *= 0.5
-    #     weights = init_weights
-    #
-    #     if self.print_diagnostics:
-    #         print('Est weight:', np.mean(est_weights ** -2) ** -0.5)
-    #         print('Initial weight:', np.mean(weights ** -2) ** -0.5)
-    #
-    #     # Initialize xmx_norms at 1
-    #     xmx_norms = np.ones(k_range)
-    #     # xmx_norms = [10, 0.2, 0.1]
-    #
-    #     # TEST: curvature constraints
-    #     if peak_locations is not None:
-    #         drt_curv_matrix = basis.construct_func_eval_matrix(np.log(self.basis_tau), None, self.tau_basis_type,
-    #                                                            self.tau_epsilon, 2, self.zga_params)
-    #         curv_matrix = np.zeros((len(x) - self.get_qp_mat_offset(), len(x)))
-    #         curv_matrix[:, self.get_qp_mat_offset():] = drt_curv_matrix
-    #         peak_indices = np.array([utils.array.nearest_index(np.log(self.basis_tau), np.log(pl))
-    #                                  for pl in peak_locations])
-    #         curv_spread_func = get_similarity_function('gaussian')
-    #     else:
-    #         curv_matrix = None
-    #         peak_indices = None
-    #         curv_spread_func = None
-    #
-    #     self.qphb_history = []
-    #     it = 0
-    #     # fixed_prior = False
-    #
-    #     while it < max_iter:
-    #
-    #         x_in = x.copy()
-    #
-    #         if it > 0:
-    #             weights = weights * weight_factor
-    #
-    #         if peak_locations is not None and it > 5:
-    #             curv = curv_matrix @ x_in
-    #             peak_curv = curv[peak_indices]
-    #             curv_limit = [2.5 * pc * curv_spread_func(np.log(self.basis_tau / pl), 1.5, 2)
-    #                           for pc, pl in zip(peak_curv, peak_locations)]
-    #             curv_limit = np.sum(curv_limit, axis=0)
-    #             # curv_limit = 0.5 * (curv_limit + curv)
-    #             curvature_constraint = (-curv_matrix, -curv_limit)
-    #         else:
-    #             curvature_constraint = None
-    #
-    #         # Update data scale as Rp estimate improves to maintain specified rp_scale
-    #         if it > 1 and scale_data and update_scale:
-    #             # Get scale factor
-    #             rp = np.sum(x[self.get_qp_mat_offset():]) * np.pi ** 0.5 / self.tau_epsilon
-    #             scale_factor = (qphb_hypers['rp_scale'] / rp) ** 0.5  # Damp the scale factor to avoid oscillations
-    #             # print('rp, scale factor:', rp, scale_factor)
-    #             # Update data and qphb parameters to reflect new scale
-    #             x_in *= scale_factor
-    #             x_overfit *= scale_factor
-    #             z_scaled *= scale_factor
-    #             zv *= scale_factor
-    #             xmx_norms *= scale_factor  # shouldn't this be squared?
-    #             est_weights /= scale_factor
-    #             init_weights /= scale_factor  # update for reference only
-    #             weights /= scale_factor
-    #             # Update data scale attributes
-    #             self.update_data_scale(scale_factor)
-    #
-    #         # if it <= 5:
-    #         #     est_weights_in = est_weights
-    #         # else:
-    #         #     est_weights_in = None
-    #
-    #         x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged = \
-    #             qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, zv, weights, est_weights, outlier_t, zm,
-    #                               vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp, xmx_norms,
-    #                               None, None, curvature_constraint, nonneg, self.special_qp_params, xtol, 1,
-    #                               self.qphb_history)
-    #
-    #         if fixed_s_vectors is not None:
-    #             s_vectors = fixed_s_vectors.copy()
-    #
-    #         # Normalize to ordinary ridge solution
-    #         if it == 0:
-    #             # Only include DRT penalty in XMX norms
-    #             x_drt = x[self.get_qp_mat_offset():]
-    #             xmx_norms = np.array([x_drt.T @ drt_penalty_matrices[f'm{k}'] @ x_drt for k in range(k_range)])
-    #             if self.print_diagnostics:
-    #                 print('xmx', xmx_norms)
-    #
-    #         rho_vector[np.where(qphb_hypers['derivative_weights'] > 0)] **= adjust_factor
-    #
-    #         if converged:
-    #             break
-    #         elif it == max_iter - 1:
-    #             warnings.warn(f'Hyperparametric solution did not converge within {max_iter} iterations')
-    #
-    #         it += 1
-    #
-    #     # Store QPHB diagnostic parameters
-    #     # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(3)]
-    #     # sms = qphb.calculate_sms(np.array(derivative_weights) * rho_vector, l2_matrices, s_vectors)
-    #     # sms *= l2_lambda_0
-    #     #
-    #     # wm = np.diag(weights)
-    #     # wrm = wm @ zm
-    #     # wrv = wm @ zv
-    #     #
-    #     # p_matrix = 2 * sms + wrm.T @ wrm
-    #     # q_vector = -wrm.T @ wrv + l1_lambda_vector
-    #
-    #     p_matrix, q_vector = qphb.calculate_pq(zm, zv, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                            rho_vector, dop_rho_vector, s_vectors, weights, self.special_qp_params)
-    #
-    #     # post_lp = qphb.evaluate_posterior_lp(x, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #     #                                      rho_vector, s_vectors, weights, zm, zv, xmx_norms)
-    #
-    #     self.qphb_params = {'est_weights': est_weights.copy(),
-    #                         'init_weights': init_weights.copy(),
-    #                         'weights': weights.copy(),
-    #                         'data_factor': data_factor,
-    #                         'xmx_norms': xmx_norms.copy(),
-    #                         'x_overfit': x_overfit,
-    #                         'p_matrix': p_matrix,
-    #                         'q_vector': q_vector,
-    #                         'rho_vector': rho_vector,
-    #                         's_vectors': s_vectors,
-    #                         'outlier_t': outlier_t,
-    #                         'vmm': vmm,
-    #                         'l1_lambda_vector': l1_lambda_vector,
-    #                         # 'posterior_lp': post_lp,
-    #                         'rm': zm,
-    #                         'rv': zv,
-    #                         'penalty_matrices': penalty_matrices,
-    #                         'hypers': qphb_hypers
-    #                         }
-    #
-    #     if self.print_diagnostics:
-    #         print('rho:', rho_vector)
-    #
-    #     # Store final cvxopt result
-    #     self.cvx_result = cvx_result
-    #
-    #     # Get sigma vector from weights
-    #     sigma_vec = (weights[:len(z)] ** -1 + 1j * weights[len(z):] ** -1) * self.impedance_scale
-    #
-    #     # Extract model parameters
-    #     x_out = np.array(list(cvx_result['x']))
-    #     self.fit_parameters = self.extract_qphb_parameters(x_out)
-    #     self.fit_parameters['v_sigma_tot'] = None
-    #     self.fit_parameters['v_sigma_res'] = None
-    #     self.fit_parameters['z_sigma_tot'] = sigma_vec
-    #
-    #     self.fit_type = 'qphb_eis'
 
     def _continue_from_init(self, qphb_hypers, x_init, rv, rm, vmm, rho_vector, dop_rho_vector, s_vectors, outlier_t,
                             penalty_matrices, xmx_norms, dop_xmx_norms,
@@ -2930,7 +2346,7 @@ class DRT(DRTBase):
         if tau is None:
             tau = self.get_tau_eval(ppd)
 
-        spread_func = get_similarity_function('gaussian')
+        spread_func = evaluation.get_similarity_function('gaussian')
 
         pdrt = np.zeros(len(tau))
 
@@ -3260,7 +2676,7 @@ class DRT(DRTBase):
         if smooth:
             # Smooth to aggregate neighboring peak probs, which may arise due to
             # slight peak shifts with hyperparameter changes
-            spread_func = get_similarity_function('gaussian')
+            spread_func = evaluation.get_similarity_function('gaussian')
             if smooth_kw is None:
                 smooth_kw = {'order': 2, 'epsilon': 5}
             xx_basis, xx_eval = np.meshgrid(np.log(tau_pfrt), np.log(tau))
@@ -3376,796 +2792,6 @@ class DRT(DRTBase):
         if self.print_diagnostics:
             print('Discrete models created from PFRT in {:.3f} s'.format(time.time() - start))
 
-    # def plot_discrete_candidate_distribution(self, candidate_num_peaks, tau=None, ppd=20, **kw):
-    #     # Get model
-    #     candidate_info = self.get_candidate(candidate_num_peaks, 'discrete')
-    #     dem = candidate_info['model']
-    #
-    #     if tau is None:
-    #         tau = self.get_tau_eval(ppd)
-    #
-    #     ax = dem.plot_distribution(tau, **kw)
-    #
-    #     return ax
-    #
-    # def plot_discrete_candidate_eis_fit(self, candidate_id, **kw):
-    #     # Get model
-    #     candidate_info = self.get_candidate(candidate_id, 'discrete')
-    #     dem = candidate_info['model']
-    #
-    #     ax = dem.plot_eis_fit(**kw)
-    #
-    #     return ax
-
-    # # CHB fit
-    # # ----------------------------
-    # def fit(self, times, i_signal, v_signal, step_times=None, nonneg=True, scale_signal=True, offset_baseline=True,
-    #         offset_steps=False,
-    #         downsample=True, downsample_kw=None, smooth_inf_response=True,
-    #         init_from_ridge=False, ridge_kw={},
-    #         # step_times_sizes=None,
-    #         model_name=None, add_stan_data={}, init_values=None,
-    #         # optimization control
-    #         max_iter=10000, random_seed=1234):
-    #
-    #     # Process data and calculate matrices for fit
-    #     sample_data, matrices = self._prep_for_fit(times, i_signal, v_signal, frequencies=None, z=None,
-    #                                                step_times=step_times, downsample=downsample,
-    #                                                downsample_kw=downsample_kw, offset_steps=offset_steps,
-    #                                                smooth_inf_response=smooth_inf_response, scale_data=scale_signal,
-    #                                                rp_scale=7, penalty_type='discrete',
-    #                                                derivative_weights=derivative_weights)
-    #
-    #     sample_times, sample_i, sample_v, response_baseline, _ = sample_data
-    #     rm, induc_rv, inf_rv, _, _, penalty_matrices = matrices
-    #
-    #     # Prepare data for Stan model
-    #     stan_data = {
-    #         'N': len(sample_times),
-    #         'K': len(self.basis_tau),
-    #         # 'I': sample_i,
-    #         'V': sample_v,
-    #         'times': sample_times,
-    #         'A': rm,
-    #         'inf_rv': inf_rv,
-    #         'L0': 1.5 * 0.24 * penalty_matrices['l0'],
-    #         'L1': 1.5 * 0.16 * penalty_matrices['l1'],
-    #         'L2': 1.5 * 0.08 * penalty_matrices['l2'],
-    #         'inductance_response': induc_rv,
-    #         'sigma_min': 1e-4,
-    #         'ups_alpha': 0.05,
-    #         'ups_beta': 0.1,
-    #         'ups_scale': 0.15,
-    #         'ds_alpha': 5,
-    #         'ds_beta': 5,
-    #         'sigma_res_scale': 1,  # 0.1 * np.sqrt(len(sample_times) / 100),
-    #         # Ishwaran & Rao recommended variance inflation factor
-    #         'R_inf_scale': 100,
-    #         'inductance_scale': 1,
-    #         'v_baseline_scale': 100
-    #     }
-    #
-    #     stan_data.update(add_stan_data)
-    #
-    #     print('Finished prepping stan_data')
-    #
-    #     # load Stan model
-    #     if model_name is None:
-    #         # Construct model name from arguments
-    #         if self.chrono_mode == 'galv':
-    #             model_name = 'Galv'
-    #         elif self.chrono_mode == 'pot':
-    #             model_name = 'Pot'
-    #         else:
-    #             raise ValueError
-    #
-    #         model_name += 'SquareWaveDRT'
-    #
-    #         if nonneg:
-    #             model_name += '_pos'
-    #
-    #         if not self.fit_inductance:
-    #             model_name += '_noL'  # no inductance
-    #
-    #         model_name += '.stan'
-    #     self.stan_model_name = model_name
-    #
-    #     # Get initial values from ridge fit
-    #     if init_from_ridge:
-    #         scaled_response_offset, ridge_values = self.get_init_from_ridge(times, i_signal, v_signal,
-    #                                                                  frequencies=None, z=None, step_times=step_times,
-    #                                                                  z_weight=None, fit_type='normal', nonneg=nonneg,
-    #                                                                  downsample=downsample, downsample_kw=downsample_kw,
-    #                                                                  scale_signal=scale_signal,
-    #                                                                  offset_steps=offset_steps,
-    #                                                                  smooth_inf_response=smooth_inf_response,
-    #                                                                  **ridge_kw)
-    #         ridge_values['R_inf_raw'] = ridge_values['R_inf'] / stan_data['R_inf_scale']
-    #         if self.fit_inductance:
-    #             ridge_values['inductance_raw'] = ridge_values['inductance'] / stan_data['inductance_scale']
-    #
-    #         # Update with user-supplied inits if provided
-    #         if init_values is not None:
-    #             ridge_values.update(init_values)
-    #             init_values = ridge_values
-    #         else:
-    #             init_values = ridge_values
-    #
-    #         self._init_values = init_values
-    #     else:
-    #         # Offset voltage baseline
-    #         if offset_baseline:
-    #             scaled_response_offset = -response_baseline
-    #         else:
-    #             scaled_response_offset = 0
-    #
-    #     print('response offset:', scaled_response_offset * self.response_signal_scale)
-    #
-    #     sample_v += scaled_response_offset
-    #     # print(sample_v)
-    #
-    #     self.stan_input = stan_data.copy()
-    #
-    #     # stan_model = load_pickle(os.path.join(module_dir, 'stan_model_files', model_name))
-    #     stan_model = CmdStanModel(stan_file=os.path.join(module_dir, 'stan_model_files', model_name))
-    #     print('Loaded stan model')
-    #     # Fit model
-    #     print('stan data check:', utils.array.check_equality(self.stan_input, stan_data))
-    #     self.stan_mle = stan_model.optimize(stan_data, iter=max_iter, seed=random_seed, inits=init_values,
-    #                                         algorithm='lbfgs')
-    #     self.stan_result = self.stan_mle.stan_variables()
-    #     # self.stan_result = stan_model.optimizing(stan_data, iter=max_iter, seed=random_seed, init=init_values)
-    #     print('Optimized model')
-    #     # Extract model parameters
-    #     self.fit_parameters = {'x': self.stan_result['x'] * self.coefficient_scale,
-    #                            'R_inf': self.stan_result['R_inf'] * self.coefficient_scale,
-    #                            'v_baseline': (self.stan_result['v_baseline'] - scaled_response_offset) \
-    #                                          * self.response_signal_scale,
-    #                            'v_sigma_tot': self.stan_result['sigma_tot'] * self.response_signal_scale,
-    #                            'v_sigma_res': self.stan_result['sigma_res'] * self.response_signal_scale}
-    #
-    #     if self.fit_inductance:
-    #         self.fit_parameters['inductance'] = self.stan_result['inductance'] * self.coefficient_scale
-    #     else:
-    #         self.fit_parameters['inductance'] = 0
-    #
-    #     self.fit_type = 'chb'
-
-    # def qphb_fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None, nonneg=True,
-    #                     scale_data=True, offset_steps=True, offset_baseline=True, update_scale=False,
-    #                     downsample=False, downsample_kw=None, smooth_inf_response=True,
-    #                     # basic fit control
-    #                     v_baseline_penalty=0, R_inf_penalty=0, inductance_penalty=0, inductance_scale=1e-5,
-    #                     penalty_type='integral',
-    #                     chrono_error_structure='uniform', eis_error_structure=None,
-    #                     chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
-    #                     vz_offset=False, vz_offset_scale=0.05,
-    #                     # Prior hyperparameters
-    #                     info_factor=1, eff_hp=True,
-    #                     eis_weight_factor=None, chrono_weight_factor=None,
-    #                     # rp_scale=14, derivative_weights=[1.5, 1.0, 0.5],
-    #                     # l2_lambda_0=None, l1_lambda_0=0.0,
-    #                     # chrono_iw_alpha=1.5, chrono_iw_beta=None,
-    #                     # eis_iw_alpha=1.5, eis_iw_beta=None,
-    #                     # s_alpha=[1.5, 2.5, 25], s_0=1,
-    #                     # rho_alpha=[1.1, 1.15, 1.2], rho_0=1,
-    #                     # w_alpha=None, w_beta=None,
-    #                     # optimization control
-    #                     xtol=1e-2, max_iter=50, **kw):
-    #
-    #     utils.validation.check_penalty_type(penalty_type)
-    #     utils.validation.check_error_structure(chrono_error_structure)
-    #     utils.validation.check_error_structure(eis_error_structure)
-    #
-    #     # Format list/scalar arguments into arrays
-    #     # derivative_weights = np.array(derivative_weights)
-    #     # k_range = len(derivative_weights)
-    #     # if np.shape(s_alpha) == ():
-    #     #     s_alpha = [s_alpha] * k_range
-    #     #
-    #     # if np.shape(rho_alpha) == ():
-    #     #     rho_alpha = [rho_alpha] * k_range
-    #     #
-    #     # s_alpha = np.array(s_alpha)
-    #     # rho_alpha = np.array(rho_alpha)
-    #
-    #     # Define special parameters included in quadratic programming parameter vector
-    #     self.special_qp_params = {
-    #         'v_baseline': {'index': 0, 'nonneg': False},
-    #         'R_inf': {'index': 1, 'nonneg': True},
-    #     }
-    #
-    #     if self.fit_inductance:
-    #         self.special_qp_params['inductance'] = {'index': self.get_qp_mat_offset(), 'nonneg': True}
-    #
-    #     if vz_offset:
-    #         self.special_qp_params['vz_offset'] = {'index': self.get_qp_mat_offset(), 'nonneg': False}
-    #
-    #     # If rp_scale is to be set automatically, pass a temporary value of 1 to prep_for_fit
-    #     # rp_scale can only be determined after downsampling
-    #     # if rp_scale is None:
-    #     #     rp_scale_tmp = 1
-    #     # else:
-    #     #     rp_scale_tmp = rp_scale
-    #
-    #     # Get preprocessing hyperparameters
-    #     pp_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
-    #     pp_hypers.update(kw)
-    #
-    #     # Process data and calculate matrices for fit
-    #     sample_data, matrices = self._prep_for_fit(times, i_signal, v_signal, frequencies, z, step_times=step_times,
-    #                                                downsample=downsample, downsample_kw=downsample_kw,
-    #                                                offset_steps=offset_steps, smooth_inf_response=smooth_inf_response,
-    #                                                scale_data=scale_data, rp_scale=pp_hypers['rp_scale'],
-    #                                                penalty_type=penalty_type,
-    #                                                derivative_weights=pp_hypers['derivative_weights'])
-    #
-    #     sample_times, sample_i, sample_v, response_baseline, z_scaled = sample_data
-    #     rm_drt, induc_rv, inf_rv, rm_dop, zm_drt, induc_zv, zm_dop, drt_penalty_matrices = matrices  # partial matrices
-    #
-    #     # Offset voltage baseline
-    #     if offset_baseline:
-    #         self.scaled_response_offset = -response_baseline
-    #     else:
-    #         self.scaled_response_offset = 0
-    #     print('scaled_response_offset:', self.scaled_response_offset * self.response_signal_scale)
-    #     rv = self.scaled_response_signal + self.scaled_response_offset
-    #
-    #     # Set lambda_0 and iw_0 based on sample size and density
-    #     # chrono_ppd = get_time_ppd(sample_times, self.step_times) * np.sqrt(2)
-    #     # chrono_num = len(sample_times[sample_times >= self.step_times[0]])
-    #     # eis_ppd = 2 * get_ppd(frequencies)
-    #     # eis_num = 2 * len(frequencies)
-    #
-    #     chrono_ppd = pp.get_time_ppd(sample_times, self.step_times) * info_factor
-    #     chrono_num = len(sample_times[sample_times >= self.step_times[0]])
-    #     eis_ppd = np.sqrt(2) * pp.get_ppd(frequencies)
-    #     eis_num = np.sqrt(2) * len(frequencies)
-    #
-    #     chrono_data_factor = qphb.get_data_factor(chrono_num, chrono_ppd)
-    #     eis_data_factor = qphb.get_data_factor(eis_num, eis_ppd)
-    #
-    #     num_decades = pp.get_num_decades(frequencies, sample_times, self.step_times)
-    #     print('num_decades:', num_decades)
-    #     tot_num = eis_num + chrono_num
-    #     tot_ppd = (tot_num - 1) / num_decades
-    #     tot_data_factor = qphb.get_data_factor(tot_num, tot_ppd)  # num_decades / np.sqrt(tot_num)
-    #     # tot_data_factor = 0.5 * eis_data_factor + 0.5 * chrono_data_factor
-    #
-    #     print('eis_ppd:', eis_ppd)
-    #     print('chrono_ppd:', chrono_ppd)
-    #     print('tot_ppd:', tot_ppd)
-    #
-    #     print('eis_data_factor:', eis_data_factor)
-    #     print('chrono_data_factor:', chrono_data_factor)
-    #     print('tot_data_factor:', tot_data_factor)
-    #
-    #     # Get default hyperparameters and update with user-specified values
-    #     qphb_hypers = qphb.get_default_hypers(eff_hp, self.fit_dop)
-    #     qphb_hypers.update(kw)
-    #
-    #     # Store fit kwargs for reference (after prep_for_fit creates self.fit_kwargs)
-    #     self.fit_kwargs.update(qphb_hypers)
-    #     self.fit_kwargs['nonneg'] = nonneg
-    #     # self.fit_kwargs.update(
-    #     #     {
-    #     #         'nonneg': nonneg,
-    #     #         'derivative_weights': derivative_weights,
-    #     #         'rho_alpha': rho_alpha,
-    #     #         'rho_0': rho_0,
-    #     #         's_alpha': s_alpha,
-    #     #         's_0': s_0,
-    #     #         'w_alpha': w_alpha,
-    #     #         'w_beta': w_beta,
-    #     #         'vz_offset': vz_offset,
-    #     #         'vz_offset_scale': vz_offset_scale
-    #     #     }
-    #     # )
-    #
-    #     # # Update rp_scale
-    #     # if rp_scale is None:
-    #     #     rp_scale = 14 * chrono_data_factor ** -1
-    #     #     rv *= rp_scale
-    #     #     self.scaled_response_offset *= rp_scale
-    #     #     z_scaled *= rp_scale
-    #     #     self.update_data_scale(rp_scale)
-    #     # print('rp_scale:', rp_scale)
-    #
-    #     # if l2_lambda_0 is None:
-    #     #     # lambda_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     # l2_lambda_0 = 142 * (reduce_factor * chrono_data_factor) ** -1
-    #     #     l2_lambda_0 = 142 * tot_data_factor ** -1
-    #     print('l2_lambda_0:', qphb_hypers['l2_lambda_0'])
-    #
-    #     # Scale vz_offset_scale to penalty strength
-    #     vz_offset_scale = vz_offset_scale * qphb_hypers['l2_lambda_0']
-    #
-    #     # if chrono_iw_beta is None:
-    #     #     # iw_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     # chrono_iw_beta = 0.5 * (reduce_factor * chrono_data_factor) ** 2
-    #     #     chrono_iw_beta = 0.5 * tot_data_factor ** 2
-    #     #
-    #     # if eis_iw_beta is None:
-    #     #     # iw_0 decreases with increasing ppd (linear), increases with increasing num frequencies (sqrt)
-    #     #     # eis_iw_beta = 0.5 * eis_data_factor ** 2
-    #     #     eis_iw_beta = 0.5 * tot_data_factor ** 2
-    #     eis_iw_beta = qphb_hypers.get('eis_iw_beta', qphb_hypers['iw_beta'])
-    #     chrono_iw_beta = qphb_hypers.get('chrono_iw_beta', qphb_hypers['iw_beta'])
-    #
-    #     print('eis_iw_beta:', eis_iw_beta)
-    #     print('chrono_iw_beta:', chrono_iw_beta)
-    #
-    #     # Format matrices for QP fit
-    #     rm, zm, penalty_matrices = self._format_qp_matrices(rm_drt, inf_rv, induc_rv, rm_dop, zm_drt, induc_zv, zm_dop,
-    #                                                         drt_penalty_matrices, v_baseline_penalty, R_inf_penalty,
-    #                                                         inductance_penalty, vz_offset_scale, background_penalty,
-    #                                                         inductance_scale, penalty_type,
-    #                                                         qphb_hypers['derivative_weights'])
-    #
-    #     # Construct hybrid response-impedance matrix
-    #     rzm = np.vstack((rm, zm))
-    #
-    #     # Make a copy for vz_offset calculation
-    #     rzm_vz = rzm.copy()
-    #     # Remove v_baseline from rzm_vz - don't want to scale the baseline, only the delta
-    #     rzm_vz[:, self.special_qp_params['v_baseline']['index']] = 0
-    #
-    #     # self.rzm = rzm.copy()
-    #
-    #     # Construct hybrid response-impedance vector
-    #     zv = np.concatenate([z_scaled.real, z_scaled.imag])
-    #     rzv = np.concatenate([rv, zv])
-    #
-    #     # Construct lambda vectors
-    #     l1_lambda_vector = np.zeros(rzm.shape[1])  # No penalty applied to v_baseline, R_inf, and inductance
-    #     l1_lambda_vector[self.get_qp_mat_offset():] = qphb_hypers['l1_lambda_0']
-    #
-    #     # Initialize s and rho vectors at prior mode
-    #     k_range = len(qphb_hypers['derivative_weights'])
-    #     rho_vector = np.ones(k_range) * qphb_hypers['rho_0']
-    #     s_vectors = [np.ones(rzm.shape[1]) * qphb_hypers['s_0']] * k_range
-    #     dop_rho_vector = None
-    #
-    #     # Initialize x near zero
-    #     x = np.zeros(rzm.shape[1]) + 1e-6
-    #
-    #     # Construct matrices for variance estimation
-    #     chrono_vmm = mat1d.construct_chrono_var_matrix(sample_times, self.step_times,
-    #                                                    chrono_vmm_epsilon,
-    #                                                    chrono_error_structure)
-    #     eis_vmm = mat1d.construct_eis_var_matrix(frequencies, eis_vmm_epsilon, eis_reim_cor,
-    #                                              eis_error_structure)
-    #     vmm = np.zeros((len(rzv), len(rzv)))
-    #     vmm[:len(sample_times), :len(sample_times)] = chrono_vmm
-    #     vmm[len(sample_times):, len(sample_times):] = eis_vmm
-    #     # print(vmm[0])
-    #
-    #     # Initialize data weight (IMPORTANT)
-    #     # ----------------------------------
-    #     # if chrono_iw_beta is None:
-    #     #     chrono_iw_beta_tmp = 1
-    #     # else:
-    #     #     chrono_iw_beta_tmp = chrono_iw_beta
-    #     #
-    #     # if eis_iw_beta is None:
-    #     #     eis_iw_beta_tmp = 1
-    #     # else:
-    #     #     eis_iw_beta_tmp = eis_iw_beta
-    #
-    #     # Initialize chrono and eis weights separately
-    #     chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = \
-    #         qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector, s_vectors,
-    #                                 rv,
-    #                                 rm, chrono_vmm, nonneg, self.special_qp_params)
-    #
-    #     eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = \
-    #         qphb.initialize_weights(qphb_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector, s_vectors,
-    #                                 zv,
-    #                                 zm, eis_vmm, nonneg, self.special_qp_params)
-    #
-    #     # est_weights, init_weights, x_overfit = qphb.initialize_weights(penalty_matrices, derivative_weights,
-    #     #                                                                rho_vector,
-    #     #                                                                s_vectors, rzv, rzm, vmm,
-    #     #                                                                l1_lambda_vector,
-    #     #                                                                nonneg, self.special_qp_params,
-    #     #                                                                eis_iw_alpha,
-    #     #                                                                eis_iw_beta)
-    #     #
-    #     # chrono_est_weights = est_weights[:len(rv)]
-    #     # eis_est_weights = est_weights[len(rv):]
-    #     # chrono_init_weights = init_weights[:len(rv)]
-    #     # eis_init_weights = init_weights[len(rv):]
-    #
-    #     # eis_est_weights = eis_est_weights_raw * eis_weight_factor
-    #     # eis_init_weights = eis_init_weights_raw * eis_weight_factor
-    #
-    #     eis_weight_scale = np.mean(eis_est_weights ** -2) ** -0.5
-    #     chrono_weight_scale = np.mean(chrono_est_weights ** -2) ** -0.5
-    #
-    #     print('w_eis / w_chrono:', eis_weight_scale / chrono_weight_scale)
-    #
-    #     if eis_weight_factor is None:
-    #         # eis_weight_factor = (eis_data_factor / tot_data_factor) ** 0.5
-    #         eis_weight_factor = (chrono_weight_scale / eis_weight_scale) ** 0.25
-    #         # if eis_weight_scale > chrono_weight_scale:
-    #         #     eis_weight_factor = (chrono_weight_scale / eis_weight_scale) ** 0.5
-    #         # else:
-    #         #     eis_weight_factor = 1
-    #
-    #     # else:
-    #     #     chrono_weight_factor = 1 #eis_weight_factor ** -1
-    #     if chrono_weight_factor is None:
-    #         # chrono_weight_factor = (chrono_data_factor / tot_data_factor) ** 0.5
-    #         chrono_weight_factor = (eis_weight_scale / chrono_weight_scale) ** 0.25
-    #         # if chrono_weight_scale > eis_weight_scale:
-    #         #     chrono_weight_factor = (eis_weight_scale / chrono_weight_scale) ** 0.5
-    #         # else:
-    #         #     chrono_weight_factor = 1
-    #
-    #     print('eis weight factor:', eis_weight_factor)
-    #     print('chrono weight factor:', chrono_weight_factor)
-    #
-    #     est_weights = np.concatenate([chrono_est_weights, eis_est_weights])
-    #     init_weights = np.concatenate([chrono_init_weights, eis_init_weights])
-    #     # if qphb_hypers.get('outlier_p', None) is not None:
-    #     outlier_t = np.concatenate([chrono_outlier_t, eis_outlier_t])
-    #
-    #     weights = init_weights
-    #
-    #     print('Initial chrono weight:', np.mean(chrono_init_weights))
-    #     print('Initial EIS weight:', np.mean(eis_init_weights))
-    #     # print('Initial Rp:', np.sum(x_overfit[3:]) * (np.pi ** 0.5 / self.tau_epsilon) * self.coefficient_scale)
-    #     # print('Initial R_inf:', x_overfit[2] * self.coefficient_scale)
-    #
-    #     # Initialize xmx_norms at 1
-    #     xmx_norms = [1] * 3
-    #
-    #     self.qphb_history = []
-    #     it = 0
-    #
-    #     while it < max_iter:
-    #
-    #         x_in = x.copy()
-    #
-    #         # current_eis_ws = np.mean(weights[len(rv):] ** -2) ** -0.5
-    #         # current_chrono_ws = np.mean(weights[:len(rv)] ** -2) ** -0.5
-    #         # print(it, current_chrono_ws / chrono_weight_scale, current_eis_ws / eis_weight_scale)
-    #
-    #         # Apply weight factors
-    #         weights[:len(rv)] *= chrono_weight_factor
-    #         weights[len(rv):] *= eis_weight_factor
-    #
-    #         # Update data scale as Rp estimate improves to maintain specified rp_scale
-    #         if it > 1 and scale_data and update_scale:
-    #             # Get scale factor
-    #             rp = np.sum(x[self.get_qp_mat_offset():]) * np.pi ** 0.5 / self.tau_epsilon
-    #             scale_factor = (qphb_hypers['rp_scale'] / rp) ** 0.5  # Damp the scale factor to avoid oscillations
-    #             print('scale factor:', scale_factor)
-    #             # Update data and qphb parameters to reflect new scale
-    #             x_in *= scale_factor
-    #             rzv *= scale_factor
-    #             xmx_norms *= scale_factor  # shouldn't this be scale_factor ** 2?
-    #             est_weights /= scale_factor
-    #             init_weights /= scale_factor  # update for reference only
-    #             weights /= scale_factor
-    #             x_overfit_chrono *= scale_factor
-    #             x_overfit_eis *= scale_factor
-    #             # x_overfit *= scale_factor
-    #             # Update data scale attributes
-    #             self.update_data_scale(scale_factor)
-    #
-    #         x, s_vectors, rho_vector, weights, outlier_t, cvx_result, converged = qphb.iterate_qphb(x_in, s_vectors,
-    #                                                                                                 rho_vector,
-    #                                                                                                 dop_rho_vector, rzv,
-    #                                                                                                 weights,
-    #                                                                                                 est_weights,
-    #                                                                                                 outlier_t, rzm, vmm,
-    #                                                                                                 penalty_matrices,
-    #                                                                                                 penalty_type,
-    #                                                                                                 l1_lambda_vector,
-    #                                                                                                 qphb_hypers, eff_hp,
-    #                                                                                                 xmx_norms, None,
-    #                                                                                                 None, None, nonneg,
-    #                                                                                                 self.special_qp_params,
-    #                                                                                                 xtol, 1,
-    #                                                                                                 self.qphb_history)
-    #
-    #         # Normalize to ordinary ridge solution
-    #         if it == 0:
-    #             # Only include DRT penalty in XMX norms
-    #             x_drt = x[self.get_qp_mat_offset():]
-    #             xmx_norms = np.array([x_drt.T @ drt_penalty_matrices[f'm{n}'] @ x_drt for n in range(k_range)])
-    #             print('xmx', xmx_norms)
-    #
-    #         if vz_offset:
-    #             # Update the response matrix with the current predicted y vector
-    #             # vz_offset offsets chrono and eis predictions
-    #             y_hat = rzm_vz @ x
-    #             vz_sep = y_hat.copy()
-    #             vz_sep[len(rv):] *= -1  # vz_offset > 0 means EIS Rp smaller chrono Rp
-    #             rzm[:, self.special_qp_params['vz_offset']['index']] = vz_sep
-    #
-    #         if converged:
-    #             break
-    #         elif it == max_iter - 1:
-    #             warnings.warn(f'Hyperparametric solution did not converge within {max_iter} iterations')
-    #
-    #         it += 1
-    #
-    #     # Store the scaled weights for MAP sampling and reference
-    #     scaled_weights = weights.copy()
-    #     scaled_weights[:len(rv)] *= chrono_weight_factor
-    #     scaled_weights[len(rv):] *= eis_weight_factor
-    #
-    #     # Store QPHB diagnostic parameters
-    #     p_matrix, q_vector = qphb.calculate_pq(rzm, rzv, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                            rho_vector, dop_rho_vector, s_vectors, scaled_weights,
-    #                                            self.special_qp_params)
-    #
-    #     post_lp = qphb.evaluate_posterior_lp(x, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector,
-    #                                          rho_vector, dop_rho_vector, s_vectors, weights, rzm, rzv, xmx_norms,
-    #                                          self.special_qp_params)
-    #
-    #     self.qphb_params = {'est_weights': est_weights.copy(),
-    #                         'init_weights': init_weights.copy(),
-    #                         'weights': scaled_weights.copy(),  # scaled weights
-    #                         'true_weights': weights.copy(),  # unscaled weights
-    #                         'xmx_norms': xmx_norms.copy(),
-    #                         'x_overfit_chrono': x_overfit_chrono,
-    #                         'x_overfit_eis': x_overfit_eis,
-    #                         # 'x_overfit': x_overfit,
-    #                         'p_matrix': p_matrix,
-    #                         'q_vector': q_vector,
-    #                         'rho_vector': rho_vector,
-    #                         's_vectors': s_vectors,
-    #                         'outlier_t': outlier_t,
-    #                         'vmm': vmm,
-    #                         'l1_lambda_vector': l1_lambda_vector,
-    #                         'posterior_lp': post_lp,
-    #                         'rm': rzm,
-    #                         'rv': rzv,
-    #                         'penalty_matrices': penalty_matrices,
-    #                         }
-    #
-    #     # Store final cvxopt result
-    #     self.cvx_result = cvx_result
-    #
-    #     # Get sigma vector from weights
-    #     sigma_vec = (weights ** -1)
-    #     v_sigma = sigma_vec[:len(rv)] * self.response_signal_scale
-    #     z_sigma = sigma_vec[len(rv):len(rv) + len(z)] \
-    #               + 1j * sigma_vec[len(rv) + len(z):]
-    #     z_sigma *= self.impedance_scale
-    #
-    #     # Extract model parameters
-    #     x_out = np.array(list(cvx_result['x']))
-    #     self.fit_parameters = self.extract_qphb_parameters(x_out)
-    #     self.fit_parameters['v_sigma_tot'] = v_sigma
-    #     self.fit_parameters['v_sigma_res'] = None
-    #     self.fit_parameters['z_sigma_tot'] = z_sigma
-    #
-    #     self.fit_type = 'qphb_hybrid'
-
-    # def hybrid_fit(self, times, i_signal, v_signal, frequencies, z, step_times=None, nonneg=True, scale_signal=True,
-    #                z_weight=None, v_weight=None, offset_baseline=True, offset_steps=False, downsample=True,
-    #                downsample_kw=None,
-    #                smooth_inf_response=True,
-    #                init_from_ridge=False, ridge_kw={},
-    #                adjust_vz_factor=False, log_vz_factor_scale=0.05,
-    #                model_name=None, add_stan_data={}, init_values=None,
-    #                # optimization control
-    #                max_iter=10000, random_seed=1234, stan_kw={}):
-    #     # Process data and calculate matrices for fit
-    #     sample_data, matrices = self._prep_for_hybrid_fit(times, i_signal, v_signal, frequencies, z, step_times,
-    #                                                       downsample, downsample_kw, scale_signal, offset_steps,
-    #                                                       'discrete', smooth_inf_response)
-    #
-    #     sample_times, sample_i, sample_v, response_baseline, z_scaled = sample_data
-    #     rm, zm, induc_rv, inf_rv, induc_zv, penalty_matrices = matrices
-    #
-    #     # If no EIS weights provided, set weights to account for dataset size ratio
-    #     if z_weight is None:
-    #         z_weight = len(sample_times) / len(z)
-    #         print('z_weight:', z_weight)
-    #
-    #     if v_weight is None:
-    #         v_weight = 1
-    #
-    #     # Get initial values from ridge fit
-    #     # TODO: sequence correctly such that R_inf_scale and inductance_scale can be updated by add_stan_data
-    #     if init_from_ridge:
-    #         scaled_response_offset, ridge_values = self.get_init_from_ridge(times, i_signal, v_signal, frequencies, z,
-    #                                                                  step_times, z_weight, 'hybrid', nonneg=nonneg,
-    #                                                                  downsample=downsample,
-    #                                                                  downsample_kw=downsample_kw,
-    #                                                                  scale_signal=scale_signal,
-    #                                                                  offset_steps=offset_steps,
-    #                                                                  smooth_inf_response=smooth_inf_response,
-    #                                                                  adjust_vz_factor=adjust_vz_factor,
-    #                                                                  vz_factor_scale=log_vz_factor_scale,
-    #                                                                  **ridge_kw)
-    #     else:
-    #         # Offset voltage baseline
-    #         if offset_baseline:
-    #             scaled_response_offset = -response_baseline
-    #         else:
-    #             scaled_response_offset = 0
-    #
-    #     sample_v += scaled_response_offset
-    #
-    #     # Prepare data for Stan model
-    #     stan_data = {
-    #         # Dimensions
-    #         'N_t': len(sample_times),
-    #         'N_f': len(frequencies),
-    #         'K': len(self.basis_tau),
-    #
-    #         # Data
-    #         'V': sample_v * v_weight,
-    #         'Z': np.concatenate([z_scaled.real, z_scaled.imag]) * z_weight,
-    #         # 'times': sample_times,
-    #
-    #         # Response matrices
-    #         'A_t': rm * v_weight,
-    #         'A_f': np.vstack([zm.real, zm.imag]) * z_weight,
-    #
-    #         # Response vectors
-    #         'induc_rv': induc_rv * v_weight,
-    #         'inf_rv': inf_rv * v_weight,
-    #         'induc_zv': np.concatenate([induc_zv.real, induc_zv.imag]) * z_weight,
-    #         'inf_zv': np.concatenate([np.ones(len(z)), np.zeros(len(z))]) * z_weight,
-    #         'L0': 1.5 * 0.24 * penalty_matrices['l0'],
-    #         'L1': 1.5 * 0.16 * penalty_matrices['l1'],
-    #         'L2': 1.5 * 0.08 * penalty_matrices['l2'],
-    #
-    #         # Error scale
-    #         'v_sigma_min': 1e-4,
-    #         'v_sigma_res_scale': 1 * v_weight,  # 0.1 * np.sqrt(len(sample_times) / 100),
-    #         'z_sigma_min': 1e-4,
-    #         'z_sigma_scale': 0.01 * z_weight / self.coefficient_scale,  # z_sigma_scale must scale with z_weight
-    #         'z_alpha_scale': 0.005,  # z_alpha_scale gets multiplied by Z_hat - doesn't scale with z_weight
-    #
-    #         # Complexity hyperparameters
-    #         'ups_alpha': 0.05,
-    #         'ups_beta': 0.1,
-    #         'ups_scale': 0.15,
-    #         'ds_alpha': 5,
-    #         'ds_beta': 5,
-    #
-    #         # Offset scales
-    #         'R_inf_scale': 100,
-    #         'inductance_scale': 1,
-    #         'v_baseline_scale': 100 * v_weight,
-    #
-    #         # z factor scale
-    #         'log_Z_factor_scale': log_vz_factor_scale,
-    #         'log_VZ_factor_scale': log_vz_factor_scale,
-    #     }
-    #
-    #     stan_data.update(add_stan_data)
-    #
-    #     self.stan_input = stan_data.copy()
-    #
-    #     print('Finished prepping stan_data')
-    #
-    #     # Update init values with offset scales
-    #     ridge_values['R_inf_raw'] = ridge_values['R_inf'] / stan_data['R_inf_scale']
-    #     if self.fit_inductance:
-    #         ridge_values['inductance_raw'] = ridge_values['inductance'] / stan_data['inductance_scale']
-    #
-    #     # Update with user-supplied inits if provided
-    #     if init_values is not None:
-    #         ridge_values.update(init_values)
-    #         init_values = ridge_values
-    #     else:
-    #         init_values = ridge_values
-    #
-    #     self._init_values = init_values
-    #
-    #     # load Stan model
-    #     if model_name is None:
-    #         # Construct model name from arguments
-    #         if self.chrono_mode == 'galv':
-    #             model_name = 'Hybrid_Galv'
-    #         elif self.chrono_mode == 'pot':
-    #             model_name = 'Hybrid_Pot'
-    #         else:
-    #             raise ValueError
-    #
-    #         model_name += 'SquareWaveDRT'
-    #
-    #         if nonneg:
-    #             model_name += '_pos'
-    #
-    #         if not self.fit_inductance:
-    #             model_name += '_noL'  # no inductance
-    #
-    #         if adjust_vz_factor:
-    #             model_name += '_VZFactor'
-    #
-    #         model_name += '.stan'
-    #     self.stan_model_name = model_name
-    #
-    #     # stan_model = load_pickle(os.path.join(module_dir, 'stan_model_files', model_name))
-    #     stan_model = CmdStanModel(stan_file=os.path.join(module_dir, 'stan_model_files', model_name))
-    #     print('Loaded stan model')
-    #     # Fit model
-    #     print('stan data check:', utils.array.check_equality(self.stan_input, stan_data))
-    #     self.stan_mle = stan_model.optimize(stan_data, iter=max_iter, seed=random_seed, inits=init_values,
-    #                                         algorithm='lbfgs', **stan_kw)
-    #     self.stan_result = self.stan_mle.stan_variables()
-    #     # self.stan_result = stan_model.optimizing(stan_data, iter=max_iter, seed=random_seed, init=init_values)
-    #     print('Optimized model')
-    #     # Extract model parameters
-    #     self.fit_parameters = {'x': self.stan_result['x'] * self.coefficient_scale,
-    #                            'R_inf': self.stan_result['R_inf'] * self.coefficient_scale,
-    #                            'v_baseline': (
-    #                                                  self.stan_result['v_baseline'] / v_weight - scaled_response_offset
-    #                                          ) * self.response_signal_scale
-    #                            }
-    #
-    #     for param in ['v_sigma_tot', 'v_sigma_res']:
-    #         self.fit_parameters[param] = self.stan_result[param] * self.response_signal_scale / v_weight
-    #     for param in ['z_sigma_tot', 'z_sigma_res', 'z_alpha_prop', 'z_alpha_re', 'z_alpha_im']:
-    #         self.fit_parameters[param] = self.stan_result[param] * self.impedance_scale
-    #
-    #     # Convert z_sigma_tot to complex
-    #     self.fit_parameters['z_sigma_tot'] = self.fit_parameters['z_sigma_tot'][:len(z)] \
-    #                                          + 1j * self.fit_parameters['z_sigma_tot'][len(z):]
-    #
-    #     if adjust_vz_factor:
-    #         self.fit_parameters['vz_factor'] = self.stan_result['vz_factor']
-    #
-    #     if self.fit_inductance:
-    #         self.fit_parameters['inductance'] = self.stan_result['inductance'] * self.coefficient_scale
-    #     else:
-    #         self.fit_parameters['inductance'] = 0
-    #
-    #     self.fit_type = 'hybrid_chb'
-
-    # # Initialization
-    # # -------------------------------------------
-    # def get_init_from_ridge(self, times, i_signal, v_signal, frequencies, z, step_times, z_weight, fit_type,
-    #                         **ridge_kw):
-    #     # User over-penalized ridge to initialize CHB fit
-    #     # This avoids trapping the CHB fit in a deep local minimum
-    #     ridge_defaults = dict(l2_lambda_0=10, hyper_l2_lambda=True, hl_l2_beta=100, l1_lambda_0=1)
-    #     ridge_defaults.update(ridge_kw)
-    #
-    #     if fit_type == 'normal':
-    #         self.ridge_fit(times, i_signal, v_signal, step_times, **ridge_defaults)
-    #     elif fit_type == 'hybrid':
-    #         self.hybrid_ridge_fit(times, i_signal, v_signal, frequencies, z, step_times, eis_weights=z_weight,
-    #                               **ridge_defaults)
-    #
-    #     init_values = {'x': self.fit_parameters['x'] / self.coefficient_scale,
-    #                    'R_inf': self.fit_parameters['R_inf'] / self.coefficient_scale,
-    #                    'inductance': self.fit_parameters['inductance'] / self.coefficient_scale,
-    #                    }
-    #     response_offset = -self.fit_parameters['v_baseline'] / self.response_signal_scale
-    #
-    #     if ridge_defaults.get('adjust_vz_factor', False):
-    #         vz_factor_scale = ridge_defaults.get('vz_factor_scale', 0.1)
-    #         # init_values['log_z_factor_raw'] = np.log(self.fit_parameters['z_factor']) / z_factor_scale
-    #         init_values['log_vz_factor_raw'] = np.log(self.fit_parameters['vz_factor']) / vz_factor_scale
-    #
-    #     return response_offset, init_values
-
-    # def get_hybrid_init_from_ridge(self, times, i_signal, v_signal, frequencies, z, **ridge_kw):
-    #	  # User over-penalized ridge to initialize CHB fit
-    #	  # This avoids trapping the CHB fit in a deep local minimum
-    #	  ridge_defaults = dict(l2_lambda_0=10, hyper_l2_lambda=True, hl_l2_beta=100, l1_lambda_0=1)
-    #	  ridge_defaults.update(ridge_kw)
-    #	  self.hybrid_ridge_fit(times, i_signal, v_signal, frequencies, z, **ridge_defaults)
-    #
-    #	  init_values = {'x': self.fit_parameters['x'] / self.coefficient_scale,
-    #					 'R_inf': self.fit_parameters['R_inf'] / self.coefficient_scale,
-    #					 'inductance': self.fit_parameters['inductance'] / self.coefficient_scale,
-    #					 }
-    #	  scaled_response_offset = -self.fit_parameters['v_baseline'] / self.response_signal_scale
-    #
-    #	  return scaled_response_offset, init_values
-
     # Prediction
     # --------------------------------------------
     @property
@@ -4223,8 +2849,22 @@ class DRT(DRTBase):
             x = self.fit_parameters['x_dop']
 
         return x
+    
+    def get_drt_norm(self, normalize: bool, normalize_by: Optional[float] = None, 
+                     x: Optional[ndarray] = None):
+        if normalize_by is not None:
+            normalize = True
+            
+        if normalize:
+            if normalize_by is None:
+                normalize_by = self.predict_r_p(x=x)
+        else:
+            normalize_by = 1
+            
+        return normalize_by
 
-    def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, normalize=False):
+    def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                             normalize=False, normalize_by: Optional[float] = None):
         """
         Predict distribution as function of tau
         :param ndarray tau: tau values at which to evaluate the distribution
@@ -4241,17 +2881,15 @@ class DRT(DRTBase):
 
         x = self.get_drt_params(x, sign)
 
-        if normalize:
-            normalize_by = self.predict_r_p(x=x)
-        else:
-            normalize_by = 1
+        normalize_by = self.get_drt_norm(normalize, normalize_by, x=x)
 
         return basis_matrix @ x / normalize_by
 
-    def estimate_distribution_cov(self, tau=None, ppd=20, p_matrix=None, sign=1, order=0, normalize=False,
+    def estimate_distribution_cov(self, tau=None, ppd=20, p_matrix=None, sign=1, order=0, 
+                                  normalize=False, normalize_by: Optional[float] = None,
                                   var_floor=0.0, tau_data_limits=None, extend_var=False):
         """
-        Predict distribution as function of tau
+        DRT parameter covariance matrix
         :param ndarray tau: tau values at which to evaluate the distribution
         :return: array of distribution density values
         """
@@ -4264,10 +2902,9 @@ class DRT(DRTBase):
                                                         self.tau_basis_type, epsilon=self.tau_epsilon,
                                                         order=order, zga_params=self.zga_params)
 
-        if normalize:
-            normalize_by = self.predict_r_p() ** 2
-        else:
-            normalize_by = 1
+        # Get normalization - square for covariance
+        normalize_by = self.get_drt_norm(normalize, normalize_by)
+        normalize_by **= 2
 
         # Get parameter covariance
         x_cov = self.estimate_param_cov(p_matrix)
@@ -4333,8 +2970,10 @@ class DRT(DRTBase):
             # Error in precision matrix inversion
             return None
 
-    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, var_floor=0.0, order=0,
-                         normalize_quantiles=(0.25, 0.75), delta_density=False):
+    def estimate_dop_cov(self, nu=None, p_matrix=None, normalize=False, 
+                         normalize_tau=None, normalize_quantiles=(0.25, 0.75), 
+                         var_floor=0.0, order=0,
+                         delta_density=False):
         # If tau is not provided, go one decade beyond self.basis_tau with finer spacing
         if nu is None:
             nu = self.basis_nu
@@ -4345,10 +2984,8 @@ class DRT(DRTBase):
                                                         order=order, zga_params=None)
 
         # Normalize
-        if normalize:
-            normalize_by = phasance.phasor_scale_vector(nu, self.basis_tau, normalize_quantiles) ** 2
-        else:
-            normalize_by = 1
+        normalize_by = self.get_dop_norm(nu, normalize, normalize_tau, normalize_quantiles)
+        normalize_by **= 2
 
         # Get parameter covariance
         x_cov = self.estimate_param_cov(p_matrix)
@@ -4380,15 +3017,18 @@ class DRT(DRTBase):
             # Error in precision matrix inversion
             return None
 
-    def predict_distribution_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, normalize=False,
+    def predict_distribution_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                                normalize=False, normalize_by: Optional[float] = None,
                                 quantiles=[0.025, 0.975]):
         # Get distribution std
-        dist_cov = self.estimate_distribution_cov(tau=tau, ppd=ppd, order=order, sign=sign, normalize=normalize)
+        dist_cov = self.estimate_distribution_cov(tau=tau, ppd=ppd, order=order, sign=sign, 
+                                                  normalize=normalize, normalize_by=normalize_by)
         if dist_cov is not None:
             dist_sigma = np.diag(dist_cov) ** 0.5
 
             # Distribution mean
-            dist_mu = self.predict_distribution(tau=tau, ppd=ppd, x=x, order=order, sign=sign, normalize=normalize)
+            dist_mu = self.predict_distribution(tau=tau, ppd=ppd, x=x, order=order, sign=sign, 
+                                                normalize=normalize, normalize_by=normalize_by)
 
             # Determine number of std devs to obtain quantiles
             s_lo, s_hi = stats.std_normal_quantile(quantiles)
@@ -4402,9 +3042,10 @@ class DRT(DRTBase):
             return None, None
 
     def predict_dop_ci(self, nu=None, x=None, normalize=False, normalize_tau=None, quantiles=[0.025, 0.975],
-                       order=0, normalize_quantiles=(0.25, 0.75), delta_density=False):
+                       order=0, normalize_quantiles=(0.25, 0.75), delta_density=False, include_ideal=True):
         # Get distribution std
-        dist_cov = self.estimate_dop_cov(nu, normalize=normalize, order=order,
+        dist_cov = self.estimate_dop_cov(nu, order=order, normalize=normalize, 
+                                         normalize_tau=normalize_tau,
                                          normalize_quantiles=normalize_quantiles,
                                          delta_density=delta_density)
         if dist_cov is not None:
@@ -4414,7 +3055,7 @@ class DRT(DRTBase):
             dist_mu = self.predict_dop(nu=nu, x=x, normalize=normalize,
                                        normalize_tau=normalize_tau, order=order,
                                        normalize_quantiles=normalize_quantiles,
-                                       delta_density=delta_density)
+                                       delta_density=delta_density, include_ideal=include_ideal)
 
             # Determine number of std devs to obtain quantiles
             s_lo, s_hi = stats.std_normal_quantile(quantiles)
@@ -4441,7 +3082,7 @@ class DRT(DRTBase):
         return dnu
 
     def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False,
-                    normalize_quantiles=(0.25, 0.75), delta_density=False):
+                    normalize_quantiles=(0, 1), delta_density=False, include_ideal=True):
         if nu is None:
             nu = np.linspace(-1, 1, 401)
             # Ensure basis_nu is included
@@ -4465,46 +3106,87 @@ class DRT(DRTBase):
 
         dop = basis_matrix @ x
 
-        # Add pure inductance, resistance, and capacitance
-        ohmic_index = np.where(nu == 0)
-        if len(ohmic_index) == 1:
-            r_inf = self.fit_parameters['R_inf']
-            if delta_density:
-                r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
-            dop[ohmic_index] += r_inf
 
-        induc_index = np.where(nu == 1)
-        if len(induc_index) == 1:
-            induc = self.fit_parameters['inductance']
-            if delta_density:
-                induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
-            dop[induc_index] += induc
+        if delta_density:
+            dnu = self.get_nu_basis_spacing()
+            if self.nu_basis_type == 'delta':
+                x = x / dnu
 
-        cap_index = np.where(nu == -1)
-        if len(cap_index) == 1:
-            c_inv = self.fit_parameters['C_inv']
-            if delta_density:
-                c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
-            dop[cap_index] += c_inv
+        dop = basis_matrix @ x
+
+
+        if delta_density:
+            dnu = self.get_nu_basis_spacing()
+            if self.nu_basis_type == 'delta':
+                x = x / dnu
+
+        dop = basis_matrix @ x
+
+        
 
         # TODO: revisit normalization
-        if normalize:
-            if normalize_tau is None:
-                # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
-                # normalize_tau = np.array(data_tau_lim)
-                normalize_tau = self.basis_tau
-            else:
-                normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
-            normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
-        else:
-            normalize_by = 1
+        normalize_by = self.get_dop_norm(nu, normalize, normalize_tau, normalize_quantiles)
+
+        # print(normalize_by)
 
         dop /= normalize_by
+        
+        # Add pure inductance, resistance, and capacitance
+        if include_ideal:
+            ohmic_index = np.where(nu == 0)
+            if len(ohmic_index) == 1:
+                r_inf = self.fit_parameters['R_inf']
+                if delta_density:
+                    r_inf = r_inf / dnu[utils.array.nearest_index(self.basis_nu, 0)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    r_inf = r_inf / (normalize_by[ohmic_index] * self.nu_basis_area)
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                dop[ohmic_index] += r_inf
+    
+    
+            induc_index = np.where(nu == 1)
+            if len(induc_index) == 1:
+                induc = self.fit_parameters['inductance']
+                if delta_density:
+                    induc = induc / dnu[utils.array.nearest_index(self.basis_nu, 1)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    induc = induc / (normalize_by[induc_index] * self.nu_basis_area)
+                dop[induc_index] += induc
+    
+            cap_index = np.where(nu == -1)
+            if len(cap_index) == 1:
+                c_inv = self.fit_parameters['C_inv']
+                if delta_density:
+                    c_inv = c_inv / dnu[utils.array.nearest_index(self.basis_nu, -1)]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    c_inv = c_inv / (normalize_by[cap_index] * self.nu_basis_area)
+                dop[cap_index] += c_inv
 
         if return_nu:
             return nu, dop
         else:
             return dop
+        
+    def get_dop_norm(self, nu, normalize: bool = False, normalize_tau: Optional[tuple] = None, 
+                     normalize_quantiles: tuple = (0, 1)):
+        if normalize:
+            if normalize_tau is None:
+                data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
+                normalize_tau = np.array(data_tau_lim)
+            
+            normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
+            normalize_by /= self.nu_basis_area
+        else:
+            normalize_by = 1
+            
+        return normalize_by
 
     def predict_response(self, times=None, input_signal=None, step_times=None, step_sizes=None, op_mode=None,
                          offset_steps=None,
@@ -4605,7 +3287,10 @@ class DRT(DRTBase):
 
                 return rm_bkg @ y_resid
 
-    def predict_z(self, frequencies, include_vz_offset=True, x=None):
+    def predict_z(self, frequencies, include_vz_offset=True, x=None,
+                  include_dop=True, include_drt=True, include_inductance=True,
+                  include_ohmic=True, include_cap=True
+                  ):
         # Get matrix
         zm, zm_dop = self._prep_impedance_prediction_matrix(frequencies)
 
@@ -4621,9 +3306,19 @@ class DRT(DRTBase):
         induc = fit_parameters.get('inductance', 0)
         c_inv = fit_parameters.get('C_inv', 0)
 
-        z = zm @ x_drt + r_inf + induc * 2j * np.pi * frequencies + c_inv * (2j * np.pi * frequencies) ** -1
+        z = np.zeros(len(frequencies), dtype=complex)
 
-        if x_dop is not None:
+        if include_drt:
+            z += zm @ x_drt
+
+        if include_ohmic:
+            z += r_inf
+        if include_inductance:
+            z += induc * 2j * np.pi * frequencies
+        if include_cap:
+            z+= c_inv * (2j * np.pi * frequencies) ** -1
+
+        if x_dop is not None and include_dop:
             z += zm_dop @ x_dop
 
         if include_vz_offset:
@@ -4712,6 +3407,30 @@ class DRT(DRTBase):
     #     y_hat = self.predict_response(**self.fit_kwargs)
     #
     #     return y_hat - self.raw_response_signal
+
+    # ----------------------------------------------------
+    # Fit quantification
+    # ----------------------------------------------------
+    def evaluate_chi_sq(self, frequencies=None, z=None, x=None, weights=None, **predict_kw):
+        # Get fit frequencies
+        if frequencies is None:
+            frequencies = self.get_fit_frequencies()
+
+        if z is None:
+            z = self.z_fit
+
+        # Get weights
+        if weights is not None:
+            if weights == 'modulus':
+                weights = 1 / np.abs(z)
+            elif np.shape(weights) != np.shape(z):
+                raise ValueError('Weights must have same shape as frequencies')
+
+        # Get model impedance
+        z_hat = self.predict_z(frequencies, x=x, **predict_kw)
+
+        # Calculate residuals
+        return evaluation.chi_sq(z, z_hat, weights=weights)
 
     # ----------------------------------------------------
     # Peak finding
@@ -4914,7 +3633,7 @@ class DRT(DRTBase):
         return peak_gammas
 
     def mark_peaks(self, ax, x=None, sign=1, peak_tau=None, find_peaks_kw=None, scale_prefix=None, area=None,
-                   normalize=False,
+                   normalize=False, normalize_by: Optional[float] = None,
                    **plot_kw):
         if find_peaks_kw is None:
             find_peaks_kw = {}
@@ -4923,7 +3642,9 @@ class DRT(DRTBase):
         if peak_tau is None:
             peak_tau = self.find_peaks(x=x, sign=sign, **find_peaks_kw)
 
-        gamma_peaks = self.predict_distribution(peak_tau, normalize=normalize, x=x, sign=sign)
+        gamma_peaks = self.predict_distribution(peak_tau, 
+                                                normalize=normalize, normalize_by=normalize_by, 
+                                                x=x, sign=sign)
 
         if area is not None:
             gamma_peaks *= area
@@ -4990,9 +3711,9 @@ class DRT(DRTBase):
         :return: covariance matrix
         """
         if p_matrix is None:
-            p_matrix = self.fit_parameters['p_matrix']
+            p_matrix = self.fit_parameters.get('p_matrix', None)
 
-        if self.fit_type.find('qphb') > -1:
+        if p_matrix is not None:
             try:
                 p_inv = np.linalg.inv(p_matrix)
                 # Invert DOP scaling
@@ -5007,6 +3728,13 @@ class DRT(DRTBase):
                 return None
         else:
             raise Exception('Parameter covariance estimation is only available for qphb fits')
+        
+    def fisher_matrix(self, weighted: bool = True):
+        rm = self.qphb_params['rm']
+        if weighted:
+            w = self.qphb_params['weights']
+            rm = np.diag(w) @ rm
+        return rm.T @ rm
 
     def generate_map_samples(self, max_iter=2, shift_frac=0.05, shift_scale=1.5, random_seed=None):
         # Generate samples if no existing samples OR sampling arguments have changed
@@ -5359,12 +4087,14 @@ class DRT(DRTBase):
         x_hat = history_entry['x']
         rho_vector = history_entry['rho_vector']
         s_vectors = history_entry['s_vectors']
+        dop_rho_vector = history_entry['dop_rho_vector']
 
         if weights is None:
             weights = self.qphb_params['est_weights']
 
-        lml = qphb.evaluate_lml(x_hat, penalty_matrices, penalty_type, qphb_hypers, l1_lambda_vector, rho_vector,
-                                s_vectors, weights, rm, rv)
+        lml = qphb.evaluate_lml(x_hat, penalty_matrices, penalty_type, qphb_hypers, 
+                                l1_lambda_vector, rho_vector, dop_rho_vector,
+                                s_vectors, weights, rm, rv, self.special_qp_params)
 
         return lml
 
@@ -5382,7 +4112,7 @@ class DRT(DRTBase):
 
         return trans_functions
 
-    def plot_chrono_fit(self, ax=None, transform_time=True, linear_time_axis=None,
+    def plot_chrono_fit(self, ax=None, transform_time=False, linear_time_axis=None,
                         display_linear_ticks=None, linear_tick_kw=None,
                         plot_data=True, data_kw=None, data_label='',
                         scale_prefix=None, x=None, subtract_background=True, y_bkg=None,
@@ -5452,7 +4182,7 @@ class DRT(DRTBase):
                     y_meas = y_meas - self.raw_response_background
 
             plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False, scale_prefix=scale_prefix,
                         label=data_label, tight_layout=tight_layout, **data_kw)
@@ -5464,14 +4194,14 @@ class DRT(DRTBase):
             _, y_out = utils.chrono.get_input_and_response(self.chrono_outliers[1], self.chrono_outliers[2],
                                                            self.chrono_mode)
             plot_tuple = utils.chrono.signals_to_tuple(self.chrono_outliers[0], None, y_out, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False, scale_prefix=scale_prefix,
                         tight_layout=tight_layout, **outlier_kw)
 
         # Plot fitted response
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_hat, self.chrono_mode)
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, plot_func='plot', transform_time=transform_time, trans_functions=trans_functions,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
@@ -5584,7 +4314,7 @@ class DRT(DRTBase):
                 y_meas = y_meas - self.raw_response_background
 
         # Calculate residuals
-        y_err = y_hat - y_meas
+        y_err = y_meas - y_hat
 
         # Get appropriate scale
         if scale_prefix is None:
@@ -5613,7 +4343,7 @@ class DRT(DRTBase):
             # ax.scatter(x_out, y_err_out / scale_factor, **outlier_kw)
 
             plot_tuple = utils.chrono.signals_to_tuple(t_out, None, y_err_out, self.chrono_mode)
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False,
                         display_linear_ticks=False,
@@ -5622,12 +4352,12 @@ class DRT(DRTBase):
 
         # Plot residuals
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_err, self.chrono_mode)
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
                     scale_prefix=scale_prefix,
-                    tight_layout=tight_layout, **kw)
+                    tight_layout=tight_layout, alpha=alpha, **kw)
 
         # ax.scatter(x_plot, y_err / scale_factor, s=s, alpha=alpha, **kw)
 
@@ -5650,9 +4380,9 @@ class DRT(DRTBase):
 
         # Labels
         if self.chrono_mode == 'galv':
-            ax.set_ylabel(f'$\hat{{v}} - v$ ({scale_prefix}V)')
+            ax.set_ylabel(f'$v - \hat{{v}}$ ({scale_prefix}V)')
         elif self.chrono_mode == 'pot':
-            ax.set_ylabel(f'$\hat{{i}} - i$ ({scale_prefix}A)')
+            ax.set_ylabel(f'$i - \hat{{i}}$ ({scale_prefix}A)')
 
         fig.tight_layout()
 
@@ -5683,7 +4413,7 @@ class DRT(DRTBase):
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas, self.chrono_mode)
         if raw_kw is None:
             raw_kw = {'label': 'Raw', 'plot_func': 'plot'}
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time,
                     linear_time_axis=False, scale_prefix=scale_prefix,
                     tight_layout=False, **raw_kw)
@@ -5704,7 +4434,7 @@ class DRT(DRTBase):
             if background_kw is None:
                 background_kw = {'label': 'Background', 'plot_func': 'plot', 'c': 'r', 'alpha': 0.75}
 
-            plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+            plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax_bkg, transform_time=transform_time,
                         linear_time_axis=False, scale_prefix=bkg_scale_prefix,
                         tight_layout=False, **background_kw)
@@ -5719,7 +4449,7 @@ class DRT(DRTBase):
         plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas - y_bkg, self.chrono_mode)
         if corrected_kw is None:
             corrected_kw = {'label': 'Corrected', 'plot_func': 'plot', 'c': 'k', 'alpha': 0.75}
-        plot_chrono(plot_tuple, op_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
+        plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                     axes=ax, transform_time=transform_time,
                     linear_time_axis=linear_time_axis,
                     display_linear_ticks=display_linear_ticks, linear_tick_kw=linear_tick_kw,
@@ -5820,7 +4550,7 @@ class DRT(DRTBase):
         y_hat = self.predict_z(f_fit, x=x, **predict_kw)
 
         # Calculate residuals
-        y_err = y_hat - self.z_fit
+        y_err = self.z_fit - y_hat
 
         # Get scale prefix
         if scale_prefix is None:
@@ -5867,17 +4597,17 @@ class DRT(DRTBase):
 
         # Update axis labels
         if 'Zreal' in bode_cols:
-            axes[bode_cols.index('Zreal')].set_ylabel(fr'$\hat{{Z}}^{{\prime}}-Z^{{\prime}}$ ({scale_prefix}$\Omega$)')
+            axes[bode_cols.index('Zreal')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
         if 'Zimag' in bode_cols:
             axes[bode_cols.index('Zimag')].set_ylabel(
-                fr'$-(\hat{{Z}}^{{\prime\prime}}-Z^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
+                fr'$-(Z^{{\prime\prime}} - \hat{{Z}}^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
 
         fig.tight_layout()
 
         return axes
 
     def plot_distribution(self, tau=None, ppd=20, x=None, ax=None, scale_prefix=None, plot_bounds=False,
-                          normalize=False, sign=None,
+                          normalize=False, normalize_by=None, sign=None,
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
                           area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
                           return_line=False, freq_axis=False,
@@ -5902,11 +4632,14 @@ class DRT(DRTBase):
         #     sample_kw = self.map_sample_kw
 
         # Normalize
+        if normalize_by is not None:
+            normalize = True
+        
         if normalize:
-            r_p = self.predict_r_p(x=x, absolute=True)
+            if normalize_by is None:
+                normalize_by = self.predict_r_p(x=x, absolute=True)
             scale_prefix = ''
-        else:
-            r_p = None
+            # print('r_p:', r_p)
 
         # Get common scale prefix if plotting multiple signs
         if self.series_neg and len(signs) > 1 and scale_prefix is None:
@@ -5928,19 +4661,27 @@ class DRT(DRTBase):
             # else:
             #     raise ValueError(f"Invalid line argument {line}. Options: 'mode', 'mean'")
 
-            ax, info = plot_distribution(tau, gamma, ax, area, scale_prefix, normalize_by=r_p, freq_axis=freq_axis,
+            ax, info = plot_distribution(tau, gamma, ax, area, scale_prefix, 
+                                         normalize_by=normalize_by, freq_axis=freq_axis,
                                          return_info=True, **kw)
             line, scale_prefix, scale_factor = info
             lines.append(line)
 
             if plot_ci:
                 if self.fit_type.find('qphb') > -1:
-                    gamma_lo, gamma_hi = self.predict_distribution_ci(tau, ppd, x=x, order=order, sign=sign,
-                                                                      normalize=normalize,
-                                                                      quantiles=ci_quantiles)
+                    gamma_lo, gamma_hi = self.predict_distribution_ci(
+                        tau, ppd, x=x, order=order, sign=sign, 
+                        normalize=normalize, normalize_by=normalize_by,
+                        quantiles=ci_quantiles
+                    )
+                    
                     if area is not None:
                         for g in (gamma_lo, gamma_hi):
                             g *= area
+                            
+                    # if normalize:
+                    #     for g in (gamma_lo, gamma_hi):
+                    #         g /= r_p
 
                     # Enforce sign constraint in CI
                     if gamma_lo is not None:
@@ -5963,7 +4704,8 @@ class DRT(DRTBase):
             if mark_peaks:
                 if mark_peaks_kw is None:
                     mark_peaks_kw = {}
-                self.mark_peaks(ax, x=x, sign=sign, scale_prefix=scale_prefix, area=area, normalize=normalize,
+                self.mark_peaks(ax, x=x, sign=sign, scale_prefix=scale_prefix, area=area, 
+                                normalize=normalize, normalize_by=normalize_by,
                                 **mark_peaks_kw)
 
         if normalize:
@@ -6010,9 +4752,10 @@ class DRT(DRTBase):
             return ax
 
     def plot_dop(self, nu=None, x=None, ax=None, scale_prefix=None, normalize=False, normalize_tau=None,
-                 invert_nu=True, plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
-                 delta_density=False,
-                 tight_layout=True, return_line=False, normalize_quantiles=(0.25, 0.75), **kw):
+                 invert_nu=True, phase=True, area=None,
+                 plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
+                 delta_density=False, include_ideal=True,
+                 tight_layout=True, return_line=False, normalize_quantiles=(0, 1), **kw):
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
@@ -6021,18 +4764,31 @@ class DRT(DRTBase):
 
         nu, dop = self.predict_dop(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
                                    order=order, return_nu=True, normalize_quantiles=normalize_quantiles,
-                                   delta_density=delta_density)
+                                   delta_density=delta_density, include_ideal=include_ideal)
 
         # Invert nu for more intuitive visualization
         if invert_nu:
             nu_plot = -nu
+            x_label_sign = '-'
         else:
             nu_plot = nu
+            x_label_sign = ''
+
+        # Convert nu to phase for easier interpretation
+        if phase:
+            nu_plot = nu_plot * 90 #np.pi / 2
+            x_label = fr'${x_label_sign}\theta$ ($^\circ$)'
+        else:
+            x_label = fr'${x_label_sign}\nu$'
 
         # Get scale factor
         if scale_prefix is None:
             scale_prefix = utils.scale.get_scale_prefix(dop)
         scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
+        
+        if area is not None:
+            # Multiply by area
+            scale_factor = scale_factor / area
 
         line = ax.plot(nu_plot, dop / scale_factor, **kw)
 
@@ -6042,7 +4798,7 @@ class DRT(DRTBase):
                 dop_lo, dop_hi = self.predict_dop_ci(nu=nu, x=x, normalize=normalize, normalize_tau=normalize_tau,
                                                      quantiles=ci_quantiles, order=order,
                                                      normalize_quantiles=normalize_quantiles,
-                                                     delta_density=delta_density)
+                                                     delta_density=delta_density, include_ideal=include_ideal)
 
                 if dop_lo is not None:
                     # Enforce sign constraint in CI
@@ -6058,14 +4814,19 @@ class DRT(DRTBase):
                     ax.fill_between(nu_plot, dop_lo / scale_factor, dop_hi / scale_factor, **ci_kw)
 
         if invert_nu:
-            ax.set_xlabel(r'$-\nu$')
+            ax.set_xlabel(x_label)
         else:
-            ax.set_xlabel(r'$\nu$')
+            ax.set_xlabel(x_label)
 
-        if normalize:
-            ax.set_ylabel(fr'$\tilde{{\psi}}$ ({scale_prefix}$\Omega$)')
+        if area is not None:
+            area_units = '$\cdot \mathrm{cm}^2$'
         else:
-            ax.set_ylabel(fr'$\psi$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu$)')
+            area_units = ''
+            
+        if normalize:
+            ax.set_ylabel(fr'$\tilde{{\rho}}$ ({scale_prefix}$\Omega${area_units})')
+        else:
+            ax.set_ylabel(fr'$\rho$ ({scale_prefix}$\Omega \cdot \mathrm{{s}}^\nu${area_units})')
 
         if tight_layout:
             fig.tight_layout()
@@ -6118,7 +4879,8 @@ class DRT(DRTBase):
         else:
             if distribution_kw is None:
                 distribution_kw = {}
-            self.plot_distribution(x=x, ax=drt_ax, plot_ci=True, c='k', **distribution_kw)
+            self.plot_distribution(x=x, ax=drt_ax, **dict(plot_ci=True, c='k') | distribution_kw)
+            
         drt_ax.set_title('DRT')
 
         # Plot EIS fit and residuals
@@ -6331,7 +5093,11 @@ class DRT(DRTBase):
 
             # With all matrices calculated, set recalc flags to False
             self._recalc_chrono_fit_matrix = False
-            self._recalc_chrono_prediction_matrix = False
+            # self._recalc_chrono_prediction_matrix = False
+            # We shouldn't reset _recalc_eis_prediction_matrix here.
+            #  Example case: basis_tau changes during fit (triggers recalc, which is then overwritten here),
+            #  but f_predict is unchanged
+            #  When we next try to call predict_z, recalc status will be False even though basis_tau changed
 
         # Otherwise, reuse existing matrices as appropriate
         elif self._t_fit_subset_index is not None:
@@ -6385,7 +5151,11 @@ class DRT(DRTBase):
 
             # With matrices calculated, set recalc flags to False
             self._recalc_eis_fit_matrix = False
-            self._recalc_eis_prediction_matrix = False
+            # self._recalc_eis_prediction_matrix = False
+            # We shouldn't reset _recalc_eis_prediction_matrix here.
+            #  Example case: basis_tau changes during fit (triggers recalc, which is then overwritten here),
+            #  but f_predict is unchanged
+            #  When we next try to call predict_z, recalc status will be False even though basis_tau changed
         elif self._f_fit_subset_index is not None:
             # frequencies is a subset of self.f_fit. Use sub-matrices of existing matrix; do not overwrite
             zm = self.fit_matrices['impedance'][self._f_fit_subset_index, :].copy()
@@ -6407,7 +5177,7 @@ class DRT(DRTBase):
 
         return zm, induc_zv, cap_zv, zm_dop
 
-    def _prep_penalty_matrices(self, penalty_type, derivative_weights):
+    def _prep_penalty_matrices(self, penalty_type, derivative_weights, truncate=False):
         # Always calculate penalty (derivative) matrices - fast, avoids any gaps in recalc logic
         # if self._recalc_chrono_fit_matrix:
         penalty_matrices = {}
@@ -6429,13 +5199,19 @@ class DRT(DRTBase):
                     penalty_matrices[f'l{k}_dop'] = dk_dop.copy()
                     penalty_matrices[f'm{k}_dop'] = dk_dop.T @ dk_dop
             elif penalty_type == 'integral':
+                if truncate:
+                    integration_limits = (np.log(self.basis_tau[0]), np.log(self.basis_tau[-1]))
+                else:
+                    integration_limits = None
                 dk = mat1d.construct_integrated_derivative_matrix(np.log(self.basis_tau),
                                                                   basis_type=self.tau_basis_type,
                                                                   order=k, epsilon=self.tau_epsilon,
-                                                                  zga_params=self.zga_params)
+                                                                  zga_params=self.zga_params,
+                                                                  integration_limits=integration_limits)
                 penalty_matrices[f'm{k}'] = dk.copy()
 
                 if self.fit_dop:
+                    # TODO: truncate dop penalty?
                     if self.nu_basis_type == 'delta':
                         # Use Gaussian derivatives for delta basis
                         dnu = np.median(np.diff(np.sort(self.basis_nu)))
@@ -6497,16 +5273,20 @@ class DRT(DRTBase):
         # Get DOP scale vector
         if self.fit_dop:
             if self.normalize_dop:
-                # tau_lim = np.array(pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times))
-                # print(tau_lim, self.basis_tau)
+                # If tau_supergrid is set, we should use this for DOP normalization
+                # to ensure consistency across spectra (e.g. for DRTMD).
+                # Otherwise, we can just use basis_tau
                 if self.tau_supergrid is not None:
                     dop_eval_tau = self.tau_supergrid
                 else:
                     dop_eval_tau = self.basis_tau
+                
                 self.dop_scale_vector = phasance.phasor_scale_vector(self.basis_nu, dop_eval_tau)
+                
                 # Normalize for basis function area
                 # print('nu basis area:', basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon))
-                self.dop_scale_vector /= basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon)
+                self.dop_scale_vector /= self.nu_basis_area
+                
                 # self.dop_scale_vector *= 100
                 # print(self.dop_scale_vector)
             else:
@@ -7062,7 +5842,7 @@ class DRT(DRTBase):
 
     def set_attributes(self, att_dict):
         for k, v in att_dict.items():
-            setattr(self, k, v)
+            setattr(self, k, deepcopy(v))
 
     def save_attributes(self, which, dest):
         att_dict = self.get_attributes(which)
@@ -7073,3 +5853,7 @@ class DRT(DRTBase):
         with open(source, 'rb') as f:
             att_dict = pickle.load(f)
         self.set_attributes(att_dict)
+
+    def copy(self):
+        return deepcopy(self)
+

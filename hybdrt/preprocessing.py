@@ -1,27 +1,30 @@
 import numpy as np
 import warnings
 from scipy.optimize import least_squares
-from scipy.ndimage import median_filter
+from scipy import ndimage
 
 from .utils import stats
 from .utils.array import unit_step, nearest_index
 from .utils.validation import check_step_model, check_ctrl_mode
+from .utils.chrono import get_input_and_response
 from .filters import nonuniform_gaussian_filter1d, masked_filter
 
 
 # Chrono data preprocessing
 # -------------------------
-def identify_steps(y, allow_consecutive=True, rthresh=50):
+def identify_steps(y, allow_consecutive=True, rthresh=50, athresh=1e-10):
     """
     Identify steps in signal
     :param ndarray y: signal
     :param bool allow_consecutive: if False, do not allow consecutive steps
     :param float rthresh: relative threshold for identifying steps
+    :param float athresh: absolute threshold for step size
     :return: step indices
     """
     dy = np.diff(y)
-    # Identify indices where diff exceeds threshold. Add small number to threshold in case median = 0
-    step_idx = np.where(np.abs(dy) >= np.median(np.abs(dy)) * rthresh + 1e-10)[0] + 1
+    # Identify indices where diff exceeds threshold
+    # athresh defaults to 1e-10 in case median diff is zero
+    step_idx = np.where((np.abs(dy) >= np.median(np.abs(dy)) * rthresh) & (np.abs(dy) >= athresh))[0] + 1
 
     if not allow_consecutive:
         # eliminate consecutive steps - these arise due to finite rise time and do not represent distinct steps
@@ -49,14 +52,14 @@ def split_steps(x, step_index):
     return [x[start:end] for start, end in zip(step_index[:-1], step_index[1:])]
 
 
-def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=50):
+def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=50, athresh=1e-10):
     """
     Get step times and sizes from signal
     :param ndarray times: measurement times
     :param ndarray y: signal
     :return: array of step times, array of step magnitudes
     """
-    step_idx = identify_steps(y, allow_consecutive, rthresh)
+    step_idx = identify_steps(y, allow_consecutive, rthresh, athresh)
 
     step_times = times[step_idx]
 
@@ -199,6 +202,7 @@ def generate_model_signal(times, step_times, step_sizes, tau_rise, step_model):
 def downsample_data(times, i_signal, v_signal, target_times=None, target_size=None, stepwise_sample_times=True,
                     step_times=None, step_model=None, method='match',
                     decimation_interval=10, decimation_factor=2, decimation_max_period=None,
+                    antialiased=True, filter_kw=None,
                     op_mode='galv', prestep_samples=20):
     """
     Downsample data to match desired sample times
@@ -269,7 +273,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
                 decimation_interval = select_decimation_interval(times, step_times, t_sample, prestep_samples,
                                                                  decimation_factor, decimation_max_period,
                                                                  target_size)
-        print(decimation_interval)
+        # print(decimation_interval)
         sample_index = get_decimation_index(times, step_times, t_sample, prestep_samples, decimation_interval,
                                             decimation_factor, decimation_max_period)
     else:
@@ -279,6 +283,17 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     #     sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
     #     sample_index = np.unique(sample_index)
 
+    if antialiased and stepwise_sample_times:
+        # Apply an antialiasing filter before downsampling
+        if filter_kw is None:
+            filter_kw = {}
+        input_signal, _ = get_input_and_response(i_signal, v_signal, op_mode)
+        step_index = identify_steps(input_signal, allow_consecutive=False)
+        i_signal = filter_chrono_signal(times, i_signal, step_index=step_index,
+                                        decimate_index=sample_index, **filter_kw)
+        v_signal = filter_chrono_signal(times, v_signal, step_index=step_index,
+                                        decimate_index=sample_index, **filter_kw)
+
     sample_times = times[sample_index].flatten()
     sample_i = i_signal[sample_index].flatten()
     sample_v = v_signal[sample_index].flatten()
@@ -286,26 +301,38 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     return sample_times, sample_i, sample_v, sample_index
 
 
-def filter_chrono_signal(times, y, sigma_factor=0.01, max_sigma=None, step_index=None,
+def filter_chrono_signal(times, y, step_index=None, input_signal=None, decimate_index=None,
+                         sigma_factor=0.01, max_sigma=None,
                          remove_outliers=False, outlier_kw=None, median_prefilter=False, **kw):
+    if step_index is None and input_signal is None:
+        raise ValueError('Either step_index or input_signal must be provided')
+
     if step_index is None:
-        step_index = identify_steps(y)
+        step_index = identify_steps(input_signal, allow_consecutive=False)
 
     if remove_outliers:
-        # Find outliers with difference from empty filtered signal
+        y = y.copy()
+
+        # First, remove obvious extreme values
+        # ext_index = identify_extreme_values(y, qr_size=0.8)
+        # print('extreme value indices:', np.where(ext_index))
+        # y[ext_index] = ndimage.median_filter(y, size=31)[ext_index]
+
+        # Find outliers with difference from filtered signal
         # Use median prefilter to avoid spread of outliers
-        y_empty = filter_chrono_signal(times, y, sigma_factor, max_sigma, step_index, remove_outliers=False,
-                                       empty=False, median_prefilter=True, **kw)
+        y_filt = filter_chrono_signal(times, y, step_index=step_index,
+                                      sigma_factor=sigma_factor, max_sigma=max_sigma,
+                                      remove_outliers=False,
+                                      empty=False, median_prefilter=True, **kw)
         if outlier_kw is None:
             outlier_kw = {}
 
-        outlier_flag = flag_chrono_outliers(y, y_empty, **outlier_kw)
-        print(np.where(outlier_flag))
+        outlier_flag = flag_chrono_outliers(y, y_filt, **outlier_kw)
+
+        print('outlier indices:', np.where(outlier_flag))
 
         # Set outliers to filtered value
-        y = y.copy()
-        # y[outlier_flag] = np.nan
-        y[outlier_flag] = y_empty[outlier_flag]
+        y[outlier_flag] = y_filt[outlier_flag]
 
     y_steps = split_steps(y, step_index)
     t_steps = split_steps(times, step_index)
@@ -314,28 +341,51 @@ def filter_chrono_signal(times, y, sigma_factor=0.01, max_sigma=None, step_index
     if max_sigma is None:
         max_sigma = sigma_factor / t_sample
 
+    # Get sigmas corresponding to decimation index
+    if decimate_index is not None:
+        decimate_sigma = sigma_from_decimate_index(y, decimate_index)
+        step_dec_sigmas = split_steps(decimate_sigma, step_index)
+    else:
+        step_dec_sigmas = None
+
     y_filt = []
-    for t_step, y_step in zip(t_steps, y_steps):
+    for i, (t_step, y_step) in enumerate(zip(t_steps, y_steps)):
         # Ideal sigma from inverse sqrt of maximum curvature of RC relaxation
         sigma_ideal = np.exp(1) * (t_step - (t_step[0] - t_sample)) / 2
         sigmas = sigma_factor * (sigma_ideal / t_sample)
         sigmas[sigmas > max_sigma] = max_sigma
-        print(np.min(sigmas), np.max(sigmas))
+
+        # Use decimation index to cap sigma
+        if step_dec_sigmas is not None:
+            sigmas = np.minimum(step_dec_sigmas[i], sigmas)
 
         if median_prefilter:
-            y_in = median_filter(y_step, 3)
+            y_in = ndimage.median_filter(y_step, 3, mode='nearest')
         else:
             y_in = y_step
 
-        if np.any(np.isnan(y_in)):
-            nan_mask = (~np.isnan(y_step)).astype(float)
-            yf = masked_filter(np.nan_to_num(y_in), nan_mask, nonuniform_gaussian_filter1d, sigma=sigmas, **kw)
-        else:
-            yf = nonuniform_gaussian_filter1d(y_in, sigmas, **kw)
+        yf = nonuniform_gaussian_filter1d(y_in, sigmas, **kw)
 
         y_filt.append(yf)
 
     return np.concatenate(y_filt)
+
+
+def sigma_from_decimate_index(y, decimate_index, truncate=4.0):
+    sigmas = np.zeros(len(y)) #+ 0.25
+
+    # Determine distance to nearest sample
+    diff = np.diff(decimate_index)
+    ldiff = np.insert(diff, 0, diff[0])
+    rdiff = np.append(diff, diff[-1])
+    min_diff = np.minimum(ldiff, rdiff)
+
+    # Set sigma such that truncate * sigma reaches halfway to nearest sample
+    sigma_dec = min_diff / (2 * truncate)
+    sigma_dec[min_diff < 2] = 0  # Don't filter undecimated regions
+    sigmas[decimate_index] = sigma_dec
+
+    return sigmas
 
 
 def flag_chrono_outliers(y_raw, y_filt, thresh=0.75, p_prior=0.01):
@@ -409,7 +459,7 @@ def get_decimation_index(times, step_times, t_sample, prestep_points, decimation
 
             if sample_interval == max_sample_interval:
                 # Sample interval has reached maximum. Continue through end of step
-                interval_end_index = next_step_index - 1
+                interval_end_index = next_step_index #- 1
             else:
                 # Continue with current sampling rate until decimation_interval points acquired
                 interval_end_index = min(last_index + decimation_interval * sample_interval + 1,
@@ -419,7 +469,7 @@ def get_decimation_index(times, step_times, t_sample, prestep_points, decimation
 
             if len(keep_index) == 0:
                 # sample_interval too large - runs past end of step. Keep last sample
-                keep_index = [interval_end_index]
+                keep_index = [interval_end_index - 1]
 
             # If this is the final interval, ensure that last point before next step is included
             if interval_end_index == next_step_index and keep_index[-1] < next_step_index - 1:
@@ -729,8 +779,16 @@ def get_basis_tau(frequencies, times, step_times, ppd=10, extend_decades=1, tau_
 
     if tau_grid is not None:
         # If tau_grid provided, select range from grid
-        left_index = nearest_index(tau_grid, 10 ** log_tau_min, constraint=-1)
-        right_index = nearest_index(tau_grid, 10 ** log_tau_max, constraint=1) + 1
+        if 10 ** log_tau_min < np.min(tau_grid):
+            left_index = 0
+        else:
+            left_index = nearest_index(tau_grid, 10 ** log_tau_min, constraint=-1)
+
+        if 10 ** log_tau_max > np.max(tau_grid):
+            right_index = len(tau_grid)
+        else:
+            right_index = nearest_index(tau_grid, 10 ** log_tau_max, constraint=1) + 1
+
         return tau_grid[left_index:right_index]
     else:
         # Determine number of basis points based on spacing

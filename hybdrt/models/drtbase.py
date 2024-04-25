@@ -242,6 +242,14 @@ class DRTBase:
     #     tau = np.logspace(log_tau_min, log_tau_max, num_points)
     #
     #     return tau
+    
+    @property
+    def tau_basis_area(self):
+        return basis.get_basis_func_area(self.tau_basis_type, self.tau_epsilon, self.zga_params)
+    
+    @property
+    def nu_basis_area(self):
+        return basis.get_basis_func_area(self.nu_basis_type, self.nu_epsilon)
 
     def get_tau_eval(self, ppd):
         """
@@ -692,6 +700,9 @@ class DRTBase:
         return self._t_fit
 
     def set_t_fit(self, times):
+        if times is None:
+            # EIS fit is being performed. We don't need to update anything
+            return 
         if hasattr(self, 't_fit') and not self._recalc_chrono_fit_matrix:
             self._t_fit_subset_index = None
             # Check if times is the same as self.t_fit
@@ -978,6 +989,10 @@ class DRTBase:
         return self._f_fit
 
     def set_f_fit(self, frequencies):
+        if frequencies is None:
+            # Chrono fit is being performed. We don't need to update anything
+            return
+        
         if hasattr(self, 'f_fit') and not self._recalc_eis_fit_matrix:
             self._f_fit_subset_index = None
             # Check if frequencies is the same as self.f_fit

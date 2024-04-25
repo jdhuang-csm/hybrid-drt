@@ -11,11 +11,17 @@ from .. import preprocessing as pp
 cvxopt.solvers.options['show_progress'] = False
 
 
+def get_num_special(special_qp_params: dict):
+    if len(special_qp_params) == 0:
+        return 0
+    else:
+        return np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+
 # ===============================================
 # Analytical solutions for hyper-lambda approach
 # ===============================================
 def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices, s_vectors,
-                           penalty_type, special_qp_params):
+                           penalty_type, special_qp_params, nonlin: bool = False):
     """
     Calculate lml matrix (Lambda^1/2 @ M @ Lambda^1/2)
     :param dop_rho_vector:
@@ -27,7 +33,7 @@ def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
     :param str penalty_type:
     :return:
     """
-    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+    num_special = get_num_special(special_qp_params)
 
     derivative_weights = hypers['derivative_weights']
     l2_lambda_0 = hypers['l2_lambda_0']
@@ -44,6 +50,10 @@ def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
     # Sum weighted matrices for all derivative orders
     if penalty_type == 'integral':
         l2_mat = np.zeros_like(penalty_matrices['m0'])
+        
+        if nonlin:
+            M = int(l2_mat.shape[0] / 2)
+        
         for k, d_weight in enumerate(derivative_weights):
             if d_weight > 0:
                 sv = s_vectors[k]
@@ -51,15 +61,30 @@ def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
                 m_k = penalty_matrices[f'm{k}'].copy()
 
                 # Multiply DRT sub-matrix by derivative weight and rho
-                m_k[num_special:, num_special:] *= l2_lambda_0 * d_weight * rho_vector[k]
+                d_factor = l2_lambda_0 * d_weight * rho_vector[k]
+                if nonlin:
+                    m_k[num_special:M, num_special:M] *= d_factor
+                    m_k[M + num_special:, M + num_special:] *= d_factor
+                else:
+                    m_k[num_special:, num_special:] *= d_factor
 
                 # Multiply DOP sub-matrix by derivative weight and rho
                 if 'x_dop' in special_qp_params.keys():
                     dop_factor = dop_l2_lambda_0 * dop_derivative_weights[k] * dop_rho_vector[k]
-                    m_k[dop_start:dop_end, dop_start:dop_end] *= dop_factor
+                    
+                    if nonlin:
+                        m_k[dop_start:dop_end, dop_start:dop_end] *= dop_factor
+                        m_k[M + dop_start:M + dop_end, M + dop_start:M + dop_end] *= dop_factor
+                    else:
+                        m_k[dop_start:dop_end, dop_start:dop_end] *= dop_factor
 
                 # l2_mat += d_weight * rho_vector[k] * (sm @ m_k @ sm)
                 l2_mat += sm @ m_k @ sm
+                
+        # Add nonlinear cross matrix
+        m1_nl = penalty_matrices.get('m1_nl', None)
+        if m1_nl is not None:
+            l2_mat += m1_nl
         # l2_mat *= 2  # multiply by 2 for exponential prior
         # return l2_lambda_0 * l2_mat
         return l2_mat
@@ -370,7 +395,7 @@ def calculate_md_xmx_norm_array(x, penalty_matrices, derivative_weights, qp_mat_
 
 def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals=None,
                      fixed_x_index=None, fixed_x_values=None, include_fixed_cov=True,
-                     curvature_constraint=None):
+                     curvature_constraint=None, nonlin: bool = False):
     """
     Solve convex optimization problem. Used for ridge_fit method
     :param ndarray wrv: weighted response vector. wrv = W @ y
@@ -403,8 +428,13 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
             # p_matrix =
             pass
     else:
+        # print(wrm.shape, wrv.shape, np.asarray(l1v).shape)
         p_matrix = (wrm.T @ wrm + l2_matrix)
         q_vector = (-wrm.T @ wrv + l1v)
+        
+    # print(p_matrix.shape, q_vector.shape)
+    if nonlin:
+        M = int(wrm.shape[0] / 2)
 
     G = -np.eye(p_matrix.shape[1])
     if nonneg:
@@ -415,6 +445,8 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
             if not sp['nonneg']:
                 end_index = sp['index'] + sp.get('size', 1)
                 h[sp['index']:end_index] = 10
+                if nonlin:
+                    h[M + sp['index']:M + end_index] = 10
         # h[special_indices['unbnd']] = 10
         # print(h)
     # print(h)
@@ -427,6 +459,9 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
             if sp['nonneg']:
                 end_index = sp['index'] + sp.get('size', 1)
                 h[sp['index']:end_index] = 0
+                if nonlin:
+                    h[M + sp['index']:M + end_index] = 0
+                    
         # print(h)
 
     if curvature_constraint is not None:
@@ -495,7 +530,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
                  rm, vmm, penalty_matrices, penalty_type, l1_lambda_vector,
                  hypers, eff_hp,
                  xmx_norms, dop_xmx_norms, fixed_x_index, fixed_x_values, curvature_constraint,
-                 nonneg, special_qp_params, x_rtol, max_hp_iter, history):
+                 nonneg, special_qp_params, x_rtol, max_hp_iter, history, nonlin: bool = False):
     # Unpack hyperparameter dict
     # l2_lambda_0 = hypers['l2_lambda_0']
     derivative_weights = hypers['derivative_weights']
@@ -506,6 +541,9 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
     # outlier_lambda = hypers['outlier_lambda']
     outlier_p = hypers['outlier_p']
     sigma_ds = hypers['sigma_ds']
+    
+    if nonlin:
+        M = int(len(x_in) / 2)
 
     # if 'dop' in special_qp_params.keys():
     #     dop_start = special_qp_params['dop']['index']
@@ -534,7 +572,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
     # l2_matrices = [penalty_matrices[f'pm_k{n}'] for n in range(k_range)]
     # l2_matrices = [lambdas[k] * penalty_matrices[f'pm_k{n}'] for n in range(3)]
     l2_matrix = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
-                                       s_vectors, penalty_type, special_qp_params)
+                                       s_vectors, penalty_type, special_qp_params, nonlin=nonlin)
     # print('l2_matrix', np.sum(l2_matrix))
 
     # x_offsets = [0., 0.0, 0.0, 0.]
@@ -555,7 +593,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
     # Solve the ridge problem with QP: optimize x
     cvx_result = solve_convex_opt(wrv, wrm, l2_matrix, l1_lambda_vector, nonneg, special_qp_params,
                                   fixed_x_index=fixed_x_index, fixed_x_values=fixed_x_values,
-                                  curvature_constraint=curvature_constraint)
+                                  curvature_constraint=curvature_constraint, nonlin=nonlin)
     x = np.array(list(cvx_result['x']))
 
     if fixed_x_index is not None:
@@ -565,7 +603,7 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
             x = np.insert(x, index, value)
 
     # Get number of special (non-DRT) parameters in x vector
-    num_special = np.sum([qp.get('size', 1) for qp in special_qp_params.values()])
+    num_special = get_num_special(special_qp_params)
 
     # lambdas = np.zeros(3)
     # l_alphas = [10, 5, 1]
@@ -662,6 +700,10 @@ def iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rv, weights, est_w
                 # Handle numerical instabilities that may arise for large lambda_0 and small hl_alpha
                 sv_out[sv_out <= 0] = 1e-15
                 s_vectors[k][num_special:] = sv_out
+                
+                # TODO: temp fix
+                if nonlin:
+                    s_vectors[k][M: M + num_special] = s_k_0
 
                 s_converged[k] = is_converged(sv_drt, sv_out, np.mean(s_k_0) * 5e-2, 1e-2)
 
@@ -1090,7 +1132,7 @@ def iterate_md_qphb(x_in, s_vectors, rho_array, rho_diagonals, data_vector, weig
             x = np.insert(x, index, value)
 
     # Get number of special (non-DRT) parameters in x vector
-    num_special = len(special_qp_params)
+    num_special = get_num_special(special_qp_params)
 
     # lambdas = np.zeros(3)
     # l_alphas = [10, 5, 1]
@@ -1669,18 +1711,20 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
     # Calculate L2 penalty matrix (SMS)
     # l2_matrices = [penalty_matrices[f'm{n}'] for n in range(len(derivative_weights))]
     # Apply very small penalty strength for overfit
-    iw_hypers = hypers.copy()
-    iw_hypers['l2_lambda_0'] = 1e-4
-    if 'dop_l2_lambda_0' in hypers.keys():
-        dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
-        iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
+    # iw_hypers = hypers.copy()
+    # iw_hypers['l2_lambda_0'] = 1e-4
+    # # iw_hypers['l2_lambda_0'] = 1e-10
+    # if 'dop_l2_lambda_0' in hypers.keys():
+    #     dop_drt_ratio = hypers['dop_l2_lambda_0'] / hypers['l2_lambda_0']
+    #     iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
 
-    l2_matrix = calculate_qp_l2_matrix(iw_hypers, rho_vector, dop_rho_vector, penalty_matrices,
+    l2_matrix = calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
                                        s_vectors, penalty_type, special_qp_params)
 
     iw_alpha = hypers['iw_alpha']
     iw_beta = hypers['iw_beta']
     outlier_p = hypers['outlier_p']
+    l1_lambda_0 = hypers['l1_lambda_0']
 
     if outlier_p is not None:
         outlier_t = np.ones(vmm.shape[0])
@@ -1691,7 +1735,7 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
             # Solve the ridge problem with QP: optimize x
             # Multiply l2_matrix by 2 due to exponential prior
             w_diag = np.diag(est_weights)
-            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, 1e-4, nonneg, special_qp_params)
+            cvx_result = solve_convex_opt(w_diag @ rv, w_diag @ rm, l2_matrix, l1_lambda_0, nonneg, special_qp_params)
             x_overfit = np.array(list(cvx_result['x']))
             # print(x_overfit)
             # print(rm @ x_overfit)
@@ -1713,7 +1757,7 @@ def initialize_weights(hypers, penalty_matrices, penalty_type, rho_vector, dop_r
         # print('init outlier prob:', 1 - outlier_t)
 
     else:
-        cvx_result = solve_convex_opt(rv, rm, l2_matrix, 1e-4, nonneg, special_qp_params)
+        cvx_result = solve_convex_opt(rv, rm, l2_matrix, l1_lambda_0, nonneg, special_qp_params)
         x_overfit = np.array(list(cvx_result['x']))
         est_weights, outlier_t, out_tvt = estimate_weights(x_overfit, rv, vmm, rm,
                                                            est_weights=None, outlier_p=outlier_p)

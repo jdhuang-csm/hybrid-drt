@@ -11,7 +11,7 @@ from .utils import validation
 from .preprocessing import identify_steps, estimate_rp
 
 
-def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
+def plot_chrono(data, chrono_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
                 transform_time=False, trans_functions=None, linear_time_axis=False, display_linear_ticks=False,
                 linear_tick_kw=None, plot_i=True, plot_v=True, i_sign_convention=1,
                 scale_prefix=None, tight_layout=True, **kw):
@@ -53,12 +53,12 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         if trans_functions is not None:
             x = trans_functions[1](times)
         else:
-            if op_mode is None and step_times is None:
+            if chrono_mode is None and step_times is None:
                 raise ValueError('One of trans_functions, chrono_mode, or step_times must be specified if '
                                  'transform_time=True')
             if step_times is None:
                 # Get step times
-                input_signal, response_signal = get_input_and_response(i_signal, v_signal, op_mode)
+                input_signal, response_signal = get_input_and_response(i_signal, v_signal, chrono_mode)
                 step_indices = identify_steps(input_signal, allow_consecutive=False)
                 step_times = times[step_indices]
             x, trans_functions = get_transformed_plot_time(times, step_times)
@@ -88,7 +88,7 @@ def plot_chrono(data, op_mode=None, step_times=None, axes=None, plot_func='scatt
         if transform_time:
             ax.set_xlabel('$f(t)$')
         else:
-            ax.set_xlabel('$t$ (s)')
+            ax.set_xlabel('Time (s)')
 
         y_label = f'{y_label_tuple[0]} ({scale_prefix_y}{y_label_tuple[1]})'
         ax.set_ylabel(y_label)
@@ -119,11 +119,11 @@ def process_chrono_plot_data(data):
             raise ValueError('If data is a tuple, it must be a 3-tuple of time, i_signal, and v_signal arrays')
     elif type(data) == pd.core.frame.DataFrame:
         is_valid_df = True
-        time_intersect = np.intersect1d(['Time', 'T'], list(data.columns))
+        time_intersect = np.intersect1d(['elapsed', 'Time', 'T'], list(data.columns))
         if len(time_intersect) == 0:
             is_valid_df = False
         else:
-            time_column = time_intersect[0]
+            time_column = time_intersect[-1]
             required_columns = ['Vf', 'Im']
             intersection = np.intersect1d(required_columns, list(data.columns))
             if len(intersection) == len(required_columns):
@@ -229,7 +229,8 @@ def display_linear_time_ticks(ax, times, step_times, trans_functions, step_incre
     # minor_trans = time2trans(minor_times)
 
     ax.set_xticks(major_trans)
-    ax.set_xticklabels(['{:{}}'.format(mt, major_tick_format) for mt in major_ticks])
+    # Set tick labels manually. Add small positive to prevent "-0.0" label
+    ax.set_xticklabels(['{:{}}'.format(mt + 1e-10, major_tick_format) for mt in major_ticks])
 
     ax.xaxis.set_minor_locator(ticker.FixedLocator(minor_trans))
     # ax.set_xticklabels(['$+10^{{{}}}$'.format(mdp) for mdp in minor_delta_powers], minor=True)
@@ -319,6 +320,16 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
     line = ax.plot(tau, f / scale_factor, **kw)
     ax.set_xscale('log')
     ax.set_xlabel(r'$\tau$ (s)')
+
+    if normalize_by is not None:
+        y_label = r'$\gamma \, / \, R_p$'
+    else:
+        if area is not None:
+            y_units = r'$\Omega \cdot \mathrm{cm}^2$'
+        else:
+            y_units = r'$\Omega$'
+        y_label = fr'$\gamma$ ({scale_prefix}{y_units})'
+    ax.set_ylabel(y_label)
 
     # Add frequency axis
     if freq_axis:

@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import ndimage
+from skimage.filters import apply_hysteresis_threshold
 
 from ._scifilters import empty_gaussian_filter1d, empty_gaussian_filter, gaussian_laplace1d
 
@@ -33,6 +34,9 @@ def std_filter(a, size, mask=None, **kw):
         a_mean = masked_filter(a, mask, ndimage.uniform_filter, size=size, **kw)
         var = masked_filter((a - a_mean) ** 2, mask, ndimage.uniform_filter, size=size, **kw)
 
+    # Small negatives may arise due to precision loss
+    var[var < 0] = 0
+
     return var ** 0.5
 
 
@@ -40,6 +44,106 @@ def iqr_filter(a, size, **kw):
     q1 = ndimage.percentile_filter(a, 25, size=size, **kw)
     q3 = ndimage.percentile_filter(a, 75, size=size, **kw)
     return q3 - q1
+
+
+def gaussian_kernel_scale(sigma, truncate=4.0, empty=False):
+    sigma2 = sigma * sigma
+    radius = int(float(sigma) * truncate + 0.5)
+    x = np.arange(-radius, radius + 1)
+    phi_x = np.exp(-0.5 / sigma2 * x ** 2)
+    if empty:
+        phi_x[x == 0] = 0
+    return phi_x.sum()
+
+
+def rog_filter(a, sigma_loc, sigma_glob, mask=None, median_pad=0.1, median_size=None, mode='reflect'):
+    """
+    Ratio of Gaussians
+    :param a:
+    :param sigma_loc:
+    :param sigma_glob:
+    :param mask:
+    :param median_pad:
+    :param median_size:
+    :param mode:
+    :return:
+    """
+    if mask is not None:
+        local_scale = masked_filter(a ** 2, mask, sigma=sigma_loc, mode=mode)
+    else:
+        local_scale = ndimage.gaussian_filter(a ** 2, sigma_loc, mode=mode)
+
+    if median_size is not None:
+        local_scale += median_pad * ndimage.median_filter(local_scale, median_size, mode=mode)
+    else:
+        if mask is not None:
+            local_scale += median_pad * np.median(a[mask > 0] ** 2)
+        else:
+            local_scale += median_pad * np.median(a ** 2)
+
+    local_scale = local_scale ** 0.5
+
+    if mask is not None:
+        local_scale = np.nan_to_num(local_scale, nan=1)
+        global_scale = np.exp(masked_filter(np.log(local_scale), mask, sigma=sigma_glob, mode=mode))
+    else:
+        global_scale = np.exp(ndimage.gaussian_filter(np.log(local_scale), sigma=sigma_glob, mode=mode))
+
+    scaled = a * global_scale / local_scale
+    if mask is not None:
+        # Fill masked vales with filtered rescaled values
+        out = scaled.copy()
+        # print(masked_filter(scaled, mask, sigma=sigma_glob, mode=mode)[mask == 0])
+        out[mask == 0] = masked_filter(scaled, mask, sigma=sigma_glob, mode=mode)[mask == 0]
+        return out
+    else:
+        return scaled
+
+
+def signed_hysteresis_threshold(a, low, high):
+    """
+    Apply hysteresis threshold to negative and positive portions of image separately
+    :param a:
+    :param low:
+    :param high:
+    :return:
+    """
+    thresh = np.zeros(a.shape, dtype=bool)
+
+    for sign in [1, -1]:
+        a_sign = a.copy()
+        # Mask values of the opposite sign
+        mask = a_sign * sign > 0
+        a_sign[~mask] = 0
+
+        sign_thresh = apply_hysteresis_threshold(a_sign * sign, low=low, high=high)
+        thresh[mask] = sign_thresh[mask]
+    return thresh
+
+
+def flexible_hysteresis_threshold(a, low, high, structure=None):
+    """
+    Hysteresis threshold with optional structure argument to define connectivity
+    :param a:
+    :param low:
+    :param high:
+    :param structure:
+    :return:
+    """
+    if low >= high:
+        raise ValueError('low must be less than high')
+
+    low_mask = a > low
+    high_mask = a > high
+
+    # Find components connected by low
+    labels, count = ndimage.label(low_mask, structure=structure)
+
+    # Check how many high points the low labels touch
+    high_count = ndimage.sum_labels(high_mask, labels, index=np.arange(count + 1))
+    touches_high = high_count > 0
+
+    return touches_high[labels]
 
 
 def masked_filter(a, mask, filter_func=None, **filter_kw):
@@ -61,10 +165,19 @@ def masked_filter(a, mask, filter_func=None, **filter_kw):
     if filter_func is None:
         filter_func = ndimage.gaussian_filter
 
+    mask = mask.astype(float)
+
     x_filt = filter_func(a * mask, **filter_kw)
     mask_filt = filter_func(mask, **filter_kw)
 
+    # print(np.sum(np.isnan(x_filt)), np.sum(np.isnan(mask_filt)), np.sum(mask_filt == 0))
+
     return x_filt / mask_filt
+
+
+def nan_filter(a, filter_func, **filter_kw):
+    mask = ~np.isnan(a)
+    return masked_filter(np.nan_to_num(a), mask, filter_func, **filter_kw)
 
 
 def iterate_gaussian_weights(a, init_weights=None, adaptive=False, iter=2, nstd=5, dev_rms_size=5,
@@ -146,8 +259,10 @@ def iterative_gaussian_filter(a, adaptive=False, iter=2, nstd=5, dev_rms_size=5,
 # Nonuniform gaussian
 # -------------------
 def nonuniform_gaussian_filter1d(a, sigma, axis=-1, empty=False,
-                                 mode='reflect', cval=0.0, truncate=4, sigma_node_factor=1.5, min_sigma=0.25):
+                                 mode='reflect', cval=0.0, truncate=4, order=0,
+                                 sigma_node_factor=1.5, min_sigma=0.25):
     if np.max(sigma) > 0:
+        sigma = np.maximum(sigma, 1e-8)
         # Get sigma nodes
         min_ls = max(np.min(np.log10(sigma)), np.log10(min_sigma))  # Don't go below min effective value
         max_ls = max(np.max(np.log10(sigma)), np.log10(min_sigma))
@@ -198,23 +313,25 @@ def nonuniform_gaussian_filter1d(a, sigma, axis=-1, empty=False,
             return nw
 
         node_outputs = np.empty((len(sigma_nodes), *a.shape))
+
         for i in range(len(sigma_nodes)):
             if sigma_nodes[i] < min_sigma:
                 # Sigma is below minimum effective value
                 if empty:
                     # For empty filter, still need to apply filter to determine central value
                     node_outputs[i] = empty_gaussian_filter1d(a, sigma=min_sigma, axis=axis, mode=mode, cval=cval,
-                                                              truncate=truncate)
+                                                              truncate=truncate, order=order)
                 else:
                     # For standard filter, reduces to original array
                     node_outputs[i] = a
             else:
                 if empty:
                     node_outputs[i] = empty_gaussian_filter1d(a, sigma=sigma_nodes[i], axis=axis, mode=mode, cval=cval,
-                                                              truncate=truncate)
+                                                              truncate=truncate, order=order)
                 else:
-                    node_outputs[i] = ndimage.gaussian_filter1d(a, sigma=sigma_nodes[i], axis=axis, mode=mode, cval=cval,
-                                                                truncate=truncate)
+                    node_outputs[i] = ndimage.gaussian_filter1d(a, sigma=sigma_nodes[i], axis=axis, mode=mode,
+                                                                cval=cval,
+                                                                truncate=truncate, order=order)
 
         node_weights = get_node_weights(sigma)
         # print(node_weights.shape, node_outputs.shape)
@@ -229,14 +346,14 @@ def nonuniform_gaussian_filter1d(a, sigma, axis=-1, empty=False,
 
 
 def nonuniform_gaussian_filter(a, sigma, empty=False,
-                               mode='reflect', cval=0.0, truncate=4, sigma_node_factor=1.5):
+                               mode='reflect', cval=0.0, truncate=4, order=0,
+                               sigma_node_factor=1.5):
     axes = np.arange(np.ndim(a), dtype=int)
 
     # Apply sequence of 1d filters
     out = a
     for i, axis in enumerate(axes):
-        out = nonuniform_gaussian_filter1d(out, sigma[i], axis, empty,
-                                           mode, cval, truncate, sigma_node_factor)
+        out = nonuniform_gaussian_filter1d(out, sigma[i], axis, empty, mode, cval, truncate, order, sigma_node_factor)
 
     return out
 
@@ -320,7 +437,7 @@ def get_adaptive_sigmas(a, presmooth_sigma=None, empty=False, weights=None,
 
 def adaptive_gaussian_filter1d(a, sigma=None, axis=-1, presmooth_sigma=1, empty=False,
                                curv_func=None, curv_kw=None, k_factor=1, max_sigma=1.0,
-                               mode='reflect', cval=0.0, truncate=4, sigma_node_factor=1.5):
+                               mode='reflect', cval=0.0, truncate=4, order=0, sigma_node_factor=1.5):
 
     # Determine sigma from curvature
     if sigma is None:
@@ -328,12 +445,12 @@ def adaptive_gaussian_filter1d(a, sigma=None, axis=-1, presmooth_sigma=1, empty=
                                      curv_func, curv_kw, k_factor, max_sigma, mode,
                                      cval, truncate)
 
-    return nonuniform_gaussian_filter1d(a, sigma, axis, empty, mode, cval, truncate, sigma_node_factor)
+    return nonuniform_gaussian_filter1d(a, sigma, axis, empty, mode, cval, truncate, order, sigma_node_factor)
 
 
 def adaptive_gaussian_filter(a, sigmas=None, presmooth_sigma=None, empty=False,
                              curv_func=None, curv_kw=None, k_factor=1, max_sigma=5,
-                             mode='reflect', cval=0.0, truncate=4, sigma_node_factor=1.5):
+                             mode='reflect', cval=0.0, truncate=4, order=0, sigma_node_factor=1.5):
     axes = np.arange(np.ndim(a), dtype=int)
 
     if np.isscalar(k_factor):
@@ -353,7 +470,7 @@ def adaptive_gaussian_filter(a, sigmas=None, presmooth_sigma=None, empty=False,
         if max_sigma[i] > 0:
             out = adaptive_gaussian_filter1d(out, sigmas[i], axis, presmooth_sigma, empty,
                                              curv_func, curv_kw, k_factor[i], max_sigma[i],
-                                             mode, cval, truncate, sigma_node_factor)
+                                             mode, cval, truncate, order, sigma_node_factor)
 
     return out
 

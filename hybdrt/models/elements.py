@@ -1334,7 +1334,7 @@ class DiscreteElementModel:
         y_hat = self.predict_z(self.f_fit, **predict_kw)
 
         # Calculate residuals
-        y_err = y_hat - self.z_fit
+        y_err = self.z_fit - y_hat
 
         # Get scale prefix
         if scale_prefix is None:
@@ -1368,10 +1368,10 @@ class DiscreteElementModel:
 
         # Update axis labels
         if 'Zreal' in bode_cols:
-            axes[bode_cols.index('Zreal')].set_ylabel(fr'$\hat{{Z}}^{{\prime}}-Z^{{\prime}}$ ({scale_prefix}$\Omega$)')
+            axes[bode_cols.index('Zreal')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
         if 'Zimag' in bode_cols:
             axes[bode_cols.index('Zimag')].set_ylabel(
-                fr'$-(\hat{{Z}}^{{\prime\prime}}-Z^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
+                fr'$-(Z^{{\prime\prime}} - \hat{{Z}}^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
 
         fig.tight_layout()
 

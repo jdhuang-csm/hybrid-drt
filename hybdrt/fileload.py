@@ -18,20 +18,32 @@ def get_file_source(file):
             txt = f.read()
 
     # Determine	format
-    if txt.split('\n')[0] == 'EXPLAIN':
+    header = txt.split('\n')[0]
+    if header == 'EXPLAIN':
         source = 'gamry'
-    elif txt.split('\n')[0] == 'ZPLOT2 ASCII':
+    elif header == 'ZPLOT2 ASCII':
         source = 'zplot'
-    elif txt.split('\n')[0] == 'EC-Lab ASCII FILE':
+    elif header == 'EC-Lab ASCII FILE':
         source = 'biologic'
+    elif header == 'RelaxIS 3.0 Spectrum export':
+        source = 'relaxis'
     else:
         source = None
 
     return source
 
+def read_txt(file):
+    try:
+        with open(file, 'r') as f:
+            txt = f.read()
+    except UnicodeDecodeError:
+        with open(file, 'r', encoding='latin1') as f:
+            txt = f.read()
+    return txt
+
 
 def check_source(file, source=None):
-    known_sources = ['gamry', 'zplot', 'biologic']
+    known_sources = ['gamry', 'zplot', 'biologic', 'relaxis']
 
     if source is None:
         source = get_file_source(file)
@@ -47,8 +59,7 @@ def check_source(file, source=None):
 
 
 def get_custom_file_time(file):
-    with open(file, 'r') as f:
-        txt = f.read()
+    txt = read_txt(file)
 
     date_start = txt.find('DATE')
     date_end = txt[date_start:].find('\n') + date_start
@@ -69,14 +80,9 @@ def get_custom_file_time(file):
     return float(calendar.timegm(file_time)) + float('0.' + frac_seconds)
 
 
-def get_timestamp(file, source=None):
+def get_timestamp(file):
     """Get experiment start timestamp from file"""
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     source = check_source(file, source)
 
@@ -120,12 +126,7 @@ def find_time_column(df):
 
 
 def read_header(file):
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     # find start of curve data
     table_index = txt.upper().find('\nCURVE\tTABLE')
@@ -135,7 +136,7 @@ def read_header(file):
     return txt[:table_index + 1]
 
 
-def read_chrono(file, source=None):
+def read_chrono(file, source=None, return_tuple=False):
     """
     Read chronopotentiometry data from Gamry .DTA file
 
@@ -196,7 +197,10 @@ def read_chrono(file, source=None):
     else:
         raise ValueError(f'read_chrono is not implemented for source {source}')
 
-        return data
+    if return_tuple:
+        data = get_chrono_tuple(data)
+
+    return data
 
 
 def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=None, trim_time=None,
@@ -242,8 +246,9 @@ def concatenate_chrono_data(chrono_data_list, eis_data_list=None, trim_index=Non
     start_time = dfs[0]['timestamp'][0]
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
-    for df in dfs:
+    for i, df in enumerate(dfs):
         df['elapsed'] = ts_func(df['timestamp'])
+        df['file_id'] = i
 
     # Trim beginning of each file
     if trim_index is not None:
@@ -281,8 +286,9 @@ def concatenate_eis_data(eis_data_list, loop=False, print_progress=False):
     # start_time = min(start_times)
 
     ts_func = lambda ts: (ts - start_time).dt.total_seconds()
-    for df in dfs:
+    for i, df in enumerate(dfs):
         df['elapsed'] = ts_func(df['timestamp'])
+        df['file_id'] = i
 
     # # Trim beginning of each file
     # if trim_index is not None:
@@ -429,7 +435,32 @@ def read_eis(file, source=None, warn=True, return_tuple=False):
         data = data.rename(rename, axis=1)
 
         data['Zimag'] *= -1
-
+    elif source == 'relaxis':
+        # Find header line
+        header_index = txt.find('\nData: ')
+        # Skip next two rows of metadata
+        skiprows = len(txt[:header_index].split('\n')) + 2
+        
+        # Get data headers and rename
+        header_line = txt[header_index + 1:].split('\n')[0]
+        header_items = header_line.split('\t')
+        header = [h.replace('Data: ', '') for h in header_items]
+        
+        # Read table
+        data = pd.read_csv(file, sep='\t', skiprows=skiprows, encoding=None, 
+                           header=None, names=header,
+                           encoding_errors='ignore')
+        
+        # Rename to standard fields
+        rename = {
+            "Frequency": "Freq", 
+            "Z'": "Zreal", 
+            "Z''": "Zimag", 
+            "|Z|": "Zmod",
+            "Theta (Z)": "Zphz"
+        }
+        
+        data = data.rename(rename, axis=1)        
     else:
         raise ValueError('Unrecognized file format')
 
