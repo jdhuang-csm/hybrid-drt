@@ -273,7 +273,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
                 decimation_interval = select_decimation_interval(times, step_times, t_sample, prestep_samples,
                                                                  decimation_factor, decimation_max_period,
                                                                  target_size)
-        print(decimation_interval)
+        # print(decimation_interval)
         sample_index = get_decimation_index(times, step_times, t_sample, prestep_samples, decimation_interval,
                                             decimation_factor, decimation_max_period)
     else:

@@ -3163,9 +3163,6 @@ class DRT(DRTBase):
             if normalize_tau is None:
                 data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
                 normalize_tau = np.array(data_tau_lim)
-                print(normalize_tau)
-                # # By default
-                # normalize_tau = self.basis_tau[10:-10]
             
             normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
             normalize_by /= self.nu_basis_area
