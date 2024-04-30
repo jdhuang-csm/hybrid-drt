@@ -196,7 +196,7 @@ class DrtScorer:
         else:
             discretize = False
 
-        print(discretize)
+        # print(discretize)
 
         # Process models
         y_exact_reg, exact_peak_tau = process_model_instance(exact_model, tau_reg, tau_cls, discretize,
@@ -543,7 +543,7 @@ def find_model_peaks(model, tau_cls, normalize, find_peaks_kw=None, return_promi
         # print('mad_curv:', median_abs_deviation(fxx[~np.isinf(fxx)]))
         prom_thresh = 0.05 * np.std(fxx[~np.isinf(fxx)]) + 5e-3
         # prom_thresh = 0.5 * iqr(fxx[~np.isinf(fxx)]) + 5e-3
-        print('thresh:', prom_thresh)
+        # print('thresh:', prom_thresh)
         find_peaks_kw = {'height': 0, 'prominence': prom_thresh}
     # peak_index = peaks.find_peaks_compound(fx[1:], fxx, **find_peaks_kw) + 1
     peak_index = peaks.find_peaks_simple(fxx, 2, **find_peaks_kw) + index_offset

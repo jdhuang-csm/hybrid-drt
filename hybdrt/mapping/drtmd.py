@@ -132,13 +132,18 @@ class DRTMD(object):
             att_dict = source
 
         # Initialize with required/essential arguments
-        config_keys = ['tau_supergrid', 'psi_dim_names', 'store_attr_categories',  'tau_basis_type', 'tau_epsilon',
-                       'fixed_basis_nu', 'nu_epsilon', 'nu_basis_type']
-        init_kw = {k: att_dict.get(k, None) for k in config_keys}
-        init_kw = {k: v for k, v in init_kw.items() if v is not None}
+        config_keys = ['tau_supergrid', 'psi_dim_names', 'store_attr_categories',  
+                       'tau_basis_type', 'tau_epsilon',
+                       'fixed_basis_nu', 'nu_epsilon', 'nu_basis_type',
+                       'fit_dop']
+        init_keys = set.intersection(set(config_keys), set(att_dict.keys()))
+        # Pass init args to __init__ and remove from att_dict to avoid 
+        # overriding __init__ logic
+        init_kw = {k: att_dict.pop(k) for k in init_keys}
         drtmd = cls(**init_kw)
 
         # Load all attributes
+        # att_dict = {k: v for k, v in init_kw.items() if k not in none_keys}
         drtmd.set_attributes(att_dict)
 
         return drtmd
@@ -727,13 +732,6 @@ class DRTMD(object):
 
         dop = x @ basis_mat.T
 
-        # Add ohmic
-        if include_ohmic and 0 in nu:
-            if x_ohmic is not None:
-                ohmic_index = np.where(nu == 0)[0][0]
-                dop[..., ohmic_index] = x_ohmic.copy()
-
-
         # TODO: take x_ohmic, x_induc, x_cap args?
         # # Add pure inductance, resistance, and capacitance
         # ohmic_index = np.where(nu == 0)
@@ -758,18 +756,31 @@ class DRTMD(object):
         #     dop[cap_index] += c_inv
 
         # TODO: revisit normalization
-        if normalize:
-            if normalize_tau is None:
-                # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
-                # normalize_tau = np.array(data_tau_lim)
-                normalize_tau = self.tau_supergrid
-            else:
-                normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
-            normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
-        else:
-            normalize_by = 1
-
+        # if normalize:
+        #     if normalize_tau is None:
+        #         # data_tau_lim = pp.get_tau_lim(self.get_fit_frequencies(), self.get_fit_times(), self.step_times)
+        #         # normalize_tau = np.array(data_tau_lim)
+        #         normalize_tau = self.tau_supergrid
+        #     else:
+        #         normalize_tau = np.array([np.min(normalize_tau), np.max(normalize_tau)])
+        #     normalize_by = phasance.phasor_scale_vector(nu, normalize_tau, normalize_quantiles)
+        # else:
+        #     normalize_by = 1
+        normalize_by = self.drt1d.get_dop_norm(nu, normalize, normalize_tau, 
+                                                   normalize_quantiles=(0, 1))
+        
         dop /= normalize_by
+        
+        # Add ohmic after normalization
+        if include_ohmic and 0 in nu:
+            if x_ohmic is not None:
+                ohmic_index = np.where(nu == 0)[0][0]
+                if normalize:
+                    # Since ideal elements are delta functions, they should not be 
+                    # scaled by the non-ideal basis function area
+                    x_ohmic = x_ohmic / (normalize_by[ohmic_index] * self.drt1d.nu_basis_area)
+                    
+                dop[..., ohmic_index] = x_ohmic.copy()
 
         return dop
 
