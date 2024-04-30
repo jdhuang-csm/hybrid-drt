@@ -287,10 +287,14 @@ class DRTMD(object):
             chrono_data = self.chrono_reader(chrono_data)
         elif type(chrono_data) == pd.DataFrame:
             chrono_data = fl.get_chrono_tuple(chrono_data)
+        elif isinstance(chrono_data, tuple):
+            if len(chrono_data) != 3:
+                raise ValueError('Expected chrono data tuple to contain 3 arrays, but found {} entries'.format(len(chrono_data)))
+            chrono_data = chrono_data
         elif chrono_data is None:
             chrono_data = (None, None, None)
         else:
-            raise ValueError('Expected chrono data to be a path, DataFrame, or None. '
+            raise ValueError('Expected chrono data to be a path, DataFrame, tuple, or None. '
                              f'Received data of type {type(chrono_data)}')
 
         # Load EIS data
@@ -298,10 +302,14 @@ class DRTMD(object):
             eis_data = self.eis_reader(eis_data)
         elif type(eis_data) == pd.DataFrame:
             eis_data = fl.get_eis_tuple(eis_data)
+        elif isinstance(eis_data, tuple):
+            if len(eis_data) != 2:
+                raise ValueError('Expected eis data tuple to contain 2 arrays, but found {} entries'.format(len(eis_data)))
+            eis_data = eis_data
         elif eis_data is None:
             eis_data = (None, None)
         else:
-            raise ValueError('Expected EIS data to be a path, DataFrame, or None. '
+            raise ValueError('Expected EIS data to be a path, DataFrame, tuple, or None. '
                              f'Received data of type {type(eis_data)}')
 
         return chrono_data, eis_data
