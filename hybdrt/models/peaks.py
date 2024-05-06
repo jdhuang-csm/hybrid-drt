@@ -124,7 +124,8 @@ def find_troughs(f, fxx, peak_indices):
     return trough_indices
 
 
-def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, epsilon_factor=1.25, max_epsilon=1.25,
+def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, epsilon_factor=1.25, 
+                                       max_epsilon=1.25, min_epsilon=None,
                                        epsilon_uniform=None, trough_indices=None):
     # print(len(peak_indices), len(trough_indices))
     if len(peak_indices) > 1:
@@ -162,8 +163,12 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
 
                 l_epsilon = min(epsilon_factor / np.log(tau[peak_index] / tau[prev_index]), max_epsilon)
                 r_epsilon = min(epsilon_factor / np.log(tau[next_index] / tau[peak_index]), max_epsilon)
+                if min_epsilon is not None:
+                    # Apply lower bound
+                    l_epsilon = max(l_epsilon, min_epsilon)
+                    r_epsilon = max(r_epsilon, min_epsilon)
                 # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
-                # print(l_epsilon, r_epsilon)
+                print(i, l_epsilon, r_epsilon)
             else:
                 l_epsilon = epsilon_uniform
                 r_epsilon = epsilon_uniform
