@@ -80,7 +80,7 @@ def get_custom_file_time(file):
     return float(calendar.timegm(file_time)) + float('0.' + frac_seconds)
 
 
-def get_timestamp(file):
+def get_timestamp(file, source=None):
     """Get experiment start timestamp from file"""
     txt = read_txt(file)
 
@@ -188,7 +188,7 @@ def read_chrono(file, source=None, return_tuple=False):
 
             # get timestamp
             try:
-                dt = get_timestamp(file)
+                dt = get_timestamp(file, source)
                 time_col = find_time_column(data) # time col may be either 'T' or 'Time'
                 # print(time_col, data[time_col])
                 data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
@@ -354,7 +354,7 @@ def read_eis(file, source=None, warn=True, return_tuple=False):
 
         # add timestamp
         try:
-            dt = get_timestamp(file)
+            dt = get_timestamp(file, source)
             time_col = np.intersect1d(['Time', 'T'], data.columns)[
                 0]  # EIS files in Repeating jv-EIS files have column named 'Time' instead of 'T'
             data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
