@@ -3545,7 +3545,8 @@ class DRT(DRTBase):
         else:
             return tau[peak_indices]
 
-    def estimate_peak_coef(self, tau=None, peak_indices=None, x=None, sign=1, epsilon_factor=1.25, max_epsilon=1.25,
+    def estimate_peak_coef(self, tau=None, peak_indices=None, x=None, sign=1, epsilon_factor=1.25, 
+                           max_epsilon=1.25, min_epsilon=None,
                            epsilon_uniform=None,
                            **find_peaks_kw):
         if peak_indices is not None and tau is None:
@@ -3559,7 +3560,7 @@ class DRT(DRTBase):
         f = self.predict_distribution(tau, x=x, sign=sign)
         fxx = self.predict_distribution(tau, x=x, sign=sign, order=2)
         peak_weights = peaks.estimate_peak_weight_distributions(tau, f, fxx, peak_indices, self.basis_tau,
-                                                                epsilon_factor, max_epsilon, epsilon_uniform)
+                                                                epsilon_factor, max_epsilon, min_epsilon, epsilon_uniform)
 
         x_peaks = x * peak_weights
 

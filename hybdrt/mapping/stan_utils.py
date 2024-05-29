@@ -13,3 +13,14 @@ def load_model(name):
         )
     
     return model
+
+
+def save_pickle(obj, dest):
+    with open(dest, 'wb') as f:
+        pickle.dump(obj, f, pickle.DEFAULT_PROTOCOL)
+        
+        
+def load_pickle(src):
+    with open(src, 'rb') as f:
+        out = pickle.load(f)
+    return out
