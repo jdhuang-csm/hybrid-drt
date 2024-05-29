@@ -3568,7 +3568,7 @@ class DRT(DRTBase):
 
     def estimate_peak_distributions(self, tau=None, ppd=10, tau_find_peaks=None, peak_indices=None, x=None, sign=None,
                                     epsilon_factor=1.25,
-                                    max_epsilon=1.25, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None):
+                                    max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None):
         """
         Estimate separate distributions for all identified peaks by applying local weighting functions to the total DRT.
         :param ndarray tau: tau grid over which to evaluate peak distributions
@@ -3600,7 +3600,7 @@ class DRT(DRTBase):
                 sign = 1
 
         x_peaks = self.estimate_peak_coef(tau_find_peaks, peak_indices, x, sign, epsilon_factor,
-                                          max_epsilon, epsilon_uniform,
+                                          max_epsilon, min_epsilon, epsilon_uniform,
                                           **find_peaks_kw)
 
         if squeeze_factors is None:
@@ -4364,9 +4364,9 @@ class DRT(DRTBase):
 
         # Labels
         if self.chrono_mode == 'galv':
-            ax.set_ylabel(f'$v - \hat{{v}}$ ({scale_prefix}V)')
+            ax.set_ylabel(fr'$v - \hat{{v}}$ ({scale_prefix}V)')
         elif self.chrono_mode == 'pot':
-            ax.set_ylabel(f'$i - \hat{{i}}$ ({scale_prefix}A)')
+            ax.set_ylabel(fr'$i - \hat{{i}}$ ({scale_prefix}A)')
 
         fig.tight_layout()
 
@@ -4803,7 +4803,7 @@ class DRT(DRTBase):
             ax.set_xlabel(x_label)
 
         if area is not None:
-            area_units = '$\cdot \mathrm{cm}^2$'
+            area_units = r'$\cdot \mathrm{cm}^2$'
         else:
             area_units = ''
             
@@ -4882,8 +4882,8 @@ class DRT(DRTBase):
             self.plot_eis_residuals(axes=eis_resid_axes, x=x,
                                     show_outliers=show_outliers, outlier_kw=outlier_kw,
                                     **eis_resid_kw)
-            eis_resid_axes[0].set_title('$Z^\prime$ Residuals')
-            eis_resid_axes[1].set_title('$Z^{\prime\prime}$ Residuals')
+            eis_resid_axes[0].set_title(r'$Z^\prime$ Residuals')
+            eis_resid_axes[1].set_title(r'$Z^{\prime\prime}$ Residuals')
             eis_resid_axes[0].legend()
             eis_resid_axes[1].get_legend().remove()
 
