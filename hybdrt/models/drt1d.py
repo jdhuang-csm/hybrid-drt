@@ -163,7 +163,7 @@ class DRT(DRTBase):
     #
     #     return x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result
 
-    def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None,
+    def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None, 
                        nonneg=True, series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
                        # chrono args
                        offset_steps=True, offset_baseline=True, downsample=False, downsample_kw=None,
@@ -263,7 +263,7 @@ class DRT(DRTBase):
         if remove_outliers:
             # Only need to supply kwargs that matter for initial weights estimation
             chrono_outlier_index, eis_outlier_index = self._qphb_fit_core(times, i_signal, v_signal, frequencies, z,
-                                                                          step_times=step_times, nonneg=nonneg,
+                                                                          step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                                                                           series_neg=series_neg, scale_data=scale_data,
                                                                           solve_rp=solve_rp, offset_steps=offset_steps,
                                                                           offset_baseline=offset_baseline,
@@ -461,7 +461,7 @@ class DRT(DRTBase):
 
         # Process data and calculate matrices for fit
         sample_data, matrices = self._prep_for_fit(times, i_signal, v_signal, frequencies, z,
-                                                   step_times=step_times, downsample=downsample,
+                                                   step_times=step_times, step_sizes=step_sizes, downsample=downsample,
                                                    downsample_kw=downsample_kw, offset_steps=offset_steps,
                                                    smooth_inf_response=smooth_inf_response,
                                                    scale_data=scale_data, rp_scale=pp_hypers['rp_scale'],
@@ -1186,14 +1186,14 @@ class DRT(DRTBase):
 
         return p_matrix, q_vector
 
-    def fit_chrono(self, times, i_signal, v_signal, step_times=None,
+    def fit_chrono(self, times, i_signal, v_signal, step_times=None, step_sizes=None,
                    nonneg=True, scale_data=True, update_scale=False,
                    offset_baseline=True, offset_steps=True, subtract_background=False, estimate_background_kw=None,
                    downsample=False, downsample_kw=None, smooth_inf_response=True,
                    error_structure='uniform', vmm_epsilon=4,
                    **kwargs):
 
-        self._qphb_fit_core(times, i_signal, v_signal, None, None, step_times=step_times, nonneg=nonneg,
+        self._qphb_fit_core(times, i_signal, v_signal, None, None, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
                             subtract_background=subtract_background, estimate_background_kw=estimate_background_kw,
@@ -1227,7 +1227,7 @@ class DRT(DRTBase):
                             update_scale=update_scale, eis_error_structure=error_structure, eis_vmm_epsilon=vmm_epsilon,
                             eis_reim_cor=vmm_reim_cor, **kwargs)
 
-    def fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None,
+    def fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None,
                    nonneg=True, scale_data=True, update_scale=False,
                    # chrono parameters
                    offset_steps=True, offset_baseline=True, subtract_background=False, estimate_background_kw=None,
@@ -1239,7 +1239,7 @@ class DRT(DRTBase):
                    chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
                    eis_weight_factor=None, chrono_weight_factor=None, **kwargs):
 
-        self._qphb_fit_core(times, i_signal, v_signal, frequencies, z, step_times=step_times, nonneg=nonneg,
+        self._qphb_fit_core(times, i_signal, v_signal, frequencies, z, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
                             subtract_background=subtract_background, estimate_background_kw=estimate_background_kw,
@@ -4933,7 +4933,7 @@ class DRT(DRTBase):
                       # EIS data
                       frequencies, z,
                       # Chrono options
-                      step_times, downsample, downsample_kw, offset_steps, smooth_inf_response,
+                      step_times, step_sizes, downsample, downsample_kw, offset_steps, smooth_inf_response,
                       # Scaling
                       scale_data, rp_scale,
                       penalty_type, derivative_weights):
@@ -4954,7 +4954,7 @@ class DRT(DRTBase):
 
         # If chrono data provided, get input signal step information
         sample_times, sample_i, sample_v, step_times, step_sizes, tau_rise = self.process_chrono_signals(
-            times, i_signal, v_signal, step_times, offset_steps, downsample, downsample_kw
+            times, i_signal, v_signal, step_times, step_sizes, offset_steps, downsample, downsample_kw
         )
 
         # Set basis_tau - must have chrono step information

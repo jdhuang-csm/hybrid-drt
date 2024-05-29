@@ -273,7 +273,7 @@ class DRTBase:
 
         return tau
 
-    def process_chrono_signals(self, times, i_signal, v_signal, step_times, offset_steps, downsample, downsample_kw):
+    def process_chrono_signals(self, times, i_signal, v_signal, step_times, step_sizes, offset_steps, downsample, downsample_kw):
         # TODO: move this to DRT1d
         # If chrono data provided, get input signal step information
         if times is not None:
@@ -291,7 +291,8 @@ class DRTBase:
                                                                            offset_steps)
             else:
                 # Step times provided - only need to get step sizes
-                step_sizes = pp.get_step_sizes(times, input_signal, step_times)
+                if step_sizes is None:
+                    step_sizes = pp.get_step_sizes(times, input_signal, step_times)
                 tau_rise = None
 
             # Get non-consecutive steps for plotting functions
