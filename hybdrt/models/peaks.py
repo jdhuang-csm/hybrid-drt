@@ -168,7 +168,7 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
                     l_epsilon = max(l_epsilon, min_epsilon)
                     r_epsilon = max(r_epsilon, min_epsilon)
                 # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
-                print(i, l_epsilon, r_epsilon)
+                # print(i, l_epsilon, r_epsilon)
             else:
                 l_epsilon = epsilon_uniform
                 r_epsilon = epsilon_uniform
@@ -179,6 +179,7 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
             peak_weights[i, basis_tau >= tau[peak_index]] = rbf(
                 np.log(basis_tau[basis_tau >= tau[peak_index]] / tau[peak_index]), r_epsilon
             )
+            
 
             # prev_index = peak_index
             # peak_index = next_index
