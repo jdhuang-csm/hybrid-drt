@@ -8,7 +8,7 @@ import pandas as pd
 from scipy import signal, ndimage
 from copy import deepcopy
 import pickle
-from typing import Optional
+from typing import Optional, Union, List, Tuple
 
 from numpy import ndarray
 
@@ -19,6 +19,9 @@ from . import qphb, peaks, elements, pfrt, background
 from .. import evaluation
 from .drtbase import DRTBase
 from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
+from ..mapping.surface import (
+    peak_prob as calc_peak_prob, trough_prob as calc_trough_prob
+)
 
 
 class DRT(DRTBase):
@@ -2851,21 +2854,22 @@ class DRT(DRTBase):
         return x
     
     def get_drt_norm(self, normalize: bool, normalize_by: Optional[float] = None, 
-                     x: Optional[ndarray] = None):
+                     x: Optional[ndarray] = None, absolute=False):
         if normalize_by is not None:
             normalize = True
             
         if normalize:
             if normalize_by is None:
-                normalize_by = self.predict_r_p(x=x)
+                normalize_by = self.predict_r_p(x=x, absolute=absolute)
         else:
             normalize_by = 1
             
         return normalize_by
 
     def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, 
-                             normalize=False, normalize_by: Optional[float] = None):
-        """
+                             normalize=False, normalize_by: Optional[float] = None, 
+                             abs_norm: bool = False):
+        """ 
         Predict distribution as function of tau
         :param ndarray tau: tau values at which to evaluate the distribution
         :return: array of distribution density values
@@ -2881,7 +2885,7 @@ class DRT(DRTBase):
 
         x = self.get_drt_params(x, sign)
 
-        normalize_by = self.get_drt_norm(normalize, normalize_by, x=x)
+        normalize_by = self.get_drt_norm(normalize, normalize_by, x=x, absolute=abs_norm)
 
         return basis_matrix @ x / normalize_by
 
@@ -2948,8 +2952,13 @@ class DRT(DRTBase):
             # Extend variance beyond measurement bounds
             if extend_var:
                 if tau_data_limits is None:
-                    tau_data_limits = pp.get_tau_lim(self.get_fit_frequencies(True), self.get_fit_times(True),
-                                                     self.step_times)
+                    if self.basis_tau is not None and self.get_fit_frequencies(True) is None and self.get_fit_times(True) is None:
+                        # No data stored in instance. Most likely extracted from DRTMD
+                        # Assuming that basis_tau is extended by 1 decade, go in 1 decade from each side
+                        tau_data_limits = (self.basis_tau[9], self.basis_tau[-10])
+                    else:    
+                        tau_data_limits = pp.get_tau_lim(self.get_fit_frequencies(True), self.get_fit_times(True),
+                                                        self.step_times)
                 t_left, t_right = tau_data_limits
                 left_index = utils.array.nearest_index(tau, t_left) + 1
                 right_index = utils.array.nearest_index(tau, t_right)
@@ -3418,10 +3427,171 @@ class DRT(DRTBase):
     # ----------------------------------------------------
     # Peak finding
     # ----------------------------------------------------
-    def find_peaks(self, tau=None, x=None, normalize=True, ppd=10, prominence=None, height=None, sign=1,
-                   return_info=False,
-                   method='thresh', prob_thresh=None, p_matrix=None, fxx_var_floor=1e-5, extend_var=True,
-                   **kw):
+    def predict_peak_trough_probs(self, 
+        tau: Optional[ndarray] = None, 
+        x: Optional[ndarray] = None, 
+        bayes_cov: bool = True,
+        p_matrix: Optional[ndarray] = None,
+    ) -> ndarray:
+        if tau is None:
+            tau = self.get_tau_eval(10)
+            
+        mus = []
+        bvar = []
+        for order in [0, 1, 2]:
+            mu = self.predict_distribution(tau, x=x, order=order)
+            mus.append(mu)
+            
+            if bayes_cov:
+                # Get variance estimate from Bayesian inversion result
+                cov = self.estimate_distribution_cov(tau, p_matrix=p_matrix, 
+                                                    order=order, 
+                                                    extend_var=True)
+                sigma = np.diag(cov) ** 0.5
+                # Set a floor on sigma
+                iqr = np.percentile(sigma, 75) - np.percentile(sigma, 25)
+                sigma_floor = np.median(sigma) - 1.5 * iqr
+                sigma[sigma < sigma_floor] = sigma_floor
+                bvar.append(sigma ** 2)
+        
+        if bayes_cov:
+            f_var, fx_var, fxx_var = bvar
+        else:
+            f_var, fx_var, fxx_var = None, None, None
+        
+        pp = calc_peak_prob(*mus, f_var=f_var, fx_var=fx_var, fxx_var=fxx_var)
+        tp = calc_trough_prob(*mus, f_var=f_var, fx_var=fx_var, fxx_var=fxx_var)
+        
+        return pp, tp
+        
+    def predict_peak_prob(
+        self, 
+        tau: Optional[ndarray] = None, 
+        x: Optional[ndarray] = None, 
+        bayes_cov: bool = True,
+        p_matrix: Optional[ndarray] = None,
+    ) -> ndarray:
+        """Predict semi-quantitative probability of peak existence.
+
+        :param Optional[ndarray] tau: tau grid at which to predict. 
+            Defaults to 10 ppd grid over the basis range.
+        :param Optional[ndarray] x: DRT parameters. Defaults to the 
+            fitted parameters for this DRT instance.
+        :param bool bayes_cov: If True, use Bayesian covariance 
+            estimates for the probability calculation. If False, 
+            estimate sample variance in the output distribution.
+        :param Optional[ndarray] p_matrix: precision matrix for Bayesian
+            covariance calculation. By default, uses the precision
+            matrix fitted with this DRt instance. Ignored if 
+            bayes_cov==False.
+        :return ndarray: probability function evaluated over tau grid
+        """
+        pp, tp = self.predict_peak_trough_probs(tau, x, 
+                                                bayes_cov=bayes_cov, 
+                                                p_matrix=p_matrix)
+        
+        return pp * (1 - tp)
+    
+    def find_peaks_byprob(
+        self,
+        tau: Optional[ndarray] = None, 
+        x: Optional[ndarray] = None, 
+        prob: Optional[ndarray] = None,
+        height: float = None,
+        prominence: float = None,
+        bayes_cov: bool = True,
+        p_matrix: Optional[ndarray] = None,
+        peak_tau_ranges: Optional[List[Tuple[float]]] = None,
+        return_info: bool = False
+    ):
+        if tau is None:
+            tau = self.get_tau_eval(10)
+            
+        if prob is None:
+            prob = self.predict_peak_prob(tau, x, 
+                                          bayes_cov=bayes_cov, 
+                                          p_matrix=p_matrix)
+            
+        if peak_tau_ranges is not None:
+            peak_indices = peaks.find_peaks_byrange(tau, prob, peak_tau_ranges)
+            peak_info = {}
+        else:
+            peak_indices, peak_info = signal.find_peaks(prob, height=height, prominence=prominence)
+        
+        
+        if return_info:
+            return tau[peak_indices], tau, peak_indices, peak_info
+        else:
+            return tau[peak_indices]
+
+        
+    def find_peaks(self, 
+        tau: Optional[ndarray] = None, 
+        x: Optional[ndarray] = None, 
+        normalize: bool = True, 
+        ppd: int = 10, 
+        prominence: Optional[float] = None, 
+        height: Optional[float] = None, 
+        sign: int = 1,
+        return_info: bool = False,
+        method: str = 'thresh', 
+        prob_thresh: float = 0.25, 
+        p_matrix: Optional[ndarray] = None, 
+        fxx_var_floor: float = 1e-5, 
+        extend_var: bool = True,
+        num_peaks: int = None,
+        **kw):
+        """Find peaks in the DRT.
+
+        :param Optional[ndarray] tau: tau grid for peak finding. 
+            If not provided, defaults to a grid with 10 points per 
+            decade over the basis_tau range with 1 decade of extension 
+            at the boundaries.
+        :param Optional[ndarray] x: Array of fit parameters. By default, 
+            uses the fitted parameters of this DRT instance.
+        :param bool normalize: If True, normalize the DRT to 
+            polarization resistance for consistent results. 
+            Defaults to True.
+        :param int ppd: Points per decade for tau grid. Ignored if tau 
+            is provided. Defaults to 10.
+        :param Optional[float] prominence: Minimum prominence of 
+            detected peaks (see scipy.signal.find_peaks). 
+            By default, will be automatically determined.
+        :param Optional[float] height: Minimum height of 
+            detected peaks (see scipy.signal.find_peaks). 
+            By default, will be automatically determined
+        :param int sign: If 1, find positive and/or negative peaks in 
+            the net distribution. If 0, find peaks in the positive
+            and negative components separately. Defaults to 1.
+        :param bool return_info: If True, return extra information 
+            (see return parameters). Defaults to False.
+        :param str method: Peak-finding method. If 'thresh', find all 
+            peaks in the curvature of the DRT that exceed the height and 
+            prominence thresholds. If 'prob', a very weak threshold
+            is applied during initial peak finding, but the peaks are 
+            then filtered based on their apparent plausibility using
+            the credible interval of the DRT. Defaults to 'thresh'.
+        :param float prob_thresh: Probability threshold for 'prob' 
+            method. Defaults to 0.25.
+        :param Optional[ndarray] p_matrix: Custom precision matrix for 
+            credible interval calculation (only used for method='prob'). 
+            By default, use the fitted precision matrix from this DRT 
+            instance.
+        :param float fxx_var_floor: Minimum curvature variance for 
+            'prob' method. Defaults to 1e-5.
+        :param bool extend_var: If True, extend the curvature variance 
+            at the boundaries for stability (only for method='prob'). 
+            Defaults to True.
+        :param int num_peaks: Number of peaks to find if method == 'prob'.
+            If provided, prob_thresh is ignored.
+        :return ndarray peak_tau: Detected peak locations (tau)
+        :return ndarray tau: Tau grid used  for peak finding. 
+            Only returned if return_info=True.
+        :return ndarray peak_indices: Array of peak indices.
+            Only returned if return_info=True.
+        :return tuple peak_info: Peak information from scipy.signal.find_peaks.
+            Only returned if return_info=True.
+        """
         method_options = ['thresh', 'prob']
         if method not in method_options:
             raise ValueError(f'Invalid method {method}. Options: {method_options}')
@@ -3518,8 +3688,6 @@ class DRT(DRTBase):
             peak_info = {k: v[sort_index] for k, v in peak_info.items()}
 
         if method == 'prob':
-            if prob_thresh is None:
-                prob_thresh = 0.25
             # Use prominence or height, whichever is smaller
             min_prom = np.minimum(peak_info['prominences'], peak_info['peak_heights'])
 
@@ -3532,13 +3700,21 @@ class DRT(DRTBase):
 
             # Evaluate peak confidence
             peak_prob = 1 - 2 * stats.cdf_normal(0, min_prom, fxx_sigma[peak_indices])
-            print(peak_prob)
-
+            # print(peak_prob)
+            
+            if num_peaks is not None:
+                prob_sort = np.sort(peak_prob)[::-1]
+                prob_thresh = prob_sort[min(num_peaks - 1, len(peak_prob) - 1)]
+            
             # TODO: incorporate probability that peak height is greater than zero
             # Keep peaks that exceed probability threshold
-            peak_indices = peak_indices[peak_prob > prob_thresh]
+            peak_indices = peak_indices[peak_prob >= prob_thresh]
 
             # peak_prob = 1 - 2 * stats.cdf_normal(0, min_prom, 1)
+            
+            # Add prob to info dict
+            peak_info['probs'] = peak_prob
+            
 
         if return_info:
             return tau[peak_indices], tau, peak_indices, peak_info
@@ -3547,20 +3723,24 @@ class DRT(DRTBase):
 
     def estimate_peak_coef(self, tau=None, peak_indices=None, x=None, sign=1, epsilon_factor=1.25, 
                            max_epsilon=1.25, min_epsilon=None,
-                           epsilon_uniform=None,
+                           epsilon_uniform=None, peak_tau=None, trough_tau=None,
                            **find_peaks_kw):
         if peak_indices is not None and tau is None:
             raise ValueError('If peak_indices are provided, the corresponding tau grid must also be provided')
 
         x = self.get_drt_params(x, sign)
 
-        if peak_indices is None:
+        if peak_indices is None and peak_tau is None:
             _, tau, peak_indices, _ = self.find_peaks(x=x, sign=sign, return_info=True, **find_peaks_kw)
+        
+        if tau is None:
+            tau = self.get_tau_eval(10)
 
         f = self.predict_distribution(tau, x=x, sign=sign)
         fxx = self.predict_distribution(tau, x=x, sign=sign, order=2)
         peak_weights = peaks.estimate_peak_weight_distributions(tau, f, fxx, peak_indices, self.basis_tau,
-                                                                epsilon_factor, max_epsilon, min_epsilon, epsilon_uniform)
+                                                                epsilon_factor, max_epsilon, min_epsilon, epsilon_uniform,
+                                                                peak_tau=peak_tau, trough_tau=trough_tau)
 
         x_peaks = x * peak_weights
 
@@ -3568,7 +3748,8 @@ class DRT(DRTBase):
 
     def estimate_peak_distributions(self, tau=None, ppd=10, tau_find_peaks=None, peak_indices=None, x=None, sign=None,
                                     epsilon_factor=1.25,
-                                    max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None):
+                                    max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None,
+                                    peak_tau=None, trough_tau=None):
         """
         Estimate separate distributions for all identified peaks by applying local weighting functions to the total DRT.
         :param ndarray tau: tau grid over which to evaluate peak distributions
@@ -3601,6 +3782,7 @@ class DRT(DRTBase):
 
         x_peaks = self.estimate_peak_coef(tau_find_peaks, peak_indices, x, sign, epsilon_factor,
                                           max_epsilon, min_epsilon, epsilon_uniform,
+                                          peak_tau=peak_tau, trough_tau=trough_tau,
                                           **find_peaks_kw)
 
         if squeeze_factors is None:

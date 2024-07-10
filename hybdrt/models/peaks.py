@@ -1,7 +1,9 @@
 import numpy as np
+from numpy import ndarray
 from scipy import signal
-from ..matrices import basis
+from typing import Optional, Union, List, Tuple
 
+from ..matrices import basis
 from .. import utils
 
 
@@ -87,11 +89,21 @@ def find_peaks_compound(fx, fxx, order1_kw=None, order2_kw=None):
     return peaks
 
 
-def find_troughs(f, fxx, peak_indices):
+def find_troughs(f, fxx, peak_indices, peak_tau=None, tau=None):
     # If left and right peaks have same sign, use existing logic (after accounting for sign)
     # If left and right peaks have different signs, find zero between them
     trough_indices = []
     f_mix = -(f - fxx)
+    
+    if peak_indices is None:
+        if peak_tau is None:
+            raise ValueError("Either peak_indices or peak_tau must be provided")
+        if tau is None:
+            raise ValueError("If peak_tau is provided instead of peak_indices, "
+                             "the corresponding tau grid must also be provided")
+        # Convert peak_tau to indices
+        peak_indices = [utils.array.nearest_index(np.log(tau), np.log(pt)) for pt in peak_tau]
+    
     peak_indices = sorted(peak_indices)
     for i, start_index in enumerate(peak_indices[:-1]):
         end_index = peak_indices[i + 1]
@@ -126,24 +138,31 @@ def find_troughs(f, fxx, peak_indices):
 
 def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, epsilon_factor=1.25, 
                                        max_epsilon=1.25, min_epsilon=None,
-                                       epsilon_uniform=None, trough_indices=None):
+                                       epsilon_uniform=None, trough_indices=None, 
+                                       peak_tau=None, trough_tau=None):
     # print(len(peak_indices), len(trough_indices))
-    if len(peak_indices) > 1:
-        peak_indices = sorted(peak_indices)
+    if peak_tau is None:
+        # If peak_tau not given, use peak_indices (default)
+        peak_tau = tau[peak_indices]
+        
+    if len(peak_tau) > 1:
+        peak_tau = sorted(peak_tau)
         # Get RBF for weighting function
         rbf = basis.get_basis_func('gaussian')
 
         # Get weighting function for each peak
-        peak_weights = np.empty((len(peak_indices), len(basis_tau)))
+        peak_weights = np.empty((len(peak_tau), len(basis_tau)))
         # peak_iter = iter(peak_indices)
         # prev_index = 0
         # peak_index = next(peak_iter)
 
-        if trough_indices is None:
-            trough_indices = find_troughs(f, fxx, peak_indices)
+        if trough_tau is None:
+            if trough_indices is None:
+                trough_indices = find_troughs(f, fxx, peak_indices=None, peak_tau=peak_tau, tau=tau)
+            trough_tau = tau[trough_indices]
 
-        for i in range(len(peak_indices)):
-            peak_index = peak_indices[i]
+        for i in range(len(peak_tau)):
+            tau_i = peak_tau[i]
             # next_index = next(peak_iter, -1)
             if epsilon_uniform is None:
                 # Estimate RBF length scale based on distance to next peak
@@ -152,17 +171,23 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
                 # print(np.log(tau[prev_index]), np.log(tau[peak_index]), np.log(tau[next_index]))
                 # print(l_epsilon, r_epsilon)
                 if i == 0:
-                    prev_index = 0
+                    # prev_index = 0
+                    prev_trough = tau[0]
                 else:
-                    prev_index = trough_indices[i - 1]
+                    # prev_index = trough_indices[i - 1]
+                    prev_trough = trough_tau[i - 1]
 
-                if i == len(peak_indices) - 1:
-                    next_index = -1
+                if i == len(peak_tau) - 1:
+                    # next_index = -1
+                    next_trough = tau[-1]
                 else:
-                    next_index = trough_indices[i]
+                    # next_index = trough_indices[i]
+                    next_trough = trough_tau[i]
 
-                l_epsilon = min(epsilon_factor / np.log(tau[peak_index] / tau[prev_index]), max_epsilon)
-                r_epsilon = min(epsilon_factor / np.log(tau[next_index] / tau[peak_index]), max_epsilon)
+                # l_epsilon = min(epsilon_factor / np.log(tau[peak_index] / tau[prev_index]), max_epsilon)
+                # r_epsilon = min(epsilon_factor / np.log(tau[next_index] / tau[peak_index]), max_epsilon)
+                l_epsilon = min(epsilon_factor / np.log(tau_i / prev_trough), max_epsilon)
+                r_epsilon = min(epsilon_factor / np.log(next_trough / tau_i), max_epsilon)
                 if min_epsilon is not None:
                     # Apply lower bound
                     l_epsilon = max(l_epsilon, min_epsilon)
@@ -173,11 +198,11 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
                 l_epsilon = epsilon_uniform
                 r_epsilon = epsilon_uniform
 
-            peak_weights[i, basis_tau < tau[peak_index]] = rbf(
-                np.log(basis_tau[basis_tau < tau[peak_index]] / tau[peak_index]), l_epsilon
+            peak_weights[i, basis_tau < tau_i] = rbf(
+                np.log(basis_tau[basis_tau < tau_i] / tau_i), l_epsilon
             )
-            peak_weights[i, basis_tau >= tau[peak_index]] = rbf(
-                np.log(basis_tau[basis_tau >= tau[peak_index]] / tau[peak_index]), r_epsilon
+            peak_weights[i, basis_tau >= tau_i] = rbf(
+                np.log(basis_tau[basis_tau >= tau_i] / tau_i), r_epsilon
             )
             
 
@@ -394,7 +419,70 @@ def has_similar_peak(peak_location, compare_peak_locations, threshold=0.5, epsil
     return sim_index[0] >= threshold
 
 
-# def evalute_peak_prob()
+# For use with peak/trough probability functions
+def find_peak_inrange(tau: ndarray, f: ndarray, peak_range: Tuple[float]):
+    """Find the position of the function maximum within a range.
+
+    Args:
+        tau (ndarray): tau grid
+        f (ndarray): function
+        peak_range (tuple): tuple of lower and upper tau bounds
+
+    Returns:
+        int: index of maximum (indexed relative to full tau grid)
+    """
+    t0, t1 = peak_range
+    g = f.copy()
+    g[(tau < t0) | (tau > t1)] = 0
+    return np.argmax(g)
+
+
+def find_peaks_byrange(tau, f, ranges: List[Tuple[float]]):
+    return np.array([find_peak_inrange(tau, f, r) for r in ranges])
+
+
+
+def find_troughs_from_prob(tau: ndarray, tp: ndarray, peak_indices: ndarray):
+    """Find positions of troughs between peaks.
+
+    Args:
+        tau (ndarray): tau grid
+        tp (ndarray): Trough probability function
+        peak_indices (ndarray): indices of peaks
+
+    Returns:
+        ndarray: trough indices
+    """
+    peak_tau = tau[peak_indices]
+    
+    ranges = [(peak_tau[i], peak_tau[i + 1]) for i in range(len(peak_tau) - 1)]
+    
+    # v1: find highest-prob trough
+    # return find_peaks_byrange(tau, tp, ranges)
+    
+    # v2: always use midpoint of the interval
+    # range_centers = [np.exp(np.mean(np.log(r))) for r in ranges]
+    # return [nearest_index(tau, r) for r in range_centers]
+    
+    # v3: mixed
+    # If there's a single trough in the interval, use it.
+    # If there are multiple troughs, use the midpoint of the interval.
+    trough_tau = []
+    for r in ranges:
+        tpr = tp.copy()
+        tpr[(tau < r[0])] = tpr[nearest_index(tau, r[0], constraint=-1)]
+        tpr[(tau >= r[1])] = tpr[nearest_index(tau, r[1], constraint=1)]
+        peaks, info = find_peaks(tpr, height=0.8, prominence=0.5)
+        # print('peaks:', peaks, info)
+        if len(peaks) == 1:
+            # If there's only one trough, use it
+            trough_tau.append(peaks[0])
+        else:
+            # If there are multiple troughs, use the center of the peaks instead
+            range_center = np.exp(np.mean(np.log(r)))
+            trough_tau.append(nearest_index(tau, range_center))
+            
+    return trough_tau
 
 
 
