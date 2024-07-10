@@ -1,6 +1,6 @@
 from cmdstanpy import CmdStanModel
 from pathlib import Path
-
+import pickle
 
 _module_dir = Path(__file__).parent
 

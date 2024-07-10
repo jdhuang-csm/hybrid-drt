@@ -714,8 +714,7 @@ def iv_from_eis(data):
 
 
 def read_notes(file, parse=True):
-    with open(file) as f:
-        txt = f.read()
+    txt = read_txt(file)
 
     # Find start of notes block
     notes_start = txt.find('NOTES')
@@ -728,7 +727,9 @@ def read_notes(file, parse=True):
 
     # Parse into dict
     if parse:
-        notes = {entry.split('\t')[0]: entry.split('\t')[1] for entry in notes.split('\n\t')}
+        notes = {entry.split('\t')[0]: entry.split('\t')[1] 
+                 for entry in notes.split('\n\t') if len(entry) > 0
+                 }
 
     return notes
 
@@ -739,12 +740,7 @@ def read_curve(file):
     :param file:
     :return:
     """
-    try:
-        with open(file, 'r') as f:
-            txt = f.read()
-    except UnicodeDecodeError:
-        with open(file, 'r', encoding='latin1') as f:
-            txt = f.read()
+    txt = read_txt(file)
 
     # find start of curve data
     cidx = txt.find('CURVE\tTABLE')
