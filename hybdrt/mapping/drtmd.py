@@ -81,7 +81,8 @@ class DRTMD(object):
         # Fit configuration
         self.fit_type = fit_type
         if fit_kw is None:
-            fit_kw = {}
+            # Initialize with default values of required args
+            fit_kw = {'nonneg': True}
         self.fit_kw = fit_kw
         if pfrt_factors is None:
             pfrt_factors = np.logspace(-0.7, 0.7, 11)
@@ -447,6 +448,8 @@ class DRTMD(object):
         self.obs_x_resolved[obs_index] = 0
 
         num_obs = len(obs_index)
+        # Cap batch size at number of observations in group
+        batch_size = min(batch_size, num_obs)
         num_batches = 1 + int(np.ceil((num_obs - batch_size) / (batch_size - overlap)))
         # print(num_obs, num_batches)
 

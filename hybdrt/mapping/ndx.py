@@ -350,7 +350,7 @@ def _filter_ndx_sub(x_sub, nan_obs_index, filter_func, filter_kw, mask_nans, ite
 
 
 def flatten_groups(ndx, num_group_dims):
-    new_shape = (*ndx.shape[:num_group_dims], np.prod(ndx.shape[num_group_dims:]))
+    new_shape = (*ndx.shape[:num_group_dims], int(np.prod(ndx.shape[num_group_dims:])))
     return ndx.reshape(new_shape)
 
 
