@@ -13,7 +13,25 @@ from pathlib import Path
 
 FilePath = Union[Path, str]
 
+# Try to import galvani to read MPR files
+try:
+    from galvani.BioLogic import MPRfile
+except ImportError:
+    _galvani_installed = False
+else:
+    _galvani_installed = True
 
+
+def get_extension(file: FilePath):
+    """Get file extension
+
+    :param FilePath file: str or Path
+    :return str: extension string
+    """
+    file = Path(file)
+    return file.name.split('.')[-1]
+
+    
 def get_file_source(text: str):
     """Determine file source"""
 
@@ -303,6 +321,15 @@ def _get_read_kwargs(
     
     return kwargs
 
+
+def read_mpr(file: FilePath):
+    if not _galvani_installed:
+        raise ModuleNotFoundError("The galvani package must be installed to read BioLogic .mpr files")
+    
+    file = Path(file)
+    mpr = MPRfile(file.__str__())
+    return mpr
+
         
 def find_time_column(data: DataFrame, source: str):
     if source == 'gamry':        
@@ -331,31 +358,35 @@ def read_generic(
     **kwargs
     ) -> DataFrame:
     
-    txt, source = read_with_source(file, source)
+    if get_extension(file) == 'mpr':
+        mpr = read_mpr(file)
+        data = pd.DataFrame(mpr.data)
+    else:
+        txt, source = read_with_source(file, source)
 
-    # Set defaults
-    read_kw = {
-        'encoding': None,
-        'encoding_errors': 'ignore',
-        'engine': 'python'
-    }
+        # Set defaults
+        read_kw = {
+            'encoding': None,
+            'encoding_errors': 'ignore',
+            'engine': 'python'
+        }
+        
+        # Get kwargs for reading based on header
+        read_kw.update(_get_read_kwargs(txt, source, data_start_str))
+        
+        # Update with user-supplied kwargs
+        read_kw.update(kwargs)
+        
+        # Read dataframe
+        data = pd.read_csv(file, **read_kw)
     
-    # Get kwargs for reading based on header
-    read_kw.update(_get_read_kwargs(txt, source, data_start_str))
-    
-    # Update with user-supplied kwargs
-    read_kw.update(kwargs)
-    
-    # Read dataframe
-    data = pd.read_csv(file, **read_kw)
-    
-    if with_timestamp:
-        append_timestamp(file, data, source)
+        if with_timestamp:
+            append_timestamp(file, data, source)
     
     return data
 
 
-def append_timestamp(file: Union[Path, str], data: DataFrame, source: str):
+def append_timestamp(file: Union[Path, str], data: DataFrame, source: str, warn=True):
     # Get point-by-point timestamps
     try:
         dt = get_timestamp(file)
@@ -365,7 +396,6 @@ def append_timestamp(file: Union[Path, str], data: DataFrame, source: str):
         # Failed to get timestamp
         warnings.warn(f'Failed to get timestamp for file {Path(file).name} with error:\n{err}')
         raise err
-        pass
     
 
 def read_chrono(file, source=None, return_tuple=False, with_timestamp: bool = True):
@@ -375,62 +405,20 @@ def read_chrono(file, source=None, return_tuple=False, with_timestamp: bool = Tr
     Args:
         file: file to read
     """
-    txt, source = read_with_source(file, source)
+    if get_extension(file) == 'mpr':
+        source = 'biologic'
+        data_start_str = None
+        with_timestamp = False
+    else:
+        txt, source = read_with_source(file, source)
 
-    # Get kwargs for reading
-    data_start_str = None
-    if source == 'gamry':
-        data_start_str = '\nCURVE\tTABLE'
+        # Get kwargs for reading
+        data_start_str = None
+        if source == 'gamry':
+            data_start_str = '\nCURVE\tTABLE'
             
     # Read into dataframe
     data = read_generic(file, source, data_start_str, with_timestamp)
-
-    
-    
-    # if source == 'gamry':
-    #     # find start of curve data
-    #     cidx = txt.upper().find('\nCURVE\tTABLE') + 1
-    #     skipfooter = 0
-
-    #     if cidx == -1:
-    #         # coudn't find OCV curve data in file
-    #         # return empty dataframe
-    #         return pd.DataFrame([])
-    #     else:
-    #         # preceding text
-    #         pretxt = txt[:cidx]
-
-    #         # ocv curve data
-    #         ctable = txt[cidx:]
-    #         # column headers are next line after ZCURVE TABLE line
-    #         header_start = ctable.find('\n') + 1
-    #         header_end = header_start + ctable[header_start:].find('\n')
-    #         header = ctable[header_start:header_end].split('\t')
-    #         # units are next line after column headers
-    #         unit_end = header_end + 1 + ctable[header_end + 1:].find('\n')
-    #         units = ctable[header_end + 1:unit_end].split('\t')
-    #         # determine # of rows to skip by counting line breaks in preceding text
-    #         skiprows = len(pretxt.split('\n')) + 2
-
-    #         # if table is indented, ignore empty left column
-    #         if header[0] == '':
-    #             usecols = header[1:]
-    #         else:
-    #             usecols = header
-    #         # read data to DataFrame
-    #         data = pd.read_csv(file, sep='\t', skiprows=skiprows, skipfooter=skipfooter, header=None, names=header,
-    #                            usecols=usecols, engine='python')
-
-    #         # get timestamp
-    #         try:
-    #             dt = get_timestamp(file)
-    #             time_col = find_time_column(data) # time col may be either 'T' or 'Time'
-    #             # print(time_col, data[time_col])
-    #             data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
-    #         except ValueError:
-    #             warnings.warn(f'Could not read timestamp from file {file}')
-    # else:
-    #     raise ValueError(f'read_chrono is not implemented for source {source}')
 
     if return_tuple:
         data = get_chrono_tuple(data, source)
@@ -547,14 +535,19 @@ def read_eis(
 
     """read EIS zcurve data from Gamry .DTA file"""
     
-    txt, source = read_with_source(file, source)
-    
-    # Read into dataframe
-    data_start_str = None
-    if source == 'gamry':
-        data_start_str = '\nZCURVE'
-    
-    data = read_generic(file, source, data_start_str)
+    if get_extension(file) == 'mpr':
+        source = 'biologic'
+        data_start_str = None
+        with_timestamp = False
+    else:
+        txt, source = read_with_source(file, source)
+        
+        # Read into dataframe
+        data_start_str = None
+        if source == 'gamry':
+            data_start_str = '\nZCURVE'
+        
+    data = read_generic(file, source, data_start_str, with_timestamp)
     
     # Rename to standard format
     if rename:
@@ -601,163 +594,6 @@ def read_eis(
     return data     
    
 
-    # if source == 'gamry':
-    #     # find start of zcurve data
-    #     zidx = txt.find('ZCURVE')
-    #     # check for experiment aborted flag
-    #     if txt.find('EXPERIMENTABORTED') > -1:
-    #         skipfooter = len(txt[txt.find('EXPERIMENTABORTED'):].split('\n')) - 1
-    #     else:
-    #         skipfooter = 0
-
-    #     # preceding text
-    #     pretxt = txt[:zidx]
-
-    #     # zcurve data
-    #     ztable = txt[zidx:]
-    #     # column headers are next line after ZCURVE TABLE line
-    #     header_start = ztable.find('\n') + 1
-    #     header_end = header_start + ztable[header_start:].find('\n')
-    #     header = ztable[header_start:header_end].split('\t')
-    #     # units are next line after column headers
-    #     unit_end = header_end + 1 + ztable[header_end + 1:].find('\n')
-    #     units = ztable[header_end + 1:unit_end].split('\t')
-    #     # determine # of rows to skip by counting line breaks in preceding text
-    #     skiprows = len(pretxt.split('\n')) + 2
-
-    #     # if table is indented, ignore empty left column
-    #     if header[0] == '':
-    #         usecols = header[1:]
-    #     else:
-    #         usecols = header
-
-    #     # if extra tab at end of data rows, add an extra column to header to match (for Igor data)
-    #     first_data_row = ztable[unit_end + 1: unit_end + 1 + ztable[unit_end + 1:].find('\n')]
-    #     if first_data_row.split('\t')[-1] == '':
-    #         header = header + ['extra_tab']
-
-    #     # read data to DataFrame
-    #     # python engine required to use skipfooter
-    #     data = pd.read_csv(file, sep='\t', skiprows=skiprows, header=None, names=header, usecols=usecols,
-    #                        skipfooter=skipfooter, engine='python', encoding=None, encoding_errors='ignore')
-
-    #     # add timestamp
-    #     try:
-    #         dt = get_timestamp(file)
-    #         time_col = np.intersect1d(['Time', 'T'], data.columns)[
-    #             0]  # EIS files in Repeating jv-EIS files have column named 'Time' instead of 'T'
-    #         data['timestamp'] = [dt + timedelta(seconds=t) for t in data[time_col]]
-    #     except Exception:
-    #         if warn:
-    #             warnings.warn(f'Reading timestamp failed for file {file}')
-
-    # elif source == 'zplot':
-    #     # find start of zcurve data
-    #     zidx = txt.find('End Comments')
-
-    #     # preceding text
-    #     pretxt = txt[:zidx]
-
-    #     # z data
-    #     ztable = txt[zidx:]
-    #     # column headers are in line above "End Comments"
-    #     header = pretxt.split('\n')[-2].strip().split('\t')
-
-    #     # determine # of rows to skip by counting line breaks in preceding text
-    #     skiprows = len(pretxt.split('\n'))
-
-    #     # if table is indented, ignore empty left column
-    #     if header[0] == '':
-    #         usecols = header[1:]
-    #     else:
-    #         usecols = header
-
-    #     # read data to DataFrame
-    #     data = pd.read_csv(file, sep='\t', skiprows=skiprows, header=None, names=header, usecols=usecols)
-
-    #     # rename to standard format
-    #     col_map = {"Z'(a)": "Zreal", "Z''(b)": "Zimag", "Freq(Hz)": "Freq"}
-    #     data = data.rename(col_map, axis=1)
-
-    #     # calculate Zmod and Zphz
-    #     Zmod, Zphz = polar_from_complex(data)
-    #     data['Zmod'] = Zmod
-    #     data['Zphz'] = Zphz
-
-    # elif source == 'biologic':
-    #     # header_count_index = txt.find('Nb header lines :')
-    #     f_index = txt.find('freq/Hz')
-
-    #     # Identify separator - could be tab or comma
-    #     sep = txt[f_index + 7]
-
-    #     skiprows = len(txt[:f_index].split('\n')) - 1
-
-    #     # read data to DataFrame
-    #     data = pd.read_csv(file, sep=sep, skiprows=skiprows, encoding=None, encoding_errors='ignore')
-
-    #     # Rename columns to standard names (matching Gamry format)
-    #     col_map = {
-    #         'freq/Hz': 'Freq',
-    #         'Re(Z)/Ohm': 'Zreal',
-    #         '-Im(Z)/Ohm': 'Zimag',
-    #         '|Z|/Ohm': 'Zmod',
-    #         'Phase(Z)/deg': 'Zphz',
-    #         'time/s': 'Time',
-    #         '<Ewe>/V': 'Vdc',
-    #         '<I>/mA': 'Idc',
-    #         # 'Cs/F',
-    #         # 'Cp/F',
-    #         # 'cycle number',
-    #         # 'I Range',
-    #         # '|Ewe|/V',
-    #         # '|I|/A',
-    #         # 'Ns',
-    #         # '(Q-Qo)/mA.h',
-    #         # 'Re(Y)/Ohm-1',
-    #         # 'Im(Y)/Ohm-1',
-    #         # '|Y|/Ohm-1',
-    #         # 'Phase(Y)/deg',
-    #         # 'dq/mA.h'
-    #     }
-
-    #     data = data.rename(col_map, axis=1)
-
-    #     data['Zimag'] *= -1
-    # elif source == 'relaxis':
-    #     # Find header line
-    #     header_index = txt.find('\nData: ')
-    #     # Skip next two rows of metadata
-    #     skiprows = len(txt[:header_index].split('\n')) + 2
-        
-    #     # Get data headers and rename
-    #     header_line = txt[header_index + 1:].split('\n')[0]
-    #     header_items = header_line.split('\t')
-    #     header = [h.replace('Data: ', '') for h in header_items]
-        
-    #     # Read table
-    #     data = pd.read_csv(file, sep='\t', skiprows=skiprows, encoding=None, 
-    #                        header=None, names=header,
-    #                        encoding_errors='ignore')
-        
-    #     # Rename to standard fields
-    #     col_map = {
-    #         "Frequency": "Freq", 
-    #         "Z'": "Zreal", 
-    #         "Z''": "Zimag", 
-    #         "|Z|": "Zmod",
-    #         "Theta (Z)": "Zphz"
-    #     }
-        
-    #     data = data.rename(col_map, axis=1)        
-    # else:
-    #     raise ValueError('Unrecognized file format')
-
-    # if return_tuple:
-    #     data = get_eis_tuple(data)
-
-    # return data
-
 
 def get_eis_tuple(data, min_freq=None, max_freq=None):
     """Convenience function - get frequency and Z from EIS DataFrame"""
@@ -788,7 +624,6 @@ def get_chrono_tuple(
     columns: Optional[list] = None):
 
     if type(data) != pd.DataFrame:
-        _, source = read_with_source(data)
         data = read_chrono(data, source)
         
     if columns is None:
