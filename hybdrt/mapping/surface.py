@@ -4,7 +4,7 @@ from skimage import filters  # import sato, meijering, apply_hysteresis_threshol
 
 from . import ndx
 from ..filters import std_filter, signed_hysteresis_threshold, rms_filter
-from ..models.peaks import estimate_peak_weight_distributions  # find_troughs as find_trough_indices
+from ..peaks import estimate_peak_weight_distributions  # find_troughs as find_trough_indices
 from ..utils import stats
 from ..utils.array import nearest_index
 

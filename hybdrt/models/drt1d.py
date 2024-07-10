@@ -12,10 +12,10 @@ from typing import Optional, Union, List, Tuple
 
 from numpy import ndarray
 
-from .. import utils, preprocessing as pp
+from .. import peaks, utils, preprocessing as pp
 from ..utils import stats
 from ..matrices import mat1d, basis, phasance
-from . import qphb, peaks, elements, pfrt, background
+from . import qphb, elements, pfrt, background
 from .. import evaluation
 from .drtbase import DRTBase
 from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono

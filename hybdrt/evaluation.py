@@ -4,7 +4,7 @@ from scipy import signal
 from scipy.stats import hmean, iqr, median_abs_deviation
 import warnings
 
-from .models import peaks
+from . import peaks
 from .plotting import plot_distribution
 from .utils import scale, stats
 from .utils.array import check_equality

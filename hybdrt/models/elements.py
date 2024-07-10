@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from mitlef.pade_approx import create_approx_func, ml_pade_approx
 
 from .. import utils
-from . import peaks
+from .. import peaks
 from .. import preprocessing as pp
 from ..matrices import mat1d
 from hybdrt.plotting import plot_distribution, plot_eis
@@ -83,7 +83,7 @@ class DiscreteElementModel:
     @classmethod
     def from_drt(cls, drt, x_raw=None, tau=None, peak_indices=None, estimate_peak_distributions=True,
                  estimate_peak_distributions_kw=None,
-                 model_string='R0-L0-{DRT}', drt_element='HN',
+                 model_string=None, drt_element='HN',
                  set_bounds=True, parameter_limits=None, **find_peaks_kw):
 
         # Get parameter vector
@@ -116,6 +116,17 @@ class DiscreteElementModel:
             peak_gammas = None
 
         # Construct model string
+        if model_string is None:
+            # Make default model with offsets and DRT placeholder
+            model_string = []
+            if drt.fit_ohmic:
+                model_string.append('R0')
+            if drt.fit_inductance:
+                model_string.append('L0')
+            if drt.fit_capacitance:
+                model_string.append('C0')
+            model_string.append('{DRT}')
+            model_string = '-'.join(model_string)
         drt_index = model_string.find('-{DRT}')
         if drt_index >= 0 and drt_element is None:
             raise ValueError('An element type must be specified in drt_element if using automatic model construction')
@@ -177,6 +188,8 @@ class DiscreteElementModel:
                 params = [fit_parameters['R_inf']]
             elif offset_types[i] == 'L':
                 params = [np.log(fit_parameters['inductance'])]
+            elif offset_types[i] == 'C':
+                params = [fit_parameters['C_inv']]
             else:
                 params = [np.nan]
             offset_params += params
@@ -1932,15 +1945,35 @@ def element_f_jacobian(element_type):
             )
             return out
     elif element_type == 'RQ':
-        def z_func(freq, r, ln_tau, beta):
+        def jac(freq, r, ln_tau, beta):
             t0 = np.exp(ln_tau)
             omega = freq * 2 * np.pi
-            return r / (1 + (1j * omega * t0) ** beta)
+            jwt = 1j * omega * t0
+            jwt_b = jwt ** beta
+            out = np.zeros((2 * len(freq), 3))
+            out[:, 0] = utils.eis.complex_vector_to_concat(
+                (1 + jwt_b) ** -1
+            )
+            out[:, 1] = utils.eis.complex_vector_to_concat(
+                -r * (1 + jwt_b) ** -2 * beta * jwt_b
+            )
+            out[:, 2] = utils.eis.complex_vector_to_concat(
+                -r * (1 + jwt_b) ** -2 * np.log(jwt) * jwt_b
+            )
+            return out
     elif element_type == 'RC':
-        def z_func(freq, r, ln_tau):
+        def jac(freq, r, ln_tau):
             t0 = np.exp(ln_tau)
             omega = freq * 2 * np.pi
-            return r / (1 + 1j * omega * t0)
+            jwt = 1j * omega * t0
+            out = np.zeros((2 * len(freq), 2))
+            out[:, 0] = utils.eis.complex_vector_to_concat(
+                (1 + jwt) ** -1
+            )
+            out[:, 1] = utils.eis.complex_vector_to_concat(
+                -r * (1 + jwt) ** -2 * jwt
+            )
+            return out
     elif element_type == 'L':
         def jac(freq, ln_induc):
             omega = freq * 2 * np.pi
@@ -1952,6 +1985,13 @@ def element_f_jacobian(element_type):
         def jac(freq, r):
             out = utils.eis.complex_vector_to_concat(
                 np.ones(len(freq))
+            )
+            return out.reshape((2 * len(freq), 1))
+    elif element_type == 'C':
+        def jac(freq, c_inv):
+            omega = freq * 2 * np.pi
+            out = utils.eis.complex_vector_to_concat(
+                -1j * (omega ** -1)
             )
             return out.reshape((2 * len(freq), 1))
     else:
@@ -1990,15 +2030,36 @@ def element_f_hessian(element_type):
             )
             return out
     elif element_type == 'RQ':
-        def z_func(freq, r, ln_tau, beta):
+        def hess(freq, r, ln_tau, beta):
             t0 = np.exp(ln_tau)
             omega = freq * 2 * np.pi
-            return r / (1 + (1j * omega * t0) ** beta)
+            jwt = 1j * omega * t0
+            jwt_b = jwt ** beta
+            out = np.zeros((2 * len(freq), 3, 3))
+            out[:, 1, 1] = utils.eis.complex_vector_to_concat(
+                r * beta ** 2 * jwt_b * (
+                        2 * (1 + jwt_b) ** -3 - beta * (1 + jwt_b) ** -2
+                )
+            )
+            out[:, 2, 2] = utils.eis.complex_vector_to_concat(
+                -r * (np.log(jwt)) ** 2 * (
+                        (1 + jwt_b) ** -2 * jwt_b
+                        - 2 * (1 + jwt_b) ** -3 * jwt ** (2 * beta)
+                )
+            )
+            return out
     elif element_type == 'RC':
-        def z_func(freq, r, ln_tau):
+        def hess(freq, r, ln_tau):
             t0 = np.exp(ln_tau)
             omega = freq * 2 * np.pi
-            return r / (1 + 1j * omega * t0)
+            jwt = 1j * omega * t0
+            out = np.zeros((2 * len(freq), 2, 2))
+            out[:, 1, 1] = utils.eis.complex_vector_to_concat(
+                r * jwt * (
+                        2 * (1 + jwt) ** -3 - (1 + jwt) ** -2
+                )
+            )
+            return out
     elif element_type == 'L':
         def hess(freq, ln_induc):
             omega = freq * 2 * np.pi
@@ -2008,6 +2069,9 @@ def element_f_hessian(element_type):
             return out.reshape((2 * len(freq), 1, 1))
     elif element_type == 'R':
         def hess(freq, r):
+            return np.zeros((2 * len(freq), 1, 1))
+    elif element_type == 'C':
+        def hess(freq, c_inv):
             return np.zeros((2 * len(freq), 1, 1))
     else:
         raise ValueError(f'Invalid element {element_type}')
