@@ -82,7 +82,7 @@ transformed data {
         mu[k] = rep_vector(0.0, N);
     }
     for (n in 1:N) {
-        Rp[n] = sum(fabs(y[n]));
+        Rp[n] = sum(abs(y[n]));
     }
 }
 parameters {
@@ -141,7 +141,7 @@ transformed parameters {
         for (k in 1:K) {
             y_hat[n] = y_hat[n] + R[k][n] * ZARC_gamma(tau, exp(lntau[k][n]), beta[k][n]);
         }
-        Rp_hat[n] = sum(fabs(y_hat[n]));
+        Rp_hat[n] = sum(abs(y_hat[n]));
     }
 
     // Calculate noise level
