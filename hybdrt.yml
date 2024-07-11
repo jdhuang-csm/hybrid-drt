@@ -8,4 +8,6 @@ dependencies:
   - pandas
   - scipy
   - scikit-learn
+  - scikit-image
   - ipykernel
+  - conda-build
