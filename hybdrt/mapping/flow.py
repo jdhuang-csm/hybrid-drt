@@ -1,7 +1,11 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from skimage import transform
-from skimage.registration._optical_flow_utils import get_warp_points
+# Function names changed with skimage version updates
+try:
+    from skimage.registration._optical_flow_utils import _get_warp_points
+except ImportError:
+    from skimage.registration._optical_flow_utils import get_warp_points
 from itertools import permutations
 from functools import partial
 

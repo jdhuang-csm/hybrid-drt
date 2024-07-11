@@ -38,7 +38,11 @@ from scipy import ndimage as ndi
 from skimage._shared.filters import gaussian as gaussian_filter
 from skimage._shared.utils import _supported_float_type
 from skimage.transform import warp
-from skimage.registration._optical_flow_utils import coarse_to_fine, get_warp_points
+# Function names changed with skimage version updates
+try:
+    from skimage.registration._optical_flow_utils import _coarse_to_fine, _get_warp_points
+except ImportError:
+    from skimage.registration._optical_flow_utils import coarse_to_fine, get_warp_points
 
 from hybdrt.filters._filters import masked_filter, rms_filter
 
