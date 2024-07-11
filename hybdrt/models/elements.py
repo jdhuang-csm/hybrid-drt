@@ -3,7 +3,7 @@ import numpy as np
 import warnings
 from scipy.optimize import least_squares
 from scipy import special
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 import matplotlib.pyplot as plt
 
 from mitlef.pade_approx import create_approx_func, ml_pade_approx
@@ -1516,7 +1516,7 @@ def element_distribution_integral_function(element_type):
         gamma = gamma_func(tau, *args)
 
         # Get cumulative integral
-        cum_mass = cumtrapz(gamma, x=np.log(tau), initial=0)
+        cum_mass = cumulative_trapezoid(gamma, x=np.log(tau), initial=0)
 
         # Fix numerical errors for nearly singular distributions
         r = args[0]

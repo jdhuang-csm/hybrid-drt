@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from scipy import signal
 from scipy.stats import hmean, iqr, median_abs_deviation
 import warnings
@@ -916,7 +916,7 @@ def discretize_distribution(tau, gamma, singularity_info=None):
     :return:
     """
     # Get cumulative integral
-    cum_mass = cumtrapz(gamma, x=np.log(tau), initial=0)
+    cum_mass = cumulative_trapezoid(gamma, x=np.log(tau), initial=0)
 
     # Add singularity mass
     if singularity_info is not None:
