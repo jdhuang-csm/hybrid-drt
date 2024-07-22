@@ -13,7 +13,7 @@ module_dir = os.path.dirname(os.path.realpath(__file__))
 
 class DRTBase:
     def __init__(self, fixed_basis_tau=None, tau_supergrid=None, tau_basis_type='gaussian', tau_epsilon=None,
-                 basis_tau_ppd=10,
+                 basis_tau_ppd=10, extend_basis_decades=1,
                  step_model='ideal', chrono_mode='galv', interpolate_integrals=True, chrono_tau_rise=None,
                  fixed_basis_nu=None, nu_basis_type='gaussian', nu_epsilon=None, fit_dop=False, normalize_dop=True,
                  fit_inductance=True, fit_ohmic=True, fit_capacitance=False,
@@ -34,6 +34,7 @@ class DRTBase:
         self.basis_tau = None
         self.tau_basis_type = tau_basis_type
         self.tau_epsilon = tau_epsilon
+        self.extend_basis_decades = extend_basis_decades
         self.step_model = step_model
         self.chrono_mode = chrono_mode
         self.chrono_mode_predict = chrono_mode

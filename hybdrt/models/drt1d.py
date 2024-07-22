@@ -5145,7 +5145,8 @@ class DRT(DRTBase):
             self.basis_tau = self.fixed_basis_tau
         else:
             # Default: 10 ppd basis grid. Extend basis tau one decade beyond data on each end
-            self.basis_tau = pp.get_basis_tau(frequencies, times, step_times, tau_grid=self.tau_supergrid)
+            self.basis_tau = pp.get_basis_tau(frequencies, times, step_times, tau_grid=self.tau_supergrid, 
+                                              extend_decades=self.extend_basis_decades)
 
         # If epsilon is not set, apply default value
         if self.tau_epsilon is None:

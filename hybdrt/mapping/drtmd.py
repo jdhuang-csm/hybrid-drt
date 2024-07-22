@@ -19,6 +19,7 @@ from ..models.drt1d import DRT
 
 class DRTMD(object):
     def __init__(self, tau_supergrid, psi_dim_names=None, store_attr_categories=None,
+                 extend_basis_decades=1,
                  tau_basis_type='gaussian', tau_epsilon=None,
                  step_model='ideal', chrono_mode='galv',
                  fit_inductance=True, fit_ohmic=True, fit_capacitance=False,
@@ -32,7 +33,8 @@ class DRTMD(object):
         # Initialize workhorse DRT instance. Set up integral interpolation using tau_supergrid
         self.drt1d = DRT(interpolate_integrals=True,
                          tau_supergrid=tau_supergrid, tau_epsilon=tau_epsilon, tau_basis_type=tau_basis_type,
-                         fixed_basis_nu=fixed_basis_nu, nu_epsilon=nu_epsilon, nu_basis_type=nu_basis_type
+                         fixed_basis_nu=fixed_basis_nu, nu_epsilon=nu_epsilon, nu_basis_type=nu_basis_type,
+                         extend_basis_decades=extend_basis_decades
                          )
 
         self.psi_dim_names = psi_dim_names
@@ -272,8 +274,9 @@ class DRTMD(object):
                 print(f'{i + 1} / {num_to_fit}')
 
         elapsed = time.time() - start_time
-        print('Fitted {} observations in {:.1f} minutes'.format(num_to_fit, elapsed / 60))
-        print('{:.1f} seconds per observation'.format(elapsed / num_to_fit))
+        if num_to_fit > 0:
+            print('Fitted {} observations in {:.1f} minutes'.format(num_to_fit, elapsed / 60))
+            print('{:.1f} seconds per observation'.format(elapsed / num_to_fit))
 
     def fit_all(self, refit=False, print_interval=None, ignore_errors=False):
         if refit:
@@ -1362,7 +1365,7 @@ class DRTMD(object):
 
         # Propagate configuration items to workhorse DRT instance
         if name in [
-            'tau_supergrid', 'tau_basis_type', 'tau_epsilon',
+            'tau_supergrid', 'tau_basis_type', 'tau_epsilon', 'extend_basis_decades',
             'fixed_basis_nu', 'fit_dop', 'normalize_dop', 'nu_basis_type', 'nu_epsilon',
             'fit_inductance', 'fit_ohmic', 'fit_capacitance',
             'step_model', 'chrono_mode',
