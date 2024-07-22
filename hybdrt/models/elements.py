@@ -1,9 +1,11 @@
 import re
 import numpy as np
+from numpy import ndarray
 import warnings
 from scipy.optimize import least_squares
 from scipy import special
 from scipy.integrate import cumulative_trapezoid
+from scipy.spatial.distance import pdist
 import matplotlib.pyplot as plt
 
 from mitlef.pade_approx import create_approx_func, ml_pade_approx
@@ -11,8 +13,9 @@ from mitlef.pade_approx import create_approx_func, ml_pade_approx
 from .. import utils
 from .. import peaks
 from .. import preprocessing as pp
-from ..matrices import mat1d
+from ..matrices import mat1d, basis
 from hybdrt.plotting import plot_distribution, plot_eis
+
 
 
 class DiscreteElementModel:
@@ -338,7 +341,7 @@ class DiscreteElementModel:
         param_indices = self.parameter_indices[element_index]
         return self.parameter_types[param_indices[0]:param_indices[1]]
 
-    def transform_parameters(self, x, inverse):
+    def transform_parameters(self, x, inverse, num_spectra: int = 1):
         """
         Transform parameters from bounded to unbounded space (or back)
         :param x: parameter list or array
@@ -346,20 +349,20 @@ class DiscreteElementModel:
         If False, transform from bounded (real) space to unbounded space
         :return:
         """
-        if len(x) != self.num_parameters:
+        if len(x) != self.num_parameters * num_spectra:
             raise ValueError(f'Expected {self.num_parameters} parameters, received {len(x)} parameter values')
         else:
             return np.array([
-                constraint_transform(x[i], self.scaled_bounds[i], inverse) for i in range(len(x))
+                constraint_transform(x[i], self.scaled_bounds[i % self.num_parameters], inverse) for i in range(len(x))
             ])
 
-    def scale_parameters_to_data(self, x, inverse, apply_scaling):
-        if len(x) != self.num_parameters:
+    def scale_parameters_to_data(self, x, inverse, apply_scaling, num_spectra: int = 1):
+        if len(x) != self.num_parameters * num_spectra:
             raise ValueError(f'Expected {self.num_parameters} parameters, received {len(x)} parameter values')
         else:
             if apply_scaling:
                 return np.array([
-                    scale_parameter_to_data(x[i], self.parameter_types[i], self.rp_scale, inverse)
+                    scale_parameter_to_data(x[i], self.parameter_types[i % self.num_parameters], self.rp_scale, inverse)
                     for i in range(len(x))
                 ])
             else:
@@ -380,14 +383,14 @@ class DiscreteElementModel:
             else:
                 return bounds
 
-    def get_parameter_scales(self, parameter_values):
+    def get_parameter_scales(self, parameter_values, num_spectra: int = 1):
         """
         Get scaling factors for parameters to ensure consistent magnitude. For use in optimization, Hessian scaling,
         and setting prior strength
         :param parameter_values:
         :return:
         """
-        param_types_array = np.array(self.parameter_types)
+        param_types_array = np.tile(np.array(self.parameter_types), num_spectra)
         parameter_scale = np.abs(parameter_values)
         parameter_scale[np.where(param_types_array == 'alpha')] = 2  # 1
         parameter_scale[np.where(param_types_array == 'beta')] = 1  # 0.5
@@ -678,12 +681,12 @@ class DiscreteElementModel:
                 if prior_strength is None:
                     if from_drt:
                         rss_factor = np.exp(1 - self.drt_estimates['rss'])
-                        print('rss factor:', rss_factor)
+                        # print('rss factor:', rss_factor)
                     else:
                         rss_factor = 1
 
                     prior_strength = rss_factor * (np.mean(scaled_weights) * 0.05) ** 0.5
-                    print('prior_strength:', prior_strength)
+                    # print('prior_strength:', prior_strength)
                 # TODO: set prior strength correctly for lnL
                 # Scale the prior strength to the estimated parameter values
                 raw_prior_weights = prior_strength / self.get_parameter_scales(x0)  # np.ones(self.num_parameters)
@@ -788,6 +791,322 @@ class DiscreteElementModel:
             self.raw_parameter_values = self.fit_result['x'].copy()
             self.scaled_parameter_values = self.fit_result['x'].copy()
             self.parameter_values = self.scale_parameters_to_data(self.fit_result['x'], True, scale_data)
+            
+    def fit_eis_multi(self, spectra, coordinates, 
+                      similarity_func='gaussian', similarity_epsilon=1.0, similiarity_prior_strength=1.0,
+                      from_drt=False, weights_list=None, scale_data=True, init_values=None, fit_unbounded=False,
+                fast_transform=True, jac=None, prior=False, prior_strength=None,
+                seed=123, method=None, max_nfev=None):
+        
+        num_spectra = len(spectra)
+        tot_num_params = num_spectra * self.num_parameters
+        if num_spectra != len(coordinates):
+            raise ValueError("Number of spectra must match length of reduced_coordinates")
+        
+        # Format coordinates as n-dimensional
+        if np.ndim(coordinates) == 1:
+            coordinates = coordinates[:, None]
+        
+        f_list = [s[0] for s in spectra]
+        z_list = [s[1] for s in spectra]
+        f_concat = np.concatenate(f_list)
+        z_concat = np.concatenate(z_list)
+        split_indices = [len(f) for f in f_list]
+        split_indices = np.cumsum(split_indices[:-1])
+        
+        # Function to split parameters
+        def split_x(x):
+            return np.split(x, num_spectra)
+
+        # Get DRT estimates
+        if from_drt:
+            if self.drt_estimates is None:
+                raise ValueError('Model must be initialized using from_drt to use DRT estimates for fit')
+            else:
+                init_values = self.drt_estimates['init_values']
+                # weights = self.drt_estimates['eis_weights']
+
+        # Get data weights
+        if weights_list is None:
+            weights_list = [np.ones(2 * len(zi)) for zi in z_list]
+
+        # Scale data
+        self.f_fit = f_concat.copy()
+        # We need to pass in all data at once to ensure a single scale
+        scaling_output = self.scale_data(None, None, None, None, None, None, z_concat, np.concatenate(weights_list), scale_data)
+        z_scaled = scaling_output[-2]
+        # We need to re-split z_scaled by spectrum to ensure that real-imag concatenation is done in the correct order
+        z_scaled_list = np.split(z_scaled, split_indices)
+        scaled_weights = scaling_output[-1]
+        
+        self.scaled_weights = scaled_weights.copy()
+        self.weights = np.concatenate(weights_list)
+
+        # Get transforms
+        if fast_transform:
+            transform, inv_transform = get_fast_constraint_transforms(self.scaled_bounds * num_spectra)
+        else:
+            def transform(x):
+                return self.transform_parameters(x, False, num_spectra)
+
+            def inv_transform(x):
+                return self.transform_parameters(x, True, num_spectra)
+
+        # Initialize parameters
+        if init_values is None:
+            # Initialize unbounded variables randomly
+            rng = np.random.default_rng(seed=seed)
+            x0_unbnd = rng.uniform(-2, 2, tot_num_params)
+
+            # Transform to desired space for fitting
+            if not fit_unbounded:
+                # Transform to bounded space
+                x0 = inv_transform(x0_unbnd)
+            else:
+                # Leave in unbounded space
+                x0 = x0_unbnd
+        else:
+            if len(init_values) != tot_num_params:
+                raise ValueError(f'Length of init ({len(init_values)}) does not match number of '
+                                 f'model parameters times number of spectra ({self.num_parameters} x {num_spectra})')
+
+            init_values = np.array(init_values)
+
+            # Randomly initialize any parameters not specified
+            rng = np.random.default_rng(seed=seed)
+            x0_rand_unbnd = rng.uniform(-2, 2, tot_num_params)
+            x0_rand = inv_transform(x0_rand_unbnd)
+            init_scaled = self.scale_parameters_to_data(init_values, False, scale_data, num_spectra)
+            rand_index = np.isnan(init_values)
+            init_scaled[rand_index] = x0_rand[rand_index]
+
+            if fit_unbounded:
+                # Transform raw initial values to unbounded space
+                x0 = transform(init_scaled)
+            else:
+                x0 = init_scaled
+
+        if prior:
+            # TODO: handle prior if desired
+            if init_values is None:
+                prior = False
+                self.prior_params = None
+            else:
+                if prior_strength is None:
+                    if from_drt:
+                        rss_factor = np.exp(1 - self.drt_estimates['rss'])
+                        print('rss factor:', rss_factor)
+                    else:
+                        rss_factor = 1
+
+                    prior_strength = rss_factor * (np.mean(scaled_weights) * 0.05) ** 0.5
+                    print('prior_strength:', prior_strength)
+                # TODO: set prior strength correctly for lnL
+                # Scale the prior strength to the estimated parameter values
+                raw_prior_weights = prior_strength / self.get_parameter_scales(x0)  # np.ones(self.num_parameters)
+                # Don't apply a prior to any values that were initialized randomly
+                raw_prior_weights[np.isnan(init_values)] = 0
+
+                raw_prior_mu = x0.copy()  # Scaled and transformed
+                prior_mu = init_values.copy()  # Real space
+                raw_prior_mu[np.isnan(init_values)] = 0
+                prior_mu[np.isnan(init_values)] = 0
+                self.prior_params = {
+                    'mu': prior_mu,
+                    'raw_mu': raw_prior_mu,
+                    'raw_weights': raw_prior_weights,
+                }
+                if fit_unbounded:
+                    # self.prior_params['mu'] = self.scale_parameters_to_data(inv_transform(prior_mu), True, scale_data)
+                    # self.prior_params['weights'] = self.
+                    pass
+                    # TODO: figure out how weights should be transformed
+                else:
+                    self.prior_params['weights'] = self.scale_parameters_to_data(raw_prior_weights ** -1, True,
+                                                                                 scale_data) ** -1
+                    # self.prior_params['weights'] = raw_prior_weights * np.mean(weights) / np.mean(scaled_weights)
+        else:
+            self.prior_params = None
+
+        # Store initial values for reference. Store values in real (bounded, unscaled) space for easy interpretation
+        if fit_unbounded:
+            self.init_values = self.scale_parameters_to_data(inv_transform(x0), True, scale_data, num_spectra)
+        else:
+            self.init_values = self.scale_parameters_to_data(x0, True, scale_data, num_spectra)
+
+        # Define residual function
+        z_flat = np.concatenate([utils.eis.complex_vector_to_concat(zi) for zi in z_scaled_list])
+
+        if fit_unbounded:
+            def z_func(x):
+                z_list = [
+                    self.z_function(f, *inv_transform(xi))
+                    for f, xi in zip(f_list, split_x(x))
+                ]
+                return z_list
+        else:
+            def z_func(x):
+                z_list = [
+                    self.z_function(f, *xi)
+                    for f, xi in zip(f_list, split_x(x))
+                ]
+                return z_list
+            
+        # TODO: incorporate Matern
+        sim_func = basis.get_basis_func(similarity_func)
+        
+        num_pdist = int(num_spectra * (num_spectra - 1) / 2)
+        
+        # get simiarity between coordinates - this is independent of param values
+        coord_sim = sim_func(pdist(np.atleast_2d(coordinates)), similarity_epsilon)
+        # print('coord_sim:', coord_sim)
+            
+        def similarity_prior(x):
+            # Get parameters for each spectrum
+            x_arr = np.array(split_x(x))
+            # Normalize to mean value
+            x_arr /= np.mean(x_arr, axis=0)
+            
+            # Get pairwise parameter differences
+            # This is reduced to one dimension with sign retention
+            # to allow simple Jacobian calculations
+            # The kth row corresponds to the kth parameter
+            # Within row k are pairwise distances between spectra for parameter k
+            # This is flattened later in the residual function
+            param_diff = np.stack([pairwise_diff(xk[:, None]) for xk in x_arr.T])
+            # print('x:', x_arr)
+            # print('param_diff:', param_diff)
+            return param_diff * coord_sim[None, :] * similiarity_prior_strength
+            
+        # Make jacobian for similarity prior
+        fixed_sim_jac = np.zeros((num_pdist * self.num_parameters, tot_num_params))
+        
+        # Here, we get the indices of the spectra involved in each
+        # pairwise distance
+        ii, jj = np.triu_indices(num_spectra, 1, num_spectra)
+        
+        
+        for k in range(self.num_parameters):
+            # Get rows corresponding to distances for the kth parameter
+            row_start = k * num_pdist
+            row_end = row_start + num_pdist
+            
+            # Since the parameters are ordered by spectrum index first, 
+            # but the pairwise distances are ordered by parameter index first,
+            # we need to stride through the columns in steps of num_parameters
+            jac_sub = fixed_sim_jac[row_start:row_end, k:tot_num_params:self.num_parameters]
+            
+            jac_sub[np.arange(num_pdist), ii] = 1
+            # If distances were signed, then the jj coordinates would be assigned -1.
+            # Since distances are absolute, jj coordinates are assigned +1.
+            jac_sub[np.arange(num_pdist), jj] = -1
+            
+            # Scale by the similarity metric
+            jac_sub = jac_sub * coord_sim[:, None]
+                
+        # Scale by the prior strength
+        fixed_sim_jac *= similiarity_prior_strength
+        self.sim_jac = fixed_sim_jac
+            
+
+        if prior:
+            def residual_func(x):
+                z_hat = z_func(x)
+
+                # Flatten complex to real
+                z_hat = np.concatenate([
+                    utils.eis.complex_vector_to_concat(zi) 
+                    for zi in z_hat
+                ])
+
+                z_err = scaled_weights * (z_hat - z_flat)
+
+                prior_resid = raw_prior_weights * (x - x0)
+
+                return np.concatenate((z_err, prior_resid))
+        else:
+            def residual_func(x):
+                z_hat = z_func(x)
+
+                # Flatten complex to real
+                # z_hat = utils.eis.complex_vector_to_concat(z_hat)
+                z_hat = np.concatenate([
+                    utils.eis.complex_vector_to_concat(zi) 
+                    for zi in z_hat
+                ])
+
+                z_err = scaled_weights * (z_hat - z_flat)
+                
+                sim_residuals = similarity_prior(x)                
+
+                return np.concatenate((z_err, sim_residuals.flatten()))
+                # return z_err
+
+        # Specify Jacobian method
+        if jac is None:
+            if fit_unbounded:
+                # Can't use analytical Jacobian due to constraint transforms
+                jac = '2-point'
+            else:
+                # Get analytical Jacobian function
+                f_jac = model_f_jacobian(self.parameter_indices, self.element_types)
+                
+
+                if prior:
+                    # TODO: fill this in
+                    jac = None
+                    # def jac(x):
+                    #     jac_z_err = weight_matrix @ f_jac(freq, *x)
+                    #     jac_prior = np.diag(raw_prior_weights)
+                    #     jac_tot = np.vstack((jac_z_err, jac_prior))
+                    #     return jac_tot
+                else:
+                    def jac(x):
+                        x_list = split_x(x)
+                        jac_z = np.zeros((2 * len(f_concat), tot_num_params))
+                        # Fill in diagonal blocks
+                        f_start = 0
+                        for i, fi in enumerate(f_list):
+                            f_end = f_start + 2 * len(fi)
+                            jac_z[f_start: f_end, i * self.num_parameters:(i + 1) * self.num_parameters] = np.diag(scaled_weights[f_start:f_end]) @ f_jac(fi, *x_list[i])
+                            f_start = f_end
+                            
+                        # Scale similarity jac
+                        # Get parameter scales
+                        x_arr = np.array(split_x(x))
+                        x_scale = np.mean(x_arr, axis=0)
+                        # Repeat parameter scales for each pairwise diff
+                        sj_scale = np.repeat(x_scale, num_pdist)
+                        # print('x_scale:', x_scale)
+                        # print('sj_scale:', sj_scale)
+                        sim_jac = fixed_sim_jac / sj_scale[:, None]
+                            
+                        jac_tot = np.vstack((jac_z, sim_jac))
+                        return jac_tot
+                        # return jac_z
+
+        # print('x0', x0)
+        # print('bounds', self.scaled_bounds)
+
+        if fit_unbounded:
+            if method is None:
+                method = 'lm'
+            self.fit_result = least_squares(residual_func, x0, method=method, jac=jac, 
+                                            max_nfev=max_nfev)
+            self.raw_parameter_values = self.fit_result['x'].copy()
+            self.scaled_parameter_values = inv_transform(self.fit_result['x'])
+            self.parameter_values = self.scale_parameters_to_data(inv_transform(self.fit_result['x']), True, scale_data)
+        else:
+            if method is None:
+                method = 'trf'
+                
+            self.fit_result = least_squares(residual_func, x0, 
+                                            bounds=flatten_bounds(self.scaled_bounds * num_spectra),
+                                            method=method, jac=jac, max_nfev=max_nfev)
+            self.raw_parameter_values = self.fit_result['x'].copy()
+            self.scaled_parameter_values = self.fit_result['x'].copy()
+            # TODO: fix parameter value setting for multi EIS fit
+            self._parameter_values = self.scale_parameters_to_data(self.fit_result['x'], True, scale_data, num_spectra)
 
     # -------------------------
     # Prediction and evaluation
@@ -1104,17 +1423,18 @@ class DiscreteElementModel:
         else:
             return ax
 
-    def plot_element_distributions(self, tau, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
+    def plot_element_distributions(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
                                    show_singularities=True, singularity_scale=None, return_lines=False,
                                    y_offset=0, kw_list=None, mark_peaks=False, mark_peaks_kw=None, **common_kw):
-        plot_elements = [el_name for el_name, el_type in zip(self.element_names, self.element_types)
-                         if element_has_distribution(el_type)]
+        if element_names is None:
+            element_names = [el_name for el_name, el_type in zip(self.element_names, self.element_types)
+                            if element_has_distribution(el_type)]
 
         if kw_list is None:
-            kw_list = [{} for i in range(len(plot_elements))]  # need unique dicts
+            kw_list = [{} for i in range(len(element_names))]  # need unique dicts
 
-        if len(kw_list) != len(plot_elements):
-            raise ValueError(f'Length of kw_list ({len(kw_list)}) must match number of elements ({len(plot_elements)})')
+        if len(kw_list) != len(element_names):
+            raise ValueError(f'Length of kw_list ({len(kw_list)}) must match number of elements ({len(element_names)})')
 
         # Get normalization factor
         if normalize:
@@ -1124,7 +1444,7 @@ class DiscreteElementModel:
             normalize_by = None
 
         # Get element distributions
-        el_gammas = [self.predict_element_distribution(tau, el_name, x=x) for el_name in plot_elements]
+        el_gammas = [self.predict_element_distribution(tau, el_name, x=x) for el_name in element_names]
 
         # Set singularity scale
         if singularity_scale is None:
@@ -1145,7 +1465,7 @@ class DiscreteElementModel:
 
         # Plot each element distribution
         lines = []
-        for i, el_name in enumerate(plot_elements):
+        for i, el_name in enumerate(element_names):
             el_index = self.element_names.index(el_name)
             el_is_singular, sing_info = element_distribution_is_singular(
                 self.element_types[el_index], *self.get_element_parameter_values(el_name, x=x), return_info=True
@@ -1923,7 +2243,6 @@ def element_f_jacobian(element_type):
     :param str element_type: element type
     :return:
     """
-    # TODO: fill in jacobian for RQ and RC elements
     if element_type == 'HN':
         def jac(freq, r, ln_tau, alpha, beta):
             t0 = np.exp(ln_tau)
@@ -2227,3 +2546,15 @@ def model_f_hessian(parameter_indices, element_types):
         return out
 
     return hess
+
+
+def pairwise_diff(x: ndarray):
+    """Pairwise (signed) difference calculation for vectors.
+    Matches ordering of scipy.spatial.distance.pdist
+
+    :param ndarray x: _description_
+    :return _type_: _description_
+    """
+    n = len(x)
+    pair_indices = np.triu_indices(n, 1, n)
+    return (x[:, None] - x)[pair_indices].flatten()
