@@ -355,6 +355,7 @@ def read_generic(
     source: Optional[str] = None,
     data_start_str: Optional[str] = None,
     with_timestamp: bool = True,
+    return_source: bool = False,
     **kwargs
     ) -> DataFrame:
     
@@ -383,6 +384,8 @@ def read_generic(
         if with_timestamp:
             append_timestamp(file, data, source)
     
+    if return_source:
+        return data, source
     return data
 
 
@@ -398,7 +401,8 @@ def append_timestamp(file: Union[Path, str], data: DataFrame, source: str, warn=
         raise err
     
 
-def read_chrono(file, source=None, return_tuple=False, with_timestamp: bool = True):
+def read_chrono(file, source=None, return_tuple=False, 
+                with_timestamp: bool = True, return_source: bool = False):
     """
     Read chronopotentiometry data from Gamry .DTA file
 
@@ -423,6 +427,8 @@ def read_chrono(file, source=None, return_tuple=False, with_timestamp: bool = Tr
     if return_tuple:
         data = get_chrono_tuple(data, source)
 
+    if return_source:
+        return data, source
     return data
 
 
@@ -530,7 +536,8 @@ def read_eis(
     warn: bool = True, 
     return_tuple: bool = False, 
     with_timestamp: bool = True,
-    rename: bool = True
+    rename: bool = True,
+    return_source: bool = False
     ):
 
     """read EIS zcurve data from Gamry .DTA file"""
@@ -591,6 +598,8 @@ def read_eis(
     if return_tuple:
         data = get_eis_tuple(data)
           
+    if return_source:
+        return data, source
     return data     
    
 
@@ -622,9 +631,9 @@ def get_chrono_tuple(
     start_time: Optional[float] = None, 
     end_time: Optional[float] = None, 
     columns: Optional[list] = None):
-
+    print('get_chrono')
     if type(data) != pd.DataFrame:
-        data = read_chrono(data, source)
+        data, source = read_chrono(data, source, return_source=True)
         
     if columns is None:
         # Determine columns from source
@@ -674,11 +683,11 @@ def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False,
     performed after the chrono measurement
     :return:
     """
-    if type(chrono_data) != pd.DataFrame:
-        chrono_data = read_chrono(chrono_data)
+    # if type(chrono_data) != pd.DataFrame:
+    #     chrono_data = read_chrono(chrono_data)
 
-    if type(eis_data) != pd.DataFrame:
-        eis_data = read_eis(eis_data)
+    # if type(eis_data) != pd.DataFrame:
+    #     eis_data = read_eis(eis_data)
 
     times, i_sig, v_sig = get_chrono_tuple(chrono_data, start_time=start_time, end_time=end_time)
     freq, z = get_eis_tuple(eis_data, min_freq=min_freq, max_freq=max_freq)
