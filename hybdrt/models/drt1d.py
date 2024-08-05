@@ -372,11 +372,12 @@ class DRT(DRTBase):
                 bkg_std = np.std(y_bkg)
                 v_std = np.std(y_pred_bkg)
                 std_ratio = bkg_std / v_std
-                print('std ratio:', std_ratio)
                 # background_corr_power = 1.1 * np.exp(-5 * std_ratio)
                 # background_corr_power = 1.25 * np.exp(-10 * std_ratio) + 0.25
                 background_corr_power = np.log(0.02 / std_ratio + 1) + 0.25
-                print('background_corr_power:', background_corr_power)
+                if self.print_diagnostics:
+                    print('std ratio:', std_ratio)
+                    print('background_corr_power:', background_corr_power)
                 # background_corr_power = 1  # Default: penalty for dynamic background
 
             self.background_gp = bkg_gps[0]
@@ -4203,15 +4204,27 @@ class DRT(DRTBase):
 
         return rss
 
-    def evaluate_llh(self, weights=None, x=None, marginalize_weights=True, alpha_0=2, beta_0=1):
+    def evaluate_llh(self, weights=None, x=None, marginalize_weights=True, alpha_0=2, beta_0=1,
+                     subtract_background=True):
         if weights is None:
             weights = self.qphb_params['est_weights']
 
         if x is None:
             x = self.qphb_history[-1]['x']  # Get parameters in scaled space with special params included
+            
+        if not subtract_background and self.fit_kwargs['subtract_background']:
+            # Treat any background corrections as errors.
+            # Use the original chrono matrix and vector 
+            # instead of the background-corrected instances
+            rzm = self.qphb_params['rm'].copy()
+            rzm[:self.num_chrono] = self.qphb_params['rm_orig']
+            rzv = self.qphb_params['rv'].copy()
+            rzv[:self.num_chrono] = self.qphb_params['rv_orig']
+        else:
+            rzm = self.qphb_params['rm']
+            rzv = self.qphb_params['rv']
 
-        llh = qphb.evaluate_llh(x, self.qphb_params['rm'],
-                                self.qphb_params['rv'], weights,
+        llh = qphb.evaluate_llh(x, rzm, rzv, weights,
                                 marginalize_weights=marginalize_weights, alpha_0=alpha_0, beta_0=beta_0
                                 )
 
