@@ -5,10 +5,10 @@ import pandas as pd
 def polar_from_complex(data):
     if type(data) == pd.core.frame.DataFrame:
         Zmod = (data['Zreal'].values ** 2 + data['Zimag'].values ** 2) ** 0.5
-        Zphz = (180 / np.pi) * np.arctan(data['Zimag'].values / data['Zreal'].values)
+        Zphz = (180 / np.pi) * np.arctan2(data['Zimag'].values, data['Zreal'].values)
     elif type(data) == np.ndarray:
-        Zmod = ((data * data.conjugate()) ** 0.5).real
-        Zphz = (180 / np.pi) * np.arctan(data.imag / data.real)
+        Zmod = np.abs(data)
+        Zphz = (180 / np.pi) * np.arctan2(data.imag, data.real)
 
     return Zmod, Zphz
 
