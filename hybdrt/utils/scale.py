@@ -1,6 +1,6 @@
 import numpy as np
 
-prefix_map = {-2: r'$\mu$', -1: 'm', 0: '', 1: 'k', 2: 'M', 3: 'G'}
+prefix_map = {-3: 'n', -2: r'$\mu$', -1: 'm', 0: '', 1: 'k', 2: 'M', 3: 'G'}
 
 
 def get_scale_prefix(y):
@@ -23,7 +23,7 @@ def get_scale_factor(y):
 
 def get_scale_prefix_and_factor(y):
     prefix = get_scale_prefix(y)
-    factor = get_scale_factor(y)
+    factor = get_factor_from_prefix(prefix)
     return prefix, factor
 
 
