@@ -460,32 +460,34 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
         # make scale of x and y axes the same
 
         # if data extends beyond axis limits, adjust to capture all data
-        ydata_range = df['Zimag'].max() - df['Zimag'].min()
-        xdata_range = df['Zreal'].max() - df['Zreal'].min()
-        if np.min(-df['Zimag']) < ax.get_ylim()[0]:
-            if np.min(-df['Zimag']) >= 0:
+        zi_min, zi_max = np.nanmin(df['Zimag']), np.nanmax(df['Zimag'])
+        zr_min, zr_max = np.nanmin(df['Zreal']), np.nanmax(df['Zreal'])
+        ydata_range = zi_max - zi_min
+        xdata_range = zr_max - zr_min
+        if -zi_min < ax.get_ylim()[0]:
+            if -zi_min >= 0:
                 # if data doesn't go negative, don't let y-axis go negative
-                ymin = max(0, np.min(-df['Zimag']) - ydata_range * 0.1)
+                ymin = max(0, -zi_min - ydata_range * 0.1)
             else:
-                ymin = np.min(-df['Zimag']) - ydata_range * 0.1
+                ymin = -zi_min - ydata_range * 0.1
         else:
             ymin = ax.get_ylim()[0]
-        if np.max(-df['Zimag']) > ax.get_ylim()[1]:
-            ymax = np.max(-df['Zimag']) + ydata_range * 0.1
+        if -zi_max > ax.get_ylim()[1]:
+            ymax = np.nanmax(-zi_max) + ydata_range * 0.1
         else:
             ymax = ax.get_ylim()[1]
         ax.set_ylim(ymin, ymax)
 
-        if df['Zreal'].min() < ax.get_xlim()[0]:
-            if df['Zreal'].min() >= 0:
+        if zr_min < ax.get_xlim()[0]:
+            if zr_min >= 0:
                 # if data doesn't go negative, don't let x-axis go negative
-                xmin = max(0, df['Zreal'].min() - xdata_range * 0.1)
+                xmin = max(0, zr_min - xdata_range * 0.1)
             else:
-                xmin = df['Zreal'].min() - xdata_range * 0.1
+                xmin = zr_min - xdata_range * 0.1
         else:
             xmin = ax.get_xlim()[0]
-        if df['Zreal'].max() > ax.get_xlim()[1]:
-            xmax = df['Zreal'].max() + xdata_range * 0.1
+        if zr_max > ax.get_xlim()[1]:
+            xmax = zr_max + xdata_range * 0.1
         else:
             xmax = ax.get_xlim()[1]
         ax.set_xlim(xmin, xmax)
@@ -578,7 +580,7 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
         if data is None:
             data_min = 0
         else:
-            data_min = np.min(-data['Zimag'])
+            data_min = np.nanmin(-data['Zimag'])
 
         if min(data_min, ax.get_ylim()[0]) >= 0:
             # if -Zimag doesn't go negative, don't go negative on y-axis
@@ -720,8 +722,8 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
         if col_dict.get(col, {}).get('scale', 'linear') == 'log':
             # if y-axis is log-scaled, manually set limits
             # sometimes matplotlib gets it wrong
-            ymin = min(ax.get_ylim()[0], df[col].min() / 2)
-            ymax = max(ax.get_ylim()[1], df[col].max() * 2)
+            ymin = min(ax.get_ylim()[0], np.nanmin(df[col]) / 2)
+            ymax = max(ax.get_ylim()[1], np.nanmax(df[col]) * 2)
             ax.set_ylim(ymin, ymax)
 
     for ax in axes:
