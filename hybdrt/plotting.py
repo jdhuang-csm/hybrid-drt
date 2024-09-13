@@ -598,7 +598,9 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
         ax.set_ylim(ymin, ymax)
 
 
-def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['Zmod', 'Zphz'], scale_prefix=None,
+def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', 
+              rep="polar",
+              cols=None, scale_prefix=None,
               invert_phase=True, invert_Zimag=True, log_mod=True, normalize=False, normalize_rp=None,
               tight_layout=True, **kw):
     """
@@ -628,6 +630,14 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
         Keywords to pass to matplotlib.pyplot.plot_func
     """
     df = process_eis_plot_data(data)
+    
+    if cols is None:
+        if rep == "polar":
+            cols = ["Zmod", "Zphz"]
+        elif rep == "cartesian":
+            cols = ["Zreal", "Zimag"]
+        else:
+            raise ValueError(f"Invalid representation {rep}. Options: 'polar', 'cartesian'")
 
     if normalize and area is not None:
         raise ValueError('normalize and area should not be used together')
@@ -739,7 +749,7 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', cols=['
 
 
 def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='scatter', scale_prefix=None,
-             bode_cols=['Zmod', 'Zphz'], set_aspect_ratio=True, normalize=False, normalize_rp=None,
+             bode_rep="polar", bode_cols=None, set_aspect_ratio=True, normalize=False, normalize_rp=None,
              tight_layout=True, nyquist_kw=None, bode_kw=None, **kw):
     """
     Plot eis data in Nyquist and/or Bode plot(s)
