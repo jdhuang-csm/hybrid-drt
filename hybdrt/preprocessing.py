@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 from scipy.optimize import least_squares
 from scipy import ndimage
+from typing import Optional
 
 from .utils import stats
 from .utils.array import unit_step, nearest_index
@@ -203,6 +204,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
                     step_times=None, step_model=None, method='match',
                     decimation_interval=10, decimation_factor=2, decimation_max_period=None,
                     antialiased=True, filter_kw=None,
+                    discard_first_n_points: Optional[int] = None,
                     op_mode='galv', prestep_samples=20):
     """
     Downsample data to match desired sample times
@@ -244,6 +246,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
         # Treat as a single step
         step_times = [0]
         step_indices = [0]
+            
 
     if method == 'match':
         # Determine matching post-step sample times
@@ -297,6 +300,30 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     sample_times = times[sample_index].flatten()
     sample_i = i_signal[sample_index].flatten()
     sample_v = v_signal[sample_index].flatten()
+    
+    if discard_first_n_points is not None:
+        # Re-calc step indices after downsample
+        if op_mode == 'galv':
+            step_indices = identify_steps(sample_i, False)
+        else:
+            step_indices = identify_steps(sample_v, False)
+        
+        step_indices = np.insert(step_indices, 0, 0)
+
+        resample_index = []
+        for i, start_index in enumerate(step_indices):
+            if start_index == step_indices[-1]:
+                next_step_index = len(sample_times)
+            else:
+                next_step_index = step_indices[i + 1]
+            resample_index.append(np.arange(start_index + discard_first_n_points, next_step_index))
+        resample_index = np.concatenate(resample_index)
+        
+        sample_times = sample_times[resample_index]
+        sample_i = sample_i[resample_index]
+        sample_v = sample_v[resample_index]
+        sample_index = sample_index[resample_index]
+            
 
     return sample_times, sample_i, sample_v, sample_index
 
