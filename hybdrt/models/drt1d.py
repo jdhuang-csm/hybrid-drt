@@ -180,6 +180,7 @@ class DRT(DRTBase):
                        penalty_type='integral',
                        remove_extremes=False, extreme_kw=None,
                        # error structure
+                       init_weights_separately: bool = False,
                        chrono_error_structure='uniform', eis_error_structure=None,
                        remove_outliers=False, return_outlier_index=False, outlier_thresh=0.75,
                        chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
@@ -481,6 +482,9 @@ class DRT(DRTBase):
             num_chrono = len(sample_times)
         else:
             num_chrono = 0
+            
+        def split_vector(x):
+            return x[:num_chrono], x[num_chrono:]
 
         # Downsample static background
         if subtract_background and downsample and background_type == 'static' \
@@ -673,35 +677,69 @@ class DRT(DRTBase):
 
         # Initialize data weight (IMPORTANT)
         # ----------------------------------
-        # Initialize chrono and eis weights separately
         iw_hypers = qphb_hypers.copy()
         iw_hypers['l1_lambda_0'] = iw_l1_lambda_0
         iw_hypers['l2_lambda_0'] = iw_l2_lambda_0
         if 'dop_l2_lambda_0' in qphb_hypers.keys():
             dop_drt_ratio = qphb_hypers['dop_l2_lambda_0'] / qphb_hypers['l2_lambda_0']
             iw_hypers['dop_l2_lambda_0'] = dop_drt_ratio * iw_hypers['l2_lambda_0']
-        if times is not None:
-            chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = \
-                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
-                                        s_vectors,
-                                        rv, rm, chrono_vmm, nonneg, self.special_qp_params)
+        
+        # Initialize chrono and eis weights separately
+        if init_weights_separately:
+            if times is not None:
+                chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = \
+                    qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                                            s_vectors,
+                                            rv, rm, chrono_vmm, nonneg, self.special_qp_params)
 
-            chrono_weight_scale = np.mean(chrono_est_weights ** -2) ** -0.5
+                chrono_weight_scale = np.mean(chrono_est_weights ** -2) ** -0.5
+            else:
+                chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = None, None, None, None
+                chrono_weight_scale = None
+
+            if frequencies is not None:
+                eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = \
+                    qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                                            s_vectors,
+                                            zv, zm, eis_vmm, nonneg, self.special_qp_params)
+
+                eis_weight_scale = np.mean(eis_est_weights ** -2) ** -0.5
+            else:
+                eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = None, None, None, None
+                eis_weight_scale = None
         else:
-            chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = None, None, None, None
-            chrono_weight_scale = None
-
-        if frequencies is not None:
-            eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = \
-                qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
-                                        s_vectors,
-                                        zv, zm, eis_vmm, nonneg, self.special_qp_params)
-
-            eis_weight_scale = np.mean(eis_est_weights ** -2) ** -0.5
-        else:
-            eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = None, None, None, None
-            eis_weight_scale = None
-
+            # Initialize weights together
+            est_weights, init_weights, x_overfit, outlier_t = \
+                    qphb.initialize_weights(iw_hypers, penalty_matrices, penalty_type, rho_vector, dop_rho_vector,
+                                            s_vectors,
+                                            rzv, rzm, vmm, nonneg, self.special_qp_params)
+            
+            # Separate EIS and chrono
+            if num_eis == 0:
+                chrono_est_weights = est_weights
+                chrono_init_weights = init_weights
+                x_overfit_chrono = x_overfit
+                chrono_outlier_t = outlier_t
+                chrono_weight_scale = np.mean(chrono_est_weights ** -2) ** -0.5
+                eis_est_weights, eis_init_weights, x_overfit_eis, eis_outlier_t = None, None, None, None
+                eis_weight_scale = None
+            elif num_chrono == 0:
+                eis_est_weights = est_weights
+                eis_init_weights = init_weights
+                x_overfit_eis = x_overfit
+                eis_outlier_t = outlier_t
+                eis_weight_scale = np.mean(eis_est_weights ** -2) ** -0.5
+                chrono_est_weights, chrono_init_weights, x_overfit_chrono, chrono_outlier_t = None, None, None, None
+                chrono_weight_scale = None
+            else:
+                chrono_est_weights, eis_est_weights =  split_vector(est_weights)
+                chrono_init_weights, eis_init_weights =  split_vector(init_weights)
+                x_overfit_chrono, x_overfit_eis = split_vector(x_overfit)
+                chrono_outlier_t, eis_outlier_t = split_vector(outlier_t)
+                chrono_weight_scale = np.mean(chrono_est_weights ** -2) ** -0.5
+                eis_weight_scale = np.mean(eis_est_weights ** -2) ** -0.5
+                
+                
         # TEMP TEST
         # ---------
         # est_weights, init_weights, x_overfit, outlier_t = \
@@ -4646,7 +4684,7 @@ class DRT(DRTBase):
         return ax
 
     def plot_eis_fit(self, frequencies=None, axes=None, plot_type='nyquist', plot_data=True, data_kw=None,
-                     bode_cols=['Zreal', 'Zimag'], data_label='', scale_prefix=None, area=None, normalize=False,
+                     bode_cols=None, bode_rep="cartesian", data_label='', scale_prefix=None, area=None, normalize=False,
                      x=None, predict_kw={}, c='k', tight_layout=True, show_outliers=False, outlier_kw=None, **kw):
 
         # Set default data plotting kwargs if not provided
@@ -4681,7 +4719,7 @@ class DRT(DRTBase):
         # Plot data if requested
         if plot_data:
             axes = plot_eis((self.get_fit_frequencies(), self.z_fit), plot_type, axes=axes, scale_prefix=scale_prefix,
-                            label=data_label,
+                            label=data_label, bode_rep=bode_rep,
                             bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                             tight_layout=False, **data_kw)
 
@@ -4689,12 +4727,12 @@ class DRT(DRTBase):
         if show_outliers and self.eis_outliers is not None:
             if outlier_kw is None:
                 outlier_kw = {'c': 'r', 'label': 'Outliers'}
-            axes = plot_eis(self.eis_outliers, plot_type, axes=axes, scale_prefix=scale_prefix,
+            axes = plot_eis(self.eis_outliers, plot_type, axes=axes, scale_prefix=scale_prefix, bode_rep=bode_rep,
                             bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                             tight_layout=False, **outlier_kw)
 
         # Plot fit
-        axes = plot_eis((frequencies, z_hat), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix,
+        axes = plot_eis((frequencies, z_hat), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix, bode_rep=bode_rep,
                         bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                         tight_layout=tight_layout, **kw)
 
