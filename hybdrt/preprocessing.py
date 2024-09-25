@@ -62,7 +62,7 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rth
     """
     step_idx = identify_steps(y, allow_consecutive, rthresh, athresh)
 
-    step_times = times[step_idx]
+    step_times = times[step_idx].copy()
 
     if offset_step_times:
         # Get minimum sample period

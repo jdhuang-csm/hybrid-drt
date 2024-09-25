@@ -4451,7 +4451,7 @@ class DRT(DRTBase):
         # else:
         return ax
 
-    def plot_chrono_residuals(self, plot_sigma=True, ax=None, x=None, transform_time=True,
+    def plot_chrono_residuals(self, plot_sigma=True, ax=None, x=None, transform_time=False,
                               linear_time_axis=False, display_linear_ticks=True, linear_tick_kw=None,
                               subtract_background=True, y_bkg=None,
                               predict_kw=None,

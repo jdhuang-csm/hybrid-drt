@@ -796,7 +796,7 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
     if plot_type == 'bode':
         axes = plot_bode(df, area=area, axes=axes, label=label, plot_func=plot_func, cols=bode_cols,
                          scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp,
-                         tight_layout=tight_layout, **bode_kw, **kw)
+                         tight_layout=tight_layout, rep=bode_rep, **bode_kw, **kw)
     elif plot_type == 'nyquist':
         axes = plot_nyquist(df, area=area, ax=axes, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
                             set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
@@ -815,7 +815,7 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
                      tight_layout=tight_layout, **nyquist_kw, **kw)
 
         # Bode plots
-        plot_bode(df, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols,
+        plot_bode(df, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols, rep=bode_rep,
                   scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, tight_layout=tight_layout,
                   **bode_kw, **kw)
 
