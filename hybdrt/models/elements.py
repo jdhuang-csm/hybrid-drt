@@ -2067,6 +2067,11 @@ def parse_element_string(element_string):
         return element_type, element_id
     else:
         raise ValueError(f'No ID in element string {element_string}')
+    
+
+def parse_parameter_string(parameter_string):
+    param_type, element_name = parameter_string.split("_")
+    return param_type, element_name
 
 
 def parse_model_string(model_string):
