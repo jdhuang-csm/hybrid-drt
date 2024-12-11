@@ -72,12 +72,12 @@ class DRTMD(object):
         # File loading
         if chrono_reader is None:
             def chrono_reader(file):
-                return fl.get_chrono_tuple(fl.read_chrono(file))
+                return fl.read_chrono(file, return_tuple=True)
         self.chrono_reader = chrono_reader
 
         if eis_reader is None:
             def eis_reader(file):
-                return fl.get_eis_tuple(fl.read_eis(file))
+                return fl.read_eis(file, return_tuple=True)
         self.eis_reader = eis_reader
 
         # Fit configuration
@@ -85,6 +85,10 @@ class DRTMD(object):
         if fit_kw is None:
             # Initialize with default values of required args
             fit_kw = {'nonneg': True}
+        else:
+            defaults = {'nonneg': True}
+            defaults.update(fit_kw)
+            fit_kw = defaults
         self.fit_kw = fit_kw
         if pfrt_factors is None:
             pfrt_factors = np.logspace(-0.7, 0.7, 11)
@@ -716,7 +720,7 @@ class DRTMD(object):
         return x @ basis_mat.T
 
     def predict_dop(self, psi=None, x=None, nu=None, order=0, factor_index=None,
-                    normalize=False, normalize_tau=None, normalize_quantiles=(0.25, 0.75),
+                    normalize=False, normalize_tau=None, normalize_quantiles=(0, 1),
                     delta_density=False, include_ohmic=False, x_ohmic=None,
                     **kw):
         # TODO: implement predict_x_dop

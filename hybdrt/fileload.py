@@ -332,7 +332,7 @@ def read_mpr(file: FilePath):
 
         
 def find_time_column(data: DataFrame, source: str):
-    if source == 'gamry':        
+    if source == 'gamry' or source is None:        
         return np.intersect1d(['Time', 'T', 'time'], data.columns)[0]
     elif source == 'biologic':
         return 'time/s'
