@@ -1743,6 +1743,10 @@ def element_parameters(element_type):
     elif element_type == 'P':
         parameter_types = ['P', 'nu']
         parameter_bounds = [(0, np.inf), (-1, 1)]
+    elif element_type == "RPQ":
+        #freq, r, lnp, nu, lnqinv, beta
+        parameter_types = ["R", "lnP", "nu", "lnQinv", "beta"]
+        parameter_bounds = [(-np.inf, np.inf), (-np.inf, np.inf), (-1, 1), (-np.inf, np.inf), (-1, 1)]
     else:
         raise ValueError(f'Invalid element {element_type}')
 
@@ -1961,6 +1965,15 @@ def element_impedance_function(element_type):
         def z_func(freq, p, nu):
             omega = freq * 2 * np.pi
             return p * (1j * omega) ** nu
+    elif element_type == "RPQ":
+        def z_func(freq, r, lnp, nu, lnqinv, beta):
+            omega = freq * 2 * np.pi
+            p = np.exp(lnp)
+            qinv = np.exp(lnqinv)
+            z_rp = r + p * (1j * omega) ** nu
+            z_q = qinv * (1j * omega) ** -beta
+            z_par = ((1 / z_q) + (1 / z_rp)) ** -1
+            return z_par
     else:
         raise ValueError(f'Invalid element {element_type}')
 

@@ -213,7 +213,7 @@ def get_default_hypers(eff_hp, fit_dop, nu_basis_type):
         #     hypers['dop_rho_0'] = np.ones(3)
         #     hypers['dop_sigma_ds'] = np.array([1, 1000, 1000])
         # else:
-        hypers['dop_l2_lambda_0'] = 100
+        hypers['dop_l2_lambda_0'] = 10
         hypers['dop_l1_lambda_0'] = 0
         hypers['dop_derivative_weights'] = np.array([0.5, 1.0, 0.5])
         hypers['dop_s_alpha'] = np.array([5, 10, 25])

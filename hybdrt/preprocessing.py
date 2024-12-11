@@ -53,7 +53,7 @@ def split_steps(x, step_index):
     return [x[start:end] for start, end in zip(step_index[:-1], step_index[1:])]
 
 
-def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rthresh=50, athresh=1e-10):
+def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, offset_size=None, rthresh=50, athresh=1e-10):
     """
     Get step times and sizes from signal
     :param ndarray times: measurement times
@@ -65,13 +65,15 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, rth
     step_times = times[step_idx].copy()
 
     if offset_step_times:
-        # Get minimum sample period
-        t_sample = np.min(np.diff(times))
-        # print('t_sample:', t_sample)
-        # Assume actual step time occurred 1 sample period before observed
-        # Multiply by 0.999 to ensure that step time isn't exactly equal to previous sample time,
-        # as this causes trouble with R_inf response (R_inf response at times >= step_time)
-        step_times -= t_sample * (1 - 1e-8)
+        if offset_size is None:
+            # Get minimum sample period
+            t_sample = np.min(np.diff(times))
+            # print('t_sample:', t_sample)
+            # Assume actual step time occurred 1 sample period before observed
+            # Multiply by 0.999 to ensure that step time isn't exactly equal to previous sample time,
+            # as this causes trouble with R_inf response (R_inf response at times >= step_time)
+            offset_size = -t_sample * (1 - 1e-8)
+        step_times += offset_size
         # step_times = times[step_idx - 1] + 1e-8
 
     # # Get step size for each step
@@ -122,7 +124,7 @@ def get_step_sizes(times, y, step_times):
     return step_sizes
 
 
-def process_input_signal(times, input_signal, step_model, offset_steps, rthresh=50, fixed_tau_rise=None):
+def process_input_signal(times, input_signal, step_model, offset_steps, offset_size=None, rthresh=50, fixed_tau_rise=None):
     check_step_model(step_model)
     if step_model == 'ideal':
         # If using ideal step model, model each real step as a series of ideal steps
@@ -130,7 +132,7 @@ def process_input_signal(times, input_signal, step_model, offset_steps, rthresh=
     else:
         # If using non-ideal step model, apply step model to each real step
         allow_consecutive_steps = False
-    step_times, step_sizes = get_step_info(times, input_signal, allow_consecutive_steps, offset_steps, rthresh)
+    step_times, step_sizes = get_step_info(times, input_signal, allow_consecutive_steps, offset_steps, offset_size, rthresh)
 
     # If using non-ideal step model, fit input signal to step model
     if step_model != 'ideal':
@@ -326,6 +328,41 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
             
 
     return sample_times, sample_i, sample_v, sample_index
+
+
+def discard_first_n_chrono(times, i_signal, v_signal, n: int, op_mode="galv"):
+    """Discard first n points of each step in a chrono signal.
+    Useful for cases in which the instrument records undesired points 
+    at short timescales that are perturbed.
+
+    :param _type_ times: _description_
+    :param _type_ i_signal: _description_
+    :param _type_ v_signal: _description_
+    :param int n: _description_
+    :param str op_mode: _description_, defaults to "galv"
+    :return _type_: _description_
+    """
+    if op_mode == 'galv':
+        step_indices = identify_steps(i_signal, False)
+    else:
+        step_indices = identify_steps(v_signal, False)
+    
+    step_indices = np.insert(step_indices, 0, 0)
+
+    sample_index = []
+    for i, start_index in enumerate(step_indices):
+        if start_index == step_indices[-1]:
+            next_step_index = len(times)
+        else:
+            next_step_index = step_indices[i + 1]
+        sample_index.append(np.arange(start_index + n, next_step_index))
+    sample_index = np.concatenate(sample_index)
+    
+    times = times[sample_index]
+    i_signal = i_signal[sample_index]
+    v_signal = v_signal[sample_index]
+    
+    return sample_index, (times, i_signal, v_signal)
 
 
 def filter_chrono_signal(times, y, step_index=None, input_signal=None, decimate_index=None,

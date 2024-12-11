@@ -647,7 +647,7 @@ def get_chrono_tuple(
             # TODO: handle units and possible column renaming
             columns = ['time/s', 'I/mA', 'Ewe/V']
             
-    print(source, columns)
+    # print(source, columns)
         
     tup = tuple([data[c].values.copy() for c in columns])
     

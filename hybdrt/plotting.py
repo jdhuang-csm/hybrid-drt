@@ -3,6 +3,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 import warnings
 import pandas as pd
+from typing import Optional, Tuple
 
 from .utils.chrono import get_time_transforms, get_input_and_response
 from .utils.scale import get_scale_prefix, get_scale_factor, get_factor_from_prefix
@@ -596,6 +597,25 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
             ymax = ax.get_ylim()[1] + posoffset
 
         ax.set_ylim(ymin, ymax)
+
+
+def zoom_nyquist(ax, xlim: Optional[Tuple[float, float]] = None, ylim: Optional[Tuple[float, float]] = None):
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+        print(xlim)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+        print(ylim)
+        
+    if xlim and not ylim:
+        set_to_axis = 'x'
+    elif ylim and not xlim:
+        set_to_axis = 'y'
+    else:
+        set_to_axis = None
+        
+    set_nyquist_aspect(ax, set_to_axis=set_to_axis)
+    
 
 
 def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', 
