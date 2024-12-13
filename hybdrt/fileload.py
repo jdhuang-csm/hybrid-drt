@@ -631,7 +631,7 @@ def get_chrono_tuple(
     start_time: Optional[float] = None, 
     end_time: Optional[float] = None, 
     columns: Optional[list] = None):
-    print('get_chrono')
+    
     if type(data) != pd.DataFrame:
         data, source = read_chrono(data, source, return_source=True)
         

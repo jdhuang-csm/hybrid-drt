@@ -6,6 +6,20 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 
 from .. import preprocessing as pp
 
+def get_baseline_matrix(times, deg):
+    # For polynomial voltage baseline
+    vb_mat = np.zeros((len(times), deg + 1))
+    for n in range(deg + 1):
+        vb_mat[:, n] = (times - times[0]) ** n
+    
+    # Normalize to maximum value
+    vb_mat = vb_mat / np.max(vb_mat, axis=0)[None, :]
+        
+    return vb_mat
+
+def evaluate_baseline(x_vb, vb_mat):
+    return vb_mat @ x_vb
+
 
 def estimate_background(x_meas, y_meas, y_pred, gp=None, kernel_type='gaussian',
                         length_scale_bounds=(0.01, 10), periodicity_bounds=(1e-3, 1e3), noise_level_bounds=(0.1, 10),

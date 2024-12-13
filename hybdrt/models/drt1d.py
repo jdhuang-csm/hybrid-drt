@@ -169,7 +169,7 @@ class DRT(DRTBase):
     def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None, 
                        nonneg=True, series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
                        # chrono args
-                       offset_steps=True, step_offset_size=None, offset_baseline=True, downsample=False, downsample_kw=None,
+                       offset_steps=True, step_offset_size=None, offset_baseline=True, v_baseline_deg: int = 0, downsample=False, downsample_kw=None,
                        subtract_background=False, background_type='static', background_corr_power=None,
                        estimate_background_kw=None, smooth_inf_response=True,
                        # penalty settings
@@ -223,6 +223,8 @@ class DRT(DRTBase):
         if remove_outliers and 'outlier_p' not in kw.keys():
             raise ValueError('If remove_outliers is True, the prior probability of outlier presence, outlier_p, '
                              'must be specified. A good starting value might be 0.01-0.05')
+            
+        self.v_baseline_deg = v_baseline_deg
 
         # Copy data
         if times is not None:
@@ -270,7 +272,7 @@ class DRT(DRTBase):
                                                                           step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                                                                           series_neg=series_neg, scale_data=scale_data,
                                                                           solve_rp=solve_rp, offset_steps=offset_steps, step_offset_size=step_offset_size,
-                                                                          offset_baseline=offset_baseline,
+                                                                          offset_baseline=offset_baseline, v_baseline_deg=v_baseline_deg,
                                                                           downsample=downsample,
                                                                           downsample_kw=downsample_kw,
                                                                           subtract_background=False,
@@ -421,7 +423,7 @@ class DRT(DRTBase):
         self.special_qp_params = {}
 
         if times is not None:
-            self._add_special_qp_param('v_baseline', False)
+            self._add_special_qp_param('v_baseline', False, self.v_baseline_deg + 1)
 
         if vz_offset and data_type == 'hybrid':
             self._add_special_qp_param('vz_offset', False)
@@ -548,7 +550,8 @@ class DRT(DRTBase):
             else:
                 rzm_vz = rzm.copy()
                 # Remove v_baseline from rzm_vz - don't want to scale the baseline, only the delta
-                rzm_vz[:, self.special_qp_params['v_baseline']['index']] = 0
+                vb_start, vb_end = self.get_special_indices("v_baseline")
+                rzm_vz[:, vb_start:vb_end] = 0
 
             # VZ offset decays as we move away from overlap
             chrono_vz_strength, eis_vz_strength = self._get_vz_strength_vec(
@@ -1184,11 +1187,12 @@ class DRT(DRTBase):
         del_index = []
         for name in ['v_baseline', 'vz_offset']:
             if name in self.special_qp_params.keys():
-                index = self.special_qp_params[name]['index']
-                val = x_raw[index]
-                rzv -= rzm[:, index] * val
+                for ii in range(self.special_qp_params[name]["size"]):
+                    index = self.special_qp_params[name]['index'] + ii
+                    val = x_raw[index]
+                    rzv -= rzm[:, index] * val
 
-                del_index.append(index)
+                    del_index.append(index)
 
         if len(del_index) > 0:
             # After accounting for offsets, delete the corresponding matrix/vector entries
@@ -1317,8 +1321,9 @@ class DRT(DRTBase):
         if 'vz_offset' in self.special_qp_params.keys():
             # Make a copy for vz_offset calculation
             rzm_vz = rm.copy()
-            # Remove v_baseline from rzm_vz - don't want to scale the baseline, only the delta
-            rzm_vz[:, self.special_qp_params['v_baseline']['index']] = 0
+            # Remove v_baseline from rzm_vz - don't want to scale the baseline, only the sample response
+            vb_start, vb_end = self.get_special_indices("v_baseline")
+            rzm_vz[:, vb_start:vb_end] = 0
             vz_strength_vec = self.qphb_params['vz_strength_vec']
         else:
             rzm_vz = None
@@ -3230,6 +3235,7 @@ class DRT(DRTBase):
 
         # If times is not provided, use self.t_fit
         if times is None:
+            use_fit_times = True
             times = self.get_fit_times()
 
         # If kwargs not provided, use same values used in fitting
@@ -3264,8 +3270,11 @@ class DRT(DRTBase):
         induc = fit_parameters.get('inductance', 0)
         c_inv = fit_parameters.get('C_inv', 0)
 
-        if v_baseline is None:
-            v_baseline = fit_parameters.get('v_baseline', 0)
+        if v_baseline is None and use_fit_times:
+            # Only include the baseline if the prediction times match the fitted times
+            v_baseline = self.predict_v_baseline(times)
+        else:
+            v_baseline = 0
 
         response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv + c_inv * cap_rv
 
@@ -3298,6 +3307,15 @@ class DRT(DRTBase):
             response += y_bkg
 
         return response
+    
+    def predict_v_baseline(self, times):
+        if "v_baseline" in self.fit_parameters.keys():
+            vb_mat = background.get_baseline_matrix(times, self.v_baseline_deg)
+            x_vb = self.fit_parameters["v_baseline"]
+            return vb_mat @ x_vb
+        else:
+            return np.zeros_like(times)
+        
 
     def predict_chrono_background(self, times):
         if self.background_gp is None:
@@ -4648,11 +4666,13 @@ class DRT(DRTBase):
             if bkg_twin_ax:
                 ax_bkg = ax.twinx()
                 bkg_scale_prefix = None
-                y_bkg_plot = y_bkg
+                # # Why did I not include the baseline voltage here?
+                # y_bkg_plot = y_bkg
             else:
                 ax_bkg = ax
                 bkg_scale_prefix = scale_prefix
-                y_bkg_plot = y_bkg + self.fit_parameters['v_baseline']
+                
+            y_bkg_plot = y_bkg + self.predict_v_baseline(self.get_fit_times())
 
             plot_tuple = utils.chrono.signals_to_tuple(times, None, y_bkg_plot,
                                                        self.chrono_mode)
@@ -5527,7 +5547,8 @@ class DRT(DRTBase):
 
             # Add entries for special parameters
             if 'v_baseline' in special_indices.keys():
-                rm[:, special_indices['v_baseline']] = 1  # v_baseline
+                vb_start, vb_end = self.get_special_indices("v_baseline")
+                rm[:, vb_start:vb_end] = background.get_baseline_matrix(self.get_fit_times(), self.v_baseline_deg)
             if 'inductance' in special_indices.keys():
                 rm[:, special_indices['inductance']] = induc_rv * inductance_scale  # inductance response
             if 'R_inf' in special_indices.keys():
@@ -5554,11 +5575,12 @@ class DRT(DRTBase):
 
         # Add columns to zm (impedance matrix) for v_baseline, R_inf, and inductance
         if zm_drt is not None:
-            zm = np.empty((zm_drt.shape[0], zm_drt.shape[1] + num_special), dtype=complex)
+            zm = np.zeros((zm_drt.shape[0], zm_drt.shape[1] + num_special), dtype=complex)
 
             # Add entries for special parameters
-            if 'v_baseline' in special_indices.keys():
-                zm[:, special_indices['v_baseline']] = 0  # v_baseline has no effect on impedance
+            # Unnecessary with initialization as np.zeros
+            # if 'v_baseline' in special_indices.keys():
+            #     zm[:, special_indices['v_baseline']] = 0  # v_baseline has no effect on impedance
 
             if 'inductance' in special_indices.keys():
                 zm[:, special_indices['inductance']] = induc_zv * inductance_scale  # inductance contribution
@@ -5601,7 +5623,8 @@ class DRT(DRTBase):
 
                 # Insert penalties for special parameters
                 if 'v_baseline' in special_indices.keys():
-                    m_k[special_indices['v_baseline'], special_indices['v_baseline']] = v_baseline_penalty
+                    for vbi in range(*self.get_special_indices("v_baseline")):
+                        m_k[vbi, vbi] = v_baseline_penalty
                 if 'inductance' in special_indices.keys():
                     m_k[special_indices['inductance'], special_indices['inductance']] = inductance_penalty
                 if 'R_inf' in special_indices.keys():
@@ -5629,6 +5652,8 @@ class DRT(DRTBase):
                 penalty_matrices[f'm{k}'] = m_k.copy()
                 # penalty_matrices[f'm{k}_drt'] = m_drt.copy()
         elif penalty_type == 'discrete':
+            warnings.warn("penalty_type 'discrete' is deprecated and not supported; errors may occur."
+                          " Use penalty_type 'integral' instead")
             if self.fit_dop:
                 raise ValueError('DOP fit not implemented with discrete penalty')
 
@@ -5958,8 +5983,13 @@ class DRT(DRTBase):
             fit_parameters['R_inf'] = 0
 
         if 'v_baseline' in special_indices.keys():
+            vb_start, vb_end = self.get_special_indices("v_baseline")
+            
+            vbx_scaled = x[vb_start:vb_end].copy()
+            # Subtract the scaled pre-offset from the 0-degree coef 
+            vbx_scaled[0] -= self.scaled_response_offset
             fit_parameters['v_baseline'] = scale_value(
-                x[special_indices['v_baseline']] - self.scaled_response_offset,
+                vbx_scaled,
                 self.response_signal_scale
             )
 

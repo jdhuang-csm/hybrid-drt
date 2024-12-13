@@ -86,6 +86,7 @@ class DRTBase:
         self.coefficient_scale = 1.0
         self.impedance_scale = 1.0
         self.inductance_scale = None
+        self.v_baseline_deg = None
 
         self.cvx_result = None
         self.ridge_iter_history = None
