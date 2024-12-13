@@ -1,3 +1,17 @@
+# Functions for estimation of the voltage baseline/background signal
+# in chronopotentiometry measurements
+# ----------------------------------------------------------------------
+# Conceptually, the voltage baseline and voltage background model the same thing:
+# a voltage signal that arises from something other than the sample's
+# response to the applied current signal. 
+# In the DRT model, the voltage baseline is a simple polynomial function
+# that can easily be estimated at the same time as the DRT.
+# The voltage background is a more flexible/complicated function based on 
+# Gaussian Process (GP) regression.
+# The distinct names (baseline and background) exist only as artifacts of the
+# implementation. The DRT can be fitted with a (polynomial) voltage baseline, 
+# a (GP) voltage background, or both.
+
 import numpy as np
 from scipy.stats import iqr
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ExpSineSquared

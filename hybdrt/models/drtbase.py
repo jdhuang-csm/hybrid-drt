@@ -1,3 +1,9 @@
+# Base class for DRT models
+# ----------------------------------------------------------------------
+# This was originally intended to have multiple subclasses, but at the
+# moment it is subclassed only by the DRT class. Thus it should be
+# merged with the DRT class in the future.
+
 import numpy as np
 import os
 import warnings

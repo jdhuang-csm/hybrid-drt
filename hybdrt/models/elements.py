@@ -1,3 +1,5 @@
+# Equivalent circuit modeling module
+# ----------------------------------------------------------------------
 import re
 import numpy as np
 from numpy import ndarray

@@ -1,3 +1,13 @@
+# QPHB: Quadratic Programming solution of Hierarchical Bayesian DRT model
+# -----------------------------------------------------------------------
+# The model underlying the DRT inversion is a hierarchical Bayesian model
+# with many parameters and hyperparameters.
+# Solving for all parameters and hyperparameters directly is a large 
+# non-linear problem with many local minima.
+# Instead, we use an iterative approach in which each step reduces to 
+# either a convex problem (parameter optimizations) 
+# or an analytical solution (hyperparameter optimizations).
+
 import numpy as np
 from scipy.special import loggamma
 import cvxopt

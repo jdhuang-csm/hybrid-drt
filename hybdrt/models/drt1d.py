@@ -1,3 +1,9 @@
+# Workhorse class for distribution of relaxation times (DRT) fitting
+# ----------------------------------------------------------------------
+# Also enables distribution of phasances (DOP) fits
+# Can be applied to EIS, chronopotentiometry, or joint-domain (hybrid) data
+
+
 import inspect
 import itertools
 import time

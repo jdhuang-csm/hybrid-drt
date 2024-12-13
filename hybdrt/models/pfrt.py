@@ -1,3 +1,5 @@
+# Functions for the probability function of relaxation times (PFRT)
+# ----------------------------------------------------------------------
 import numpy as np
 
 from .. import utils

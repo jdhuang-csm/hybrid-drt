@@ -1,3 +1,6 @@
+# Initial distribution of capacitive times (DCT) implementation
+# ----------------------------------------------------------------------
+
 import numpy as np
 from numpy import ndarray
 
