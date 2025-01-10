@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+from matplotlib.axes import Axes
 import numpy as np
 import warnings
 import pandas as pd
@@ -461,20 +462,24 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
         # make scale of x and y axes the same
 
         # if data extends beyond axis limits, adjust to capture all data
-        zi_min, zi_max = np.nanmin(df['Zimag']), np.nanmax(df['Zimag'])
+        zi_min, zi_max = np.nanmin(-df['Zimag']), np.nanmax(-df['Zimag'])
         zr_min, zr_max = np.nanmin(df['Zreal']), np.nanmax(df['Zreal'])
         ydata_range = zi_max - zi_min
         xdata_range = zr_max - zr_min
-        if -zi_min < ax.get_ylim()[0]:
-            if -zi_min >= 0:
+        if zi_min < ax.get_ylim()[0]:
+            if zi_min >= 0:
                 # if data doesn't go negative, don't let y-axis go negative
-                ymin = max(0, -zi_min - ydata_range * 0.1)
+                ymin = max(0, zi_min - ydata_range * 0.1)
             else:
-                ymin = -zi_min - ydata_range * 0.1
+                ymin = zi_min - ydata_range * 0.1
         else:
-            ymin = ax.get_ylim()[0]
-        if -zi_max > ax.get_ylim()[1]:
-            ymax = np.nanmax(-zi_max) + ydata_range * 0.1
+            if zi_min >= 0:
+                # if data doesn't go negative, don't let y-axis go negative
+                ymin = max(0, ax.get_ylim()[0])
+            else:
+                ymin = ax.get_ylim()[0]
+        if zi_max > ax.get_ylim()[1]:
+            ymax = zi_max + ydata_range * 0.1
         else:
             ymax = ax.get_ylim()[1]
         ax.set_ylim(ymin, ymax)
@@ -538,7 +543,14 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
     return ax
 
 
-def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
+def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin=None, ymin=None):
+    if center_coords is not None and (xmin is not None or ymin is not None):
+        raise ValueError("If center_coords is provided, xmin and ymin can not be specified")
+    if set_to_axis == "x" and xmin is not None:
+        raise ValueError("If set_to_axis==x, xmin cannot be provided. ymin should be provided instead")
+    if set_to_axis == "y" and ymin is not None:
+        raise ValueError("If set_to_axis==y, ymin cannot be provided. xmin should be provided instead")
+    
     fig = ax.get_figure()
 
     # get data range
@@ -556,6 +568,7 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
     bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
     width, height = bbox.width, bbox.height
 
+    # scale = data range / plot dimension
     yscale = yrng / height
     xscale = xrng / width
 
@@ -568,24 +581,28 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
         raise ValueError(f"If provided, set_to_axis must be either 'x' or 'y'. Received {set_to_axis}")
 
     if set_to_axis == 'y':
-        # expand the x axis
+        # adjust the x axis
         diff = (yscale - xscale) * width
-        xmin = max(0, ax.get_xlim()[0] - diff / 2)
+        if xmin is None:
+            xmin = max(0, ax.get_xlim()[0] - diff / 2)
+            
         mindelta = ax.get_xlim()[0] - xmin
         xmax = ax.get_xlim()[1] + diff - mindelta
 
         ax.set_xlim(xmin, xmax)
     else:
-        # expand the y axis
-        diff = (xscale - yscale) * height
+        # adjust the y axis
+        diff = (xscale - yscale) * height # Required change in y data range
         if data is None:
             data_min = 0
         else:
-            data_min = np.nanmin(-data['Zimag'])
+            df = process_eis_plot_data(data)
+            data_min = np.nanmin(-df['Zimag'])
 
         if min(data_min, ax.get_ylim()[0]) >= 0:
             # if -Zimag doesn't go negative, don't go negative on y-axis
-            ymin = max(0, ax.get_ylim()[0] - diff / 2)
+            if ymin is None:
+                ymin = max(0, ax.get_ylim()[0] - diff / 2)
             mindelta = ax.get_ylim()[0] - ymin
             ymax = ax.get_ylim()[1] + diff - mindelta
         else:
@@ -599,22 +616,49 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None):
         ax.set_ylim(ymin, ymax)
 
 
-def zoom_nyquist(ax, xlim: Optional[Tuple[float, float]] = None, ylim: Optional[Tuple[float, float]] = None):
-    if xlim is not None:
-        ax.set_xlim(*xlim)
-        print(xlim)
-    if ylim is not None:
-        ax.set_ylim(*ylim)
-        print(ylim)
+# def zoom_nyquist(ax, xlim: Optional[Tuple[float, float]] = None, ylim: Optional[Tuple[float, float]] = None):
+#     if xlim is not None:
+#         ax.set_xlim(*xlim)
+#         print(xlim)
+#     if ylim is not None:
+#         ax.set_ylim(*ylim)
+#         print(ylim)
         
-    if xlim and not ylim:
-        set_to_axis = 'x'
-    elif ylim and not xlim:
-        set_to_axis = 'y'
-    else:
-        set_to_axis = None
+#     if xlim and not ylim:
+#         set_to_axis = 'x'
+#     elif ylim and not xlim:
+#         set_to_axis = 'y'
+#     else:
+#         set_to_axis = None
         
-    set_nyquist_aspect(ax, set_to_axis=set_to_axis)
+#     set_nyquist_aspect(ax, set_to_axis=set_to_axis)
+    
+    
+def zoom_nyquist_x(ax: Axes, xlim: Tuple[float, float], ymin: Optional[float] = None):
+    """
+    Zoom in on a specified x-range (Z\' range) of a Nyquist plot 
+    while maintaining the correct aspect ratio.
+
+    :param Axes ax: Axes object
+    :param Tuple[float, float] xlim: x range on which to zoom 
+    :param Optional[float] ymin: Optional y lower bound. Defaults to None
+    """
+    ax.set_xlim(*xlim)
+        
+    set_nyquist_aspect(ax, set_to_axis="x", ymin=ymin)
+    
+def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: Optional[float] = None):
+    """
+    Zoom in on a specified y-range (Z\'\' range) of a Nyquist plot 
+    while maintaining the correct aspect ratio.
+
+    :param Axes ax: Axes object
+    :param Tuple[float, float] ylim: y range on which to zoom 
+    :param Optional[float] xmin: Optional x lower bound. Defaults to None
+    """
+    ax.set_xlim(*ylim)
+        
+    set_nyquist_aspect(ax, set_to_axis="y", xmin=xmin)
     
 
 
