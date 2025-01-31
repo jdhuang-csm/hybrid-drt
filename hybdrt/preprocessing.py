@@ -207,6 +207,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
                     decimation_interval=10, decimation_factor=2, decimation_max_period=None,
                     antialiased=True, filter_kw=None,
                     discard_first_n_points: Optional[int] = None,
+                    discard_only: bool = False,
                     op_mode='galv', prestep_samples=20):
     """
     Downsample data to match desired sample times
@@ -221,87 +222,94 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     :param prestep_samples: number of samples to keep from pre-step period
     :return: sample_times, sample_i, sample_v
     """
+    
+    if not discard_only:
+        if stepwise_sample_times:
+            # Sample ideal_times from start of each step
+            check_ctrl_mode(op_mode)
+            # Identify step times
+            if step_times is None:
+                check_step_model(step_model)
+                if step_model == 'ideal':
+                    # If using ideal step model, model each real step as a series of ideal steps
+                    allow_consecutive_steps = True
+                else:
+                    # If using non-ideal step model, apply step model to each real step
+                    allow_consecutive_steps = False
 
-    if stepwise_sample_times:
-        # Sample ideal_times from start of each step
-        check_ctrl_mode(op_mode)
-        # Identify step times
-        if step_times is None:
-            check_step_model(step_model)
-            if step_model == 'ideal':
-                # If using ideal step model, model each real step as a series of ideal steps
-                allow_consecutive_steps = True
+                if op_mode == 'galv':
+                    step_indices = identify_steps(i_signal, allow_consecutive_steps)
+                else:
+                    step_indices = identify_steps(v_signal, allow_consecutive_steps)
+
+                step_times = times[step_indices]
+                # print('Step times:', step_times)
             else:
-                # If using non-ideal step model, apply step model to each real step
-                allow_consecutive_steps = False
+                step_indices = get_step_indices_from_step_times(times, step_times)
+        else:
+            # Treat as a single step
+            step_times = [0]
+            step_indices = [0]
+                
 
-            if op_mode == 'galv':
-                step_indices = identify_steps(i_signal, allow_consecutive_steps)
+        if method == 'match':
+            # Determine matching post-step sample times
+            if target_times is not None:
+                # Apply target_times to each step
+                target_times = np.unique(np.concatenate([target_times + ts for ts in step_times]))
+
+                # Get sample times closest to ideal times
+                sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
+                sample_index = np.unique(sample_index)
             else:
-                step_indices = identify_steps(v_signal, allow_consecutive_steps)
+                # If target_times is None, keep all post-step samples
+                sample_index = np.arange(step_indices[0], len(times), dtype=int)
 
-            step_times = times[step_indices]
-            # print('Step times:', step_times)
+            # Keep some samples immediately prior to first step
+            if step_indices[0] > 0 and prestep_samples > 0:
+                num_prestep = step_indices[0]
+                prestep_samples = min(prestep_samples, num_prestep)
+                # prestep_index = np.arange(0, num_prestep, num_prestep // prestep_samples, dtype=int)  # uniformly spaced
+                prestep_index = np.arange(step_indices[0] - prestep_samples, step_indices[0], dtype=int)
+                sample_index = np.unique(np.concatenate((prestep_index, sample_index)))
+        elif method == 'decimate':
+            t_sample = np.min(np.diff(times))
+            if target_size is not None:
+                decimation_interval = -1
+                while decimation_interval == -1:
+                    decimation_interval = select_decimation_interval(times, step_times, t_sample, prestep_samples,
+                                                                    decimation_factor, decimation_max_period,
+                                                                    target_size)
+            # print(decimation_interval)
+            sample_index = get_decimation_index(times, step_times, t_sample, prestep_samples, decimation_interval,
+                                                decimation_factor, decimation_max_period)
         else:
-            step_indices = get_step_indices_from_step_times(times, step_times)
+            raise ValueError(f"Invalid downsample method {method}. Options: 'match', 'decimate'")
+        # else:
+        #     # Get sample times closest to ideal times
+        #     sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
+        #     sample_index = np.unique(sample_index)
+
+        if antialiased and stepwise_sample_times:
+            # Apply an antialiasing filter before downsampling
+            if filter_kw is None:
+                filter_kw = {}
+            input_signal, _ = get_input_and_response(i_signal, v_signal, op_mode)
+            step_index = identify_steps(input_signal, allow_consecutive=False)
+            i_signal = filter_chrono_signal(times, i_signal, step_index=step_index,
+                                            decimate_index=sample_index, **filter_kw)
+            v_signal = filter_chrono_signal(times, v_signal, step_index=step_index,
+                                            decimate_index=sample_index, **filter_kw)
+
+        sample_times = times[sample_index].flatten()
+        sample_i = i_signal[sample_index].flatten()
+        sample_v = v_signal[sample_index].flatten()
     else:
-        # Treat as a single step
-        step_times = [0]
-        step_indices = [0]
-            
-
-    if method == 'match':
-        # Determine matching post-step sample times
-        if target_times is not None:
-            # Apply target_times to each step
-            target_times = np.unique(np.concatenate([target_times + ts for ts in step_times]))
-
-            # Get sample times closest to ideal times
-            sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
-            sample_index = np.unique(sample_index)
-        else:
-            # If target_times is None, keep all post-step samples
-            sample_index = np.arange(step_indices[0], len(times), dtype=int)
-
-        # Keep some samples immediately prior to first step
-        if step_indices[0] > 0 and prestep_samples > 0:
-            num_prestep = step_indices[0]
-            prestep_samples = min(prestep_samples, num_prestep)
-            # prestep_index = np.arange(0, num_prestep, num_prestep // prestep_samples, dtype=int)  # uniformly spaced
-            prestep_index = np.arange(step_indices[0] - prestep_samples, step_indices[0], dtype=int)
-            sample_index = np.unique(np.concatenate((prestep_index, sample_index)))
-    elif method == 'decimate':
-        t_sample = np.min(np.diff(times))
-        if target_size is not None:
-            decimation_interval = -1
-            while decimation_interval == -1:
-                decimation_interval = select_decimation_interval(times, step_times, t_sample, prestep_samples,
-                                                                 decimation_factor, decimation_max_period,
-                                                                 target_size)
-        # print(decimation_interval)
-        sample_index = get_decimation_index(times, step_times, t_sample, prestep_samples, decimation_interval,
-                                            decimation_factor, decimation_max_period)
-    else:
-        raise ValueError(f"Invalid downsample method {method}. Options: 'match', 'decimate'")
-    # else:
-    #     # Get sample times closest to ideal times
-    #     sample_index = np.array([[nearest_index(times, target_times[i])] for i in range(len(target_times))])
-    #     sample_index = np.unique(sample_index)
-
-    if antialiased and stepwise_sample_times:
-        # Apply an antialiasing filter before downsampling
-        if filter_kw is None:
-            filter_kw = {}
-        input_signal, _ = get_input_and_response(i_signal, v_signal, op_mode)
-        step_index = identify_steps(input_signal, allow_consecutive=False)
-        i_signal = filter_chrono_signal(times, i_signal, step_index=step_index,
-                                        decimate_index=sample_index, **filter_kw)
-        v_signal = filter_chrono_signal(times, v_signal, step_index=step_index,
-                                        decimate_index=sample_index, **filter_kw)
-
-    sample_times = times[sample_index].flatten()
-    sample_i = i_signal[sample_index].flatten()
-    sample_v = v_signal[sample_index].flatten()
+        # Skip downsampling, only perform the discarding step
+        sample_index = np.arange(len(times))
+        sample_times = times.copy()
+        sample_i = i_signal.copy()
+        sample_v = v_signal.copy()
     
     if discard_first_n_points is not None:
         # Re-calc step indices after downsample

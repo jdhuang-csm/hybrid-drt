@@ -175,7 +175,8 @@ class DRT(DRTBase):
     def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None, 
                        nonneg=True, series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
                        # chrono args
-                       offset_steps=True, step_offset_size=None, offset_baseline=True, v_baseline_deg: int = 0, downsample=False, downsample_kw=None,
+                       offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
+                       offset_baseline=True, v_baseline_deg: int = 0, downsample=False, downsample_kw=None,
                        subtract_background=False, background_type='static', background_corr_power=None,
                        estimate_background_kw=None, smooth_inf_response=True,
                        # penalty settings
@@ -237,6 +238,15 @@ class DRT(DRTBase):
             times = np.array(times)
             i_signal = np.array(i_signal)
             v_signal = np.array(v_signal)
+            
+            if discard_first_n is not None:
+                t_sample = np.min(np.diff(times))
+            
+                _, (times, i_signal, v_signal) = pp.discard_first_n_chrono(times, i_signal, v_signal, discard_first_n, self.chrono_mode)
+                
+                if step_offset_size is None:
+                    step_offset_size = -t_sample  * (1 + discard_first_n - 1e-8)
+                
         if frequencies is not None:
             frequencies = np.array(frequencies)
             z = np.array(z)
@@ -278,6 +288,7 @@ class DRT(DRTBase):
                                                                           step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                                                                           series_neg=series_neg, scale_data=scale_data,
                                                                           solve_rp=solve_rp, offset_steps=offset_steps, step_offset_size=step_offset_size,
+                                                                          discard_first_n=discard_first_n,
                                                                           offset_baseline=offset_baseline, v_baseline_deg=v_baseline_deg,
                                                                           downsample=downsample,
                                                                           downsample_kw=downsample_kw,
@@ -475,7 +486,8 @@ class DRT(DRTBase):
         # Process data and calculate matrices for fit
         sample_data, matrices = self._prep_for_fit(times, i_signal, v_signal, frequencies, z,
                                                    step_times=step_times, step_sizes=step_sizes, downsample=downsample,
-                                                   downsample_kw=downsample_kw, offset_steps=offset_steps, step_offset_size=step_offset_size,
+                                                   downsample_kw=downsample_kw, offset_steps=offset_steps, step_offset_size=step_offset_size, 
+                                                   discard_first_n=discard_first_n,
                                                    smooth_inf_response=smooth_inf_response,
                                                    scale_data=scale_data, rp_scale=pp_hypers['rp_scale'],
                                                    penalty_type=penalty_type,
@@ -1240,13 +1252,15 @@ class DRT(DRTBase):
 
     def fit_chrono(self, times, i_signal, v_signal, step_times=None, step_sizes=None,
                    nonneg=True, scale_data=True, update_scale=False,
-                   offset_baseline=True, offset_steps=True, step_offset_size=None, subtract_background=False, estimate_background_kw=None,
+                   offset_baseline=True, offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
+                   subtract_background=False, estimate_background_kw=None,
                    downsample=False, downsample_kw=None, smooth_inf_response=True,
                    error_structure='uniform', vmm_epsilon=4,
                    **kwargs):
 
         self._qphb_fit_core(times, i_signal, v_signal, None, None, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps, step_offset_size=step_offset_size,
+                            discard_first_n=discard_first_n,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
                             subtract_background=subtract_background, estimate_background_kw=estimate_background_kw,
                             smooth_inf_response=smooth_inf_response, chrono_error_structure=error_structure,
@@ -1282,7 +1296,8 @@ class DRT(DRTBase):
     def fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None,
                    nonneg=True, scale_data=True, update_scale=False,
                    # chrono parameters
-                   offset_steps=True, step_offset_size=None, offset_baseline=True, subtract_background=False, estimate_background_kw=None,
+                   offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
+                   offset_baseline=True, subtract_background=False, estimate_background_kw=None,
                    downsample=False, downsample_kw=None, smooth_inf_response=True,
                    # vz offset
                    vz_offset=True, vz_offset_scale=1, vz_offset_eps=1,
@@ -1291,8 +1306,10 @@ class DRT(DRTBase):
                    chrono_vmm_epsilon=4, eis_vmm_epsilon=0.25, eis_reim_cor=0.25,
                    eis_weight_factor=None, chrono_weight_factor=None, **kwargs):
 
+
         self._qphb_fit_core(times, i_signal, v_signal, frequencies, z, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps, step_offset_size=step_offset_size,
+                            discard_first_n=discard_first_n,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
                             subtract_background=subtract_background, estimate_background_kw=estimate_background_kw,
                             smooth_inf_response=smooth_inf_response, chrono_error_structure=chrono_error_structure,
@@ -3243,6 +3260,8 @@ class DRT(DRTBase):
         if times is None:
             use_fit_times = True
             times = self.get_fit_times()
+        else:
+            use_fit_times = False
 
         # If kwargs not provided, use same values used in fitting
         if offset_steps is None:
@@ -5201,7 +5220,7 @@ class DRT(DRTBase):
                       # EIS data
                       frequencies, z,
                       # Chrono options
-                      step_times, step_sizes, downsample, downsample_kw, offset_steps, step_offset_size, smooth_inf_response,
+                      step_times, step_sizes, downsample, downsample_kw, offset_steps, step_offset_size, discard_first_n, smooth_inf_response,
                       # Scaling
                       scale_data, rp_scale,
                       penalty_type, derivative_weights):
@@ -5222,7 +5241,7 @@ class DRT(DRTBase):
 
         # If chrono data provided, get input signal step information
         sample_times, sample_i, sample_v, step_times, step_sizes, tau_rise = self.process_chrono_signals(
-            times, i_signal, v_signal, step_times, step_sizes, offset_steps, step_offset_size, downsample, downsample_kw
+            times, i_signal, v_signal, step_times, step_sizes, offset_steps, step_offset_size, discard_first_n, downsample, downsample_kw
         )
 
         # Set basis_tau - must have chrono step information

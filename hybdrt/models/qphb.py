@@ -454,15 +454,15 @@ def solve_convex_opt(wrv, wrm, l2_matrix, l1v, nonneg, special_params, init_vals
         for sp in special_params.values():
             if not sp['nonneg']:
                 end_index = sp['index'] + sp.get('size', 1)
-                h[sp['index']:end_index] = 10
+                h[sp['index']:end_index] = 1000
                 if nonlin:
-                    h[M + sp['index']:M + end_index] = 10
+                    h[M + sp['index']:M + end_index] = 1000
         # h[special_indices['unbnd']] = 10
         # print(h)
     # print(h)
     else:
         # coefficients can be positive or negative
-        h = 10 * np.ones(p_matrix.shape[1])
+        h = 1000 * np.ones(p_matrix.shape[1])
         # HFR and inductance must still be non-negative
         # h[special_indices['nonneg']] = 0
         for sp in special_params.values():

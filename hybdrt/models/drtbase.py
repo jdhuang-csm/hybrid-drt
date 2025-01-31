@@ -281,7 +281,7 @@ class DRTBase:
 
         return tau
 
-    def process_chrono_signals(self, times, i_signal, v_signal, step_times, step_sizes, offset_steps, step_offset_size, downsample, downsample_kw):
+    def process_chrono_signals(self, times, i_signal, v_signal, step_times, step_sizes, offset_steps, step_offset_size, discard_first_n, downsample, downsample_kw):
         # TODO: move this to DRT1d
         # If chrono data provided, get input signal step information
         if times is not None:
@@ -296,7 +296,7 @@ class DRTBase:
             if step_times is None:
                 # Step times not provided - determine from input signal
                 step_times, step_sizes, tau_rise = pp.process_input_signal(times, input_signal, self.step_model,
-                                                                           offset_steps, step_offset_size)
+                                                                           offset_steps, offset_size=step_offset_size)
             else:
                 # Step times provided - only need to get step sizes
                 if step_sizes is None:
@@ -324,7 +324,10 @@ class DRTBase:
 
                 sample_times, sample_i, sample_v, sample_index = \
                     pp.downsample_data(times, i_signal, v_signal, stepwise_sample_times=True,
-                                       step_times=self.nonconsec_step_times, op_mode=self.chrono_mode, **downsample_kw)
+                                       step_times=self.nonconsec_step_times, op_mode=self.chrono_mode, 
+                                    #    discard_first_n_points=discard_first_n,
+                                    #    discard_only=not downsample,
+                                       **downsample_kw)
                 # Record sample_index for reference
                 self.sample_index = sample_index
                 if self.print_diagnostics:
@@ -333,7 +336,7 @@ class DRTBase:
                 self.sample_index = np.arange(0, len(times), 1, dtype=int)
                 sample_times = times.copy()
                 sample_i = i_signal.copy()
-                sample_v = v_signal.copy()
+                sample_v = v_signal.copy()                
 
             # Set t_fit - must be done before setting raw_input_signal
             self.t_fit = sample_times

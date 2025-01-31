@@ -20,6 +20,8 @@ def complex_from_polar(data):
     elif type(data) == np.ndarray:
         Zmod = data[:, 0]
         Zphz = data[:, 1]
+    else:
+        raise TypeError(f"data must be either a pandas DataFrame or a numpy array. Got type {type(data)}")
 
     Zreal = Zmod * np.cos(np.pi * Zphz / 180)
     Zimag = Zmod * np.sin(np.pi * Zphz / 180)

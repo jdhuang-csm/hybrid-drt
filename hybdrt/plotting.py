@@ -599,19 +599,23 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin
             df = process_eis_plot_data(data)
             data_min = np.nanmin(-df['Zimag'])
 
-        if min(data_min, ax.get_ylim()[0]) >= 0:
+        if min(data_min, ax.get_ylim()[0]) >= 0 and ymin is None:
             # if -Zimag doesn't go negative, don't go negative on y-axis
-            if ymin is None:
-                ymin = max(0, ax.get_ylim()[0] - diff / 2)
+            ymin = max(0, ax.get_ylim()[0] - diff / 2)
             mindelta = ax.get_ylim()[0] - ymin
             ymax = ax.get_ylim()[1] + diff - mindelta
         else:
-            negrng = abs(ax.get_ylim()[0])
-            posrng = abs(ax.get_ylim()[1])
-            negoffset = negrng * diff / (negrng + posrng)
-            posoffset = posrng * diff / (negrng + posrng)
-            ymin = ax.get_ylim()[0] - negoffset
-            ymax = ax.get_ylim()[1] + posoffset
+            if ymin is None:
+                negrng = abs(ax.get_ylim()[0])
+                posrng = abs(ax.get_ylim()[1])
+                negoffset = negrng * diff / (negrng + posrng)
+                posoffset = posrng * diff / (negrng + posrng)
+                
+                ymin = ax.get_ylim()[0] - negoffset    
+                ymax = ax.get_ylim()[1] + posoffset
+            else:
+                mindelta = ax.get_ylim()[0] - ymin
+                ymax = ax.get_ylim()[1] + diff - mindelta
 
         ax.set_ylim(ymin, ymax)
 
@@ -656,7 +660,7 @@ def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: O
     :param Tuple[float, float] ylim: y range on which to zoom 
     :param Optional[float] xmin: Optional x lower bound. Defaults to None
     """
-    ax.set_xlim(*ylim)
+    ax.set_ylim(*ylim)
         
     set_nyquist_aspect(ax, set_to_axis="y", xmin=xmin)
     

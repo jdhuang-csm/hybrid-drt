@@ -19,15 +19,22 @@ def get_offset_pq(drt):
     # x_dop = drt.fit_parameters['x_dop'] / (drt.coefficient_scale * drt.dop_scale_vector)
 
     # Identify data-dependent parameters to remove
-    special_indices = [drt.special_qp_params[k]['index'] for k in drt.special_qp_params.keys()
-                       if k in ['v_baseline', 'vz_offset']]
-    num_remove = len(special_indices)
+    special_indices = [drt.special_qp_params[k]['index'] for k in ['v_baseline', 'vz_offset']]
+    special_lengths = [drt.special_qp_params[k]['size'] for k in ['v_baseline', 'vz_offset']]
+    num_remove = sum(special_lengths)
     x_remove = np.empty(num_remove)
 
     for k, v in drt.special_qp_params.items():
         if k == 'v_baseline':
-            x_remove[v['index']] = drt.fit_parameters['v_baseline'] / drt.response_signal_scale \
-                                   + drt.scaled_response_offset
+            # Undo scaling, see drt1d.extract_qphb_parameters
+            # unscaled = (scaled - scaled_offset) * scale_factor
+            # scaled = unscaled / scale_factor + scaled_offset
+            unscaled = np.array(drt.fit_parameters['v_baseline'])
+            scaled = unscaled / drt.response_signal_scale
+            scaled[0] += drt.scaled_response_offset
+            x_remove[v['index']:v['index'] + v["size"]] = scaled
+            # x_remove[v['index']] = drt.fit_parameters['v_baseline'] / drt.response_signal_scale \
+            #                        + drt.scaled_response_offset
         elif k == 'vz_offset':
             x_remove[v['index']] = drt.fit_parameters['vz_offset']
 
