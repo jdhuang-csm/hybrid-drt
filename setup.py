@@ -20,6 +20,7 @@ setup(name='hybrid-drt',
           'cvxopt',
           'matplotlib',
           'scikit-learn',
+          'scikit-image'
       ],
       include_package_data=True
       )
