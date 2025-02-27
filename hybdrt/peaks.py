@@ -4,7 +4,7 @@ from scipy import signal
 from typing import Optional, Union, List, Tuple
 
 from .matrices import basis
-from . import utils
+from .utils.array import nearest_index
 
 
 def find_slope_peak_pairs(fx, **kw):
@@ -102,7 +102,7 @@ def find_troughs(f, fxx, peak_indices, peak_tau=None, tau=None):
             raise ValueError("If peak_tau is provided instead of peak_indices, "
                              "the corresponding tau grid must also be provided")
         # Convert peak_tau to indices
-        peak_indices = [utils.array.nearest_index(np.log(tau), np.log(pt)) for pt in peak_tau]
+        peak_indices = [nearest_index(np.log(tau), np.log(pt)) for pt in peak_tau]
     
     peak_indices = sorted(peak_indices)
     for i, start_index in enumerate(peak_indices[:-1]):
@@ -128,7 +128,7 @@ def find_troughs(f, fxx, peak_indices, peak_tau=None, tau=None):
                     trough_index = int((start_index + end_index + 2 * trough_index) / 4)
         else:
             # Sign changes. Set the trough at the zero between the peaks
-            zero_index = utils.array.nearest_index(f[start_index:end_index], 0)
+            zero_index = nearest_index(f[start_index:end_index], 0)
             trough_index = start_index + zero_index
 
         trough_indices.append(trough_index)
@@ -212,8 +212,8 @@ def estimate_peak_weight_distributions(tau, f, fxx, peak_indices, basis_tau, eps
         # Normalize to total weight
         peak_weights /= np.sum(peak_weights, axis=0)
     else:
-        peak_weights = np.ones((len(peak_indices), len(basis_tau)))
-
+        peak_weights = np.ones((len(peak_tau), len(basis_tau)))
+        
     return peak_weights
 
 
@@ -472,7 +472,7 @@ def find_troughs_from_prob(tau: ndarray, tp: ndarray, peak_indices: ndarray):
         tpr = tp.copy()
         tpr[(tau < r[0])] = tpr[nearest_index(tau, r[0], constraint=-1)]
         tpr[(tau >= r[1])] = tpr[nearest_index(tau, r[1], constraint=1)]
-        peaks, info = find_peaks(tpr, height=0.8, prominence=0.5)
+        peaks, info = signal.find_peaks(tpr, height=0.8, prominence=0.5)
         # print('peaks:', peaks, info)
         if len(peaks) == 1:
             # If there's only one trough, use it
