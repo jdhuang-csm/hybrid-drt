@@ -108,7 +108,7 @@ class DiscreteElementModel:
 
         # Find peaks
         if peak_indices is None:
-            _, peak_indices = drt.find_peaks_compound(**find_peaks_kw)
+            _, _, peak_indices, _ = drt.find_peaks(tau=tau, **find_peaks_kw, return_info=True)
 
         # Estimate separate peak distributions
         if estimate_peak_distributions:
@@ -2239,7 +2239,7 @@ def get_fast_constraint_transforms(bounds, max_bound=1e6):
 
 
 def scale_parameter_to_data(x, parameter_type, rp_scale, inverse):
-    if parameter_type == 'R':
+    if parameter_type in ('R', 'P', "Cinv"):
         if inverse:
             return x * rp_scale
         else:
@@ -2333,6 +2333,17 @@ def element_f_jacobian(element_type):
                 -1j * (omega ** -1)
             )
             return out.reshape((2 * len(freq), 1))
+    elif element_type == 'P':
+        def jac(freq, p, nu):
+            omega = freq * 2 * np.pi
+            out = np.zeros((2 * len(freq), 2))
+            out[:, 0] = utils.eis.complex_vector_to_concat(
+                (1j * omega) ** nu
+            )
+            out[:, 1] = utils.eis.complex_vector_to_concat(
+                p * np.log(1j * omega) * (1j * omega) ** nu
+            )
+            return out
     else:
         raise ValueError(f'Invalid element {element_type}')
 
