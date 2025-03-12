@@ -3,6 +3,7 @@ import warnings
 from scipy.optimize import least_squares
 from scipy import ndimage
 from typing import Optional
+from numpy import ndarray
 
 from .utils import stats
 from .utils.array import unit_step, nearest_index
@@ -61,8 +62,9 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, off
     :return: array of step times, array of step magnitudes
     """
     step_idx = identify_steps(y, allow_consecutive, rthresh, athresh)
-
+    # print("step_idx", step_idx)
     step_times = times[step_idx].copy()
+    # print("raw step_times", step_times)
 
     if offset_step_times:
         if offset_size is None:
@@ -73,7 +75,9 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, off
             # Multiply by 0.999 to ensure that step time isn't exactly equal to previous sample time,
             # as this causes trouble with R_inf response (R_inf response at times >= step_time)
             offset_size = -t_sample * (1 - 1e-8)
+        # print("offset size:", offset_size)
         step_times += offset_size
+        # print("step_times:", step_times)
         # step_times = times[step_idx - 1] + 1e-8
 
     # # Get step size for each step
@@ -338,7 +342,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
     return sample_times, sample_i, sample_v, sample_index
 
 
-def discard_first_n_chrono(times, i_signal, v_signal, n: int, op_mode="galv"):
+def discard_first_n_chrono(times, i_signal, v_signal, n: int, op_mode="galv", step_indices: Optional[ndarray] = None):
     """Discard first n points of each step in a chrono signal.
     Useful for cases in which the instrument records undesired points 
     at short timescales that are perturbed.
@@ -350,13 +354,14 @@ def discard_first_n_chrono(times, i_signal, v_signal, n: int, op_mode="galv"):
     :param str op_mode: _description_, defaults to "galv"
     :return _type_: _description_
     """
-    if op_mode == 'galv':
-        step_indices = identify_steps(i_signal, False)
-    else:
-        step_indices = identify_steps(v_signal, False)
+    if step_indices is None:
+        if op_mode == 'galv':
+            step_indices = identify_steps(i_signal, False)
+        else:
+            step_indices = identify_steps(v_signal, False)
     
     step_indices = np.insert(step_indices, 0, 0)
-
+    
     sample_index = []
     for i, start_index in enumerate(step_indices):
         if start_index == step_indices[-1]:
@@ -670,18 +675,25 @@ def estimate_rp(times, step_times, input_step_sizes, response_signal, step_model
                 end_index = len(times)
             else:
                 end_index = step_index[i + 1]
-            # Get response value prior to step
-            pre_step_val = response_signal[start_index - 1]
+            
+            if start_index == end_index:
+                # Truncated step. Can occur if initial samples are discarded with discard_first_n.
+                # In this case, just ignore the step
+                step_r_min[i] = np.nan
+                step_r_max[i] = np.nan
+            else:
+                # Get response value prior to step
+                pre_step_val = response_signal[start_index - 1]
 
-            # Identify response data corresponding to each step
-            step_response = response_signal[start_index:end_index]
+                # Identify response data corresponding to each step
+                step_response = response_signal[start_index:end_index]
 
-            # Get min and max resistance observed in step
-            step_r_min[i] = np.min((step_response - pre_step_val) / input_step_sizes[i])
-            step_r_max[i] = np.max((step_response - pre_step_val) / input_step_sizes[i])
+                # Get min and max resistance observed in step
+                step_r_min[i] = np.min((step_response - pre_step_val) / input_step_sizes[i])
+                step_r_max[i] = np.max((step_response - pre_step_val) / input_step_sizes[i])
 
-        r_min_chrono = np.mean(step_r_min)
-        r_max_chrono = np.percentile(step_r_max, 99)
+        r_min_chrono = np.nanmean(step_r_min)
+        r_max_chrono = np.nanpercentile(step_r_max, 99)
     else:
         # Set limits such that they will not influence aggregate
         r_min_chrono = np.inf

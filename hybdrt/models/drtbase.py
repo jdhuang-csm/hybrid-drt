@@ -302,6 +302,10 @@ class DRTBase:
                 if step_sizes is None:
                     step_sizes = pp.get_step_sizes(times, input_signal, step_times)
                 tau_rise = None
+                
+            # if discard_first_n:
+            #     _, (times, i_signal, v_signal) =  pp.discard_first_n_chrono(times, i_signal, v_signal, discard_first_n, self.chrono_mode)
+                
 
             # Get non-consecutive steps for plotting functions
             if len(step_times) > 1:
@@ -317,7 +321,7 @@ class DRTBase:
                 print('Got step data')
 
             # Downsample data
-            if downsample:
+            if downsample: # or discard_first_n is not None:
                 if downsample_kw is None:
                     downsample_kw = {'prestep_samples': 10,
                                      'target_times': None}  # np.concatenate(([0], np.logspace(-5, 0, 201)))}

@@ -9,6 +9,7 @@ import itertools
 import time
 import warnings
 import numpy as np
+from numpy import ndarray
 from matplotlib import pyplot as plt
 import pandas as pd
 from scipy import signal, ndimage
@@ -71,109 +72,22 @@ class DRT(DRTBase):
         else:
             num_data = len(self.get_fit_times())
         return num_data
+    
+    def _get_neg_allowed_indices(self, nonneg: bool, neg_allowed_tau_range: Optional[Tuple[float, float]] = None):
+        if nonneg and neg_allowed_tau_range is not None:
+            raise ValueError("If nonneg==True, neg_allowed_tau_range cannot be specified")
+        
+        if not nonneg and neg_allowed_tau_range is not None:
+            # Find the parameter indices which correspond to the allowed tau range
+            tau_min, tau_max = neg_allowed_tau_range
+            index = np.where((self.basis_tau >= tau_min) & (self.basis_tau <= tau_max))[0]
+            # Offset by special parameters
+            return index + self.get_qp_mat_offset()
 
-    # def _qphb_loop(self, data_type, x, weights, rzv, rzm, num_eis, chrono_weight_factor, eis_weight_factor,
-    #                weight_factor, max_iter, xmx_norms, dop_xmx_norms,
-    #                peak_locations, peak_indices, curv_matrix, curv_spread_func,
-    #                ):
-    #     it = 0
-    #     # fixed_prior = False
-    #
-    #     while it < max_iter:
-    #
-    #         x_in = x.copy()
-    #
-    #         # Apply chrono/eis weight adjustment factors
-    #         if data_type == 'hybrid':
-    #             weights[:num_eis] *= chrono_weight_factor
-    #             weights[num_eis:] *= eis_weight_factor
-    #
-    #         # Apply overall weight scaling factor
-    #         if it > 0:
-    #             weights = weights * weight_factor
-    #
-    #         # TEST: enforce curvature constraint
-    #         if peak_locations is not None and it > 5:
-    #             curv = curv_matrix @ x_in
-    #             peak_curv = curv[peak_indices]
-    #             curv_limit = [2.5 * pc * curv_spread_func(np.log(self.basis_tau / pl), 1.5, 2)
-    #                           for pc, pl in zip(peak_curv, peak_locations)]
-    #             curv_limit = np.sum(curv_limit, axis=0)
-    #             # curv_limit = 0.5 * (curv_limit + curv)
-    #             curvature_constraint = (-curv_matrix, -curv_limit)
-    #         else:
-    #             curvature_constraint = None
-    #
-    #         # Update data scale as Rp estimate improves to maintain specified rp_scale
-    #         if it > 1 and scale_data and update_scale:
-    #             # Get scale factor
-    #             # basis_area = basis.get_basis_func_area(self.tau_basis_type, self.tau_epsilon, self.zga_params)
-    #             # rp = np.sum(np.abs(x[self.get_qp_mat_offset():])) * basis_area
-    #             rp = self.predict_r_p(absolute=True, x=x, raw=True)
-    #             scale_factor = (qphb_hypers['rp_scale'] / rp) ** 0.5  # Damp the scale factor to avoid oscillations
-    #             if self.print_diagnostics:
-    #                 print('Iter {} scale factor: {:.3f}'.format(it, scale_factor))
-    #             # Update data and qphb parameters to reflect new scale
-    #             for x_t in [x_in, x_overfit_eis, x_overfit_chrono]:
-    #                 if x_t is not None:
-    #                     x_t *= scale_factor
-    #             rzv *= scale_factor
-    #             xmx_norms *= scale_factor ** 0.5  # shouldn't this be scale_factor ** 2?
-    #             if self.fit_dop:
-    #                 dop_xmx_norms *= scale_factor ** 0.5
-    #             est_weights /= scale_factor
-    #             init_weights /= scale_factor  # update for reference only
-    #             weights /= scale_factor
-    #             # Update data scale attributes
-    #             self.update_data_scale(scale_factor)
-    #
-    #         # Perform actual QPHB operation
-    #         x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result, converged = \
-    #             qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rzv, weights, est_weights, outlier_t,
-    #                               rzm, vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp,
-    #                               xmx_norms, dop_xmx_norms,
-    #                               None, None, curvature_constraint, nonneg, self.special_qp_params, xtol, 1,
-    #                               self.qphb_history)
-    #
-    #         # Normalize to ordinary ridge solution
-    #         if it == 0:
-    #             # Only include DRT penalty in XMX norms
-    #             x_drt = x[self.get_qp_mat_offset():]
-    #             pm_drt_list = [penalty_matrices[f'm{k}'][self.get_qp_mat_offset():, self.get_qp_mat_offset():]
-    #                            for k in range(k_range)]
-    #             xmx_norms = np.array([x_drt.T @ pm_drt_list[k] @ x_drt for k in range(k_range)])
-    #             if self.print_diagnostics:
-    #                 print('xmx', xmx_norms)
-    #
-    #             if self.fit_dop:
-    #                 dop_start, dop_end = self.dop_indices
-    #                 x_dop = x[dop_start:dop_end]
-    #                 pm_dop_list = [penalty_matrices[f'm{k}'][dop_start:dop_end, dop_start:dop_end]
-    #                                for k in range(k_range)]
-    #                 dop_xmx_norms = np.array([x_dop.T @ pm_dop_list[k] @ x_dop for k in range(k_range)])
-    #                 if self.print_diagnostics:
-    #                     print('dop_xmx', dop_xmx_norms)
-    #
-    #         # Update vz_offset column
-    #         if data_type == 'hybrid' and vz_offset:
-    #             # Update the response matrix with the current predicted y vector
-    #             # vz_offset offsets chrono and eis predictions
-    #             y_hat = rzm_vz @ x
-    #             vz_sep = y_hat.copy()
-    #             vz_sep[len(rv):] *= -1  # vz_offset > 0 means EIS Rp smaller chrono Rp
-    #             rzm[:, self.special_qp_params['vz_offset']['index']] = vz_sep
-    #
-    #         if converged:
-    #             break
-    #         elif it == max_iter - 1:
-    #             warnings.warn(f'Hyperparametric solution did not converge within {max_iter} iterations')
-    #
-    #         it += 1
-    #
-    #     return x, s_vectors, rho_vector, dop_rho_vector, weights, outlier_t, cvx_result
 
     def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None, 
-                       nonneg=True, series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
+                       nonneg=True, neg_allowed_tau_range: Optional[Tuple[float, float]] = None, 
+                       series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
                        # chrono args
                        offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
                        offset_baseline=True, v_baseline_deg: int = 0, downsample=False, downsample_kw=None,
@@ -240,12 +154,15 @@ class DRT(DRTBase):
             v_signal = np.array(v_signal)
             
             if discard_first_n is not None:
-                t_sample = np.min(np.diff(times))
+                dt_short = np.min(np.diff(times))
             
                 _, (times, i_signal, v_signal) = pp.discard_first_n_chrono(times, i_signal, v_signal, discard_first_n, self.chrono_mode)
                 
+                # Determine t_sample after removing short samples
+                t_sample = np.min(np.diff(times))
+                
                 if step_offset_size is None:
-                    step_offset_size = -t_sample  * (1 + discard_first_n - 1e-8)
+                    step_offset_size = - (dt_short + t_sample  * (discard_first_n - 1e-8))
                 
         if frequencies is not None:
             frequencies = np.array(frequencies)
@@ -285,9 +202,11 @@ class DRT(DRTBase):
         if remove_outliers:
             # Only need to supply kwargs that matter for initial weights estimation
             chrono_outlier_index, eis_outlier_index = self._qphb_fit_core(times, i_signal, v_signal, frequencies, z,
-                                                                          step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
+                                                                          step_times=step_times, step_sizes=step_sizes, 
+                                                                          nonneg=nonneg, neg_allowed_tau_range=neg_allowed_tau_range,
                                                                           series_neg=series_neg, scale_data=scale_data,
-                                                                          solve_rp=solve_rp, offset_steps=offset_steps, step_offset_size=step_offset_size,
+                                                                          solve_rp=solve_rp, 
+                                                                          offset_steps=offset_steps, step_offset_size=step_offset_size,
                                                                           discard_first_n=discard_first_n,
                                                                           offset_baseline=offset_baseline, v_baseline_deg=v_baseline_deg,
                                                                           downsample=downsample,
@@ -528,7 +447,11 @@ class DRT(DRTBase):
         self.fit_kwargs['subtract_background'] = subtract_background
         self.fit_kwargs['background_type'] = background_type
         self.fit_kwargs['background_corr_power'] = background_corr_power
-
+        self.fit_kwargs["neg_allowed_tau_range"] = neg_allowed_tau_range
+        
+        # Once prep_for_fit has created basis_tau, determine neg_allowed_indices
+        neg_allowed_indices = self._get_neg_allowed_indices(nonneg, neg_allowed_tau_range)
+        
         if self.print_diagnostics:
             print('lambda_0, iw_beta:', qphb_hypers['l2_lambda_0'], qphb_hypers['iw_beta'])
 
@@ -999,7 +922,7 @@ class DRT(DRTBase):
                 qphb.iterate_qphb(x_in, s_vectors, rho_vector, dop_rho_vector, rzv, weights, est_weights, outlier_tvt,
                                   rzm, vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers,
                                   eff_hp, xmx_norms, dop_xmx_norms, None, None, curvature_constraint, nonneg,
-                                  self.special_qp_params, xtol, 1, self.qphb_history)
+                                  self.special_qp_params, xtol, 1, self.qphb_history, neg_allowed_indices=neg_allowed_indices)
 
             # Normalize to ordinary ridge solution
             if it == 0:
@@ -1251,14 +1174,16 @@ class DRT(DRTBase):
         return p_matrix, q_vector
 
     def fit_chrono(self, times, i_signal, v_signal, step_times=None, step_sizes=None,
-                   nonneg=True, scale_data=True, update_scale=False,
+                   nonneg=True, neg_allowed_tau_range: Optional[Tuple[float, float]] = None,
+                   scale_data=True, update_scale=False,
                    offset_baseline=True, offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
                    subtract_background=False, estimate_background_kw=None,
                    downsample=False, downsample_kw=None, smooth_inf_response=True,
                    error_structure='uniform', vmm_epsilon=4,
                    **kwargs):
 
-        self._qphb_fit_core(times, i_signal, v_signal, None, None, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
+        self._qphb_fit_core(times, i_signal, v_signal, None, None, step_times=step_times, step_sizes=step_sizes, 
+                            nonneg=nonneg, neg_allowed_tau_range=neg_allowed_tau_range,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps, step_offset_size=step_offset_size,
                             discard_first_n=discard_first_n,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
@@ -1266,7 +1191,8 @@ class DRT(DRTBase):
                             smooth_inf_response=smooth_inf_response, chrono_error_structure=error_structure,
                             chrono_vmm_epsilon=vmm_epsilon, **kwargs)
 
-    def fit_eis(self, frequencies, z, nonneg=True, scale_data=True, update_scale=False,
+    def fit_eis(self, frequencies, z, nonneg=True, neg_allowed_tau_range: Optional[Tuple[float, float]] = None,
+                scale_data=True, update_scale=False,
                 error_structure=None, vmm_epsilon=0.25, vmm_reim_cor=0.25, **kwargs):
         """
         Perform a conventional DRT fit of EIS data.
@@ -1289,12 +1215,12 @@ class DRT(DRTBase):
         :return:
         """
 
-        self._qphb_fit_core(None, None, None, frequencies, z, nonneg=nonneg, scale_data=scale_data,
+        self._qphb_fit_core(None, None, None, frequencies, z, nonneg=nonneg, neg_allowed_tau_range=neg_allowed_tau_range, scale_data=scale_data,
                             update_scale=update_scale, eis_error_structure=error_structure, eis_vmm_epsilon=vmm_epsilon,
                             eis_reim_cor=vmm_reim_cor, **kwargs)
 
     def fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None,
-                   nonneg=True, scale_data=True, update_scale=False,
+                   nonneg=True, neg_allowed_tau_range: Optional[Tuple[float, float]] = None, scale_data=True, update_scale=False,
                    # chrono parameters
                    offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
                    offset_baseline=True, subtract_background=False, estimate_background_kw=None,
@@ -1307,7 +1233,8 @@ class DRT(DRTBase):
                    eis_weight_factor=None, chrono_weight_factor=None, **kwargs):
 
 
-        self._qphb_fit_core(times, i_signal, v_signal, frequencies, z, step_times=step_times, step_sizes=step_sizes, nonneg=nonneg,
+        self._qphb_fit_core(times, i_signal, v_signal, frequencies, z, step_times=step_times, step_sizes=step_sizes, 
+                            nonneg=nonneg, neg_allowed_tau_range=neg_allowed_tau_range,
                             scale_data=scale_data, update_scale=update_scale, offset_steps=offset_steps, step_offset_size=step_offset_size,
                             discard_first_n=discard_first_n,
                             offset_baseline=offset_baseline, downsample=downsample, downsample_kw=downsample_kw,
@@ -1394,7 +1321,8 @@ class DRT(DRTBase):
                                   rm,
                                   vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp, xmx_norms,
                                   dop_xmx_norms, None, None, None, nonneg, self.special_qp_params, xtol, 1,
-                                  continue_history)
+                                  continue_history, 
+                                  neg_allowed_indices=self._get_neg_allowed_indices(self.fit_kw["nonneg"], self.fit_kw["neg_allowed_tau_range"]))
 
             # Update vz_offset column
             if self.fit_type.find('hybrid') > -1 and 'vz_offset' in self.special_qp_params.keys():
@@ -2469,7 +2397,9 @@ class DRT(DRTBase):
     # PFRT
     # --------------------------
     def _pfrt_fit_core(self, times, i_signal, v_signal, frequencies, z, factors=None, max_iter_per_step=10,
-                       max_init_iter=20, xtol=1e-2, nonneg=True, series_neg=False, **kw):
+                       max_init_iter=20, xtol=1e-2, nonneg=True, series_neg=False, 
+                       neg_allowed_tau_range: Optional[Tuple[float, float]] = None,
+                       **kw):
 
         # Get default hyperparameters
         qphb_hypers = qphb.get_default_hypers(True, self.fit_dop, self.nu_basis_type)
@@ -2496,13 +2426,18 @@ class DRT(DRTBase):
 
         # Perform qphb fit corresponding to data type
         if times is None:
-            self.fit_eis(frequencies, z, nonneg=nonneg, series_neg=series_neg, max_iter=max_init_iter, xtol=xtol,
+            self.fit_eis(frequencies, z, nonneg=nonneg, series_neg=series_neg, 
+                         neg_allowed_tau_range=neg_allowed_tau_range,
+                         max_iter=max_init_iter, xtol=xtol,
                          **init_kw)
         elif frequencies is None:
-            self.fit_chrono(times, i_signal, v_signal, nonneg=nonneg, series_neg=series_neg, max_iter=max_init_iter,
+            self.fit_chrono(times, i_signal, v_signal, nonneg=nonneg, series_neg=series_neg, 
+                            neg_allowed_tau_range=neg_allowed_tau_range,
+                            max_iter=max_init_iter,
                             xtol=xtol, **init_kw)
         else:
             self.fit_hybrid(times, i_signal, v_signal, frequencies, z, nonneg=nonneg, series_neg=series_neg,
+                            neg_allowed_tau_range=neg_allowed_tau_range,
                             max_iter=max_init_iter, xtol=xtol, **init_kw)
 
         # Initialize history and insert initial fit
