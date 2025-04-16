@@ -50,6 +50,8 @@ class DRT(DRTBase):
         self.pfrt_history = None
         self.pfrt_candidate_df = None
         self.pfrt_candidate_dict = None
+        
+        self.v_baseline_scale = None
 
         self._qp_matrices = None
 
@@ -90,7 +92,8 @@ class DRT(DRTBase):
                        series_neg=False, scale_data=True, update_scale=False, solve_rp=False,
                        # chrono args
                        offset_steps=True, step_offset_size=None, discard_first_n: Optional[int] = None,
-                       offset_baseline=True, v_baseline_deg: int = 0, downsample=False, downsample_kw=None,
+                       offset_baseline=True, v_baseline_deg: int = 0, v_baseline_sqrt: bool = False,
+                       downsample=False, downsample_kw=None,
                        subtract_background=False, background_type='static', background_corr_power=None,
                        estimate_background_kw=None, smooth_inf_response=True,
                        # penalty settings
@@ -146,6 +149,7 @@ class DRT(DRTBase):
                              'must be specified. A good starting value might be 0.01-0.05')
             
         self.v_baseline_deg = v_baseline_deg
+        self.v_baseline_sqrt = v_baseline_sqrt
 
         # Copy data
         if times is not None:
@@ -208,7 +212,7 @@ class DRT(DRTBase):
                                                                           solve_rp=solve_rp, 
                                                                           offset_steps=offset_steps, step_offset_size=step_offset_size,
                                                                           discard_first_n=discard_first_n,
-                                                                          offset_baseline=offset_baseline, v_baseline_deg=v_baseline_deg,
+                                                                          offset_baseline=offset_baseline, v_baseline_deg=v_baseline_deg, v_baseline_sqrt=v_baseline_sqrt,
                                                                           downsample=downsample,
                                                                           downsample_kw=downsample_kw,
                                                                           subtract_background=False,
@@ -359,7 +363,7 @@ class DRT(DRTBase):
         self.special_qp_params = {}
 
         if times is not None:
-            self._add_special_qp_param('v_baseline', False, self.v_baseline_deg + 1)
+            self._add_special_qp_param('v_baseline', False, self.v_baseline_deg + 1 + int(self.v_baseline_sqrt))
 
         if vz_offset and data_type == 'hybrid':
             self._add_special_qp_param('vz_offset', False)
@@ -728,6 +732,8 @@ class DRT(DRTBase):
         # Get weight factors
         if data_type == 'hybrid':
             if eis_weight_factor is None or chrono_weight_factor is None:
+                if eis_weight_factor is not None or chrono_weight_factor is not None:
+                    warnings.warn("Both eis_weight_factor and chrono_weight_factor must be provided. If only one is provided, it will be ignored.")
                 if hybrid_weight_factor_method == 'weight':
                     # Set based on ratio of EIS to chrono weights
                     ratio = (eis_weight_scale / chrono_weight_scale) ** 0.25
@@ -2805,7 +2811,10 @@ class DRT(DRTBase):
 
     def get_drt_params(self, x, sign=1):
         if x is not None:
-            if len(x) > self.num_drt_params:
+            if isinstance(x, dict):
+                # fit_parameter dict provided. Get DRT params only
+                x = x["x"]
+            elif len(x) > self.num_drt_params:
                 x = self.extract_qphb_parameters(x)['x']
         else:
             x = self.fit_parameters['x']
@@ -3230,11 +3239,12 @@ class DRT(DRTBase):
         induc = fit_parameters.get('inductance', 0)
         c_inv = fit_parameters.get('C_inv', 0)
 
-        if v_baseline is None and use_fit_times:
+        if v_baseline is None:
+            # if use_fit_times:
             # Only include the baseline if the prediction times match the fitted times
             v_baseline = self.predict_v_baseline(times)
-        else:
-            v_baseline = 0
+            # else:
+            #     v_baseline = 0
 
         response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv + c_inv * cap_rv
 
@@ -3270,7 +3280,7 @@ class DRT(DRTBase):
     
     def predict_v_baseline(self, times):
         if "v_baseline" in self.fit_parameters.keys():
-            vb_mat = background.get_baseline_matrix(times, self.v_baseline_deg)
+            vb_mat = background.get_baseline_matrix(times, self.v_baseline_deg, normalize=False, sqrt=self.v_baseline_sqrt)
             x_vb = self.fit_parameters["v_baseline"]
             return vb_mat @ x_vb
         else:
@@ -3824,7 +3834,7 @@ class DRT(DRTBase):
         return peak_gammas
 
     def mark_peaks(self, ax, x=None, sign=1, peak_tau=None, find_peaks_kw=None, scale_prefix=None, area=None,
-                   normalize=False, normalize_by: Optional[float] = None,
+                   normalize=False, normalize_by: Optional[float] = None, y_offset: float = 0.0,
                    **plot_kw):
         if find_peaks_kw is None:
             find_peaks_kw = {}
@@ -3844,7 +3854,7 @@ class DRT(DRTBase):
             scale_prefix = utils.scale.get_scale_prefix(gamma_peaks)
         scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
 
-        ax.scatter(peak_tau, gamma_peaks / scale_factor, **plot_kw)
+        ax.scatter(peak_tau, gamma_peaks / scale_factor + y_offset, **plot_kw)
 
     def plot_peak_distributions(self, ax=None, tau=None, ppd=10, peak_gammas=None, estimate_peak_distributions_kw=None,
                                 scale_prefix=None, x=None, sign=None, **plot_kw):
@@ -4340,9 +4350,15 @@ class DRT(DRTBase):
         # Set default data plotting kwargs if not provided
         if data_kw is None:
             data_kw = dict(s=10, alpha=0.5)
+            
+        if predict_kw is None:
+            predict_kw = {}
 
         # Get fit times
-        times = self.get_fit_times()
+        if predict_kw.get("times", None) is None:
+            times = self.get_fit_times()
+        else:
+            times = predict_kw["times"]
 
         # # Transform time to visualize each step on a log scale
         # if transform_time:
@@ -4358,8 +4374,7 @@ class DRT(DRTBase):
             trans_functions = None
 
         # Get fitted response
-        if predict_kw is None:
-            predict_kw = {}
+        
         y_hat = self.predict_response(x=x, subtract_background=subtract_background, y_bkg=None, **predict_kw)
 
         # # Add the fitted background to the predicted response
@@ -4384,7 +4399,7 @@ class DRT(DRTBase):
                 else:
                     y_meas = y_meas - self.raw_response_background
 
-            plot_tuple = utils.chrono.signals_to_tuple(times, None, y_meas, self.chrono_mode)
+            plot_tuple = utils.chrono.signals_to_tuple(self.get_fit_times(), None, y_meas, self.chrono_mode)
             plot_chrono(plot_tuple, chrono_mode=self.chrono_mode, step_times=self.nonconsec_step_times,
                         axes=ax, transform_time=transform_time, trans_functions=trans_functions,
                         linear_time_axis=False, scale_prefix=scale_prefix,
@@ -4815,7 +4830,7 @@ class DRT(DRTBase):
                           normalize=False, normalize_by=None, sign=None,
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
                           area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
-                          return_line=False, freq_axis=False,
+                          return_line=False, freq_axis=False, y_offset: float = 0.,
                           **kw):
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
@@ -4868,7 +4883,7 @@ class DRT(DRTBase):
 
             ax, info = plot_distribution(tau, gamma, ax, area, scale_prefix, 
                                          normalize_by=normalize_by, freq_axis=freq_axis,
-                                         return_info=True, **kw)
+                                         return_info=True, y_offset=y_offset, **kw)
             line, scale_prefix, scale_factor = info
             lines.append(line)
 
@@ -4904,13 +4919,13 @@ class DRT(DRTBase):
                         ci_defaults.update(ci_kw)
                         ci_kw_sign = ci_defaults
 
-                        ax.fill_between(tau, gamma_lo / scale_factor, gamma_hi / scale_factor, **ci_kw_sign)
+                        ax.fill_between(tau, gamma_lo / scale_factor + y_offset, gamma_hi / scale_factor + y_offset, **ci_kw_sign)
 
             if mark_peaks:
                 if mark_peaks_kw is None:
                     mark_peaks_kw = {}
                 self.mark_peaks(ax, x=x, sign=sign, scale_prefix=scale_prefix, area=area, 
-                                normalize=normalize, normalize_by=normalize_by,
+                                normalize=normalize, normalize_by=normalize_by, y_offset=y_offset,
                                 **mark_peaks_kw)
 
         if normalize:
@@ -5508,7 +5523,8 @@ class DRT(DRTBase):
             # Add entries for special parameters
             if 'v_baseline' in special_indices.keys():
                 vb_start, vb_end = self.get_special_indices("v_baseline")
-                rm[:, vb_start:vb_end] = background.get_baseline_matrix(self.get_fit_times(), self.v_baseline_deg)
+                rm[:, vb_start:vb_end], vbase_scale = background.get_baseline_matrix(self.get_fit_times(), self.v_baseline_deg, normalize=True, sqrt=self.v_baseline_sqrt)
+                self.v_baseline_scale = vbase_scale
             if 'inductance' in special_indices.keys():
                 rm[:, special_indices['inductance']] = induc_rv * inductance_scale  # inductance response
             if 'R_inf' in special_indices.keys():
@@ -5946,8 +5962,14 @@ class DRT(DRTBase):
             vb_start, vb_end = self.get_special_indices("v_baseline")
             
             vbx_scaled = x[vb_start:vb_end].copy()
+            
+            # Remove the columnwise normalization
+            vbx_scaled = scale_value(vbx_scaled, 1. / self.v_baseline_scale)
+            
             # Subtract the scaled pre-offset from the 0-degree coef 
             vbx_scaled[0] -= self.scaled_response_offset
+            
+            # Remove the data scaling
             fit_parameters['v_baseline'] = scale_value(
                 vbx_scaled,
                 self.response_signal_scale
@@ -6024,7 +6046,7 @@ class DRT(DRTBase):
                 'fixed_basis_tau', 'basis_tau', 'tau_basis_type', 'tau_epsilon', 'tau_supergrid',
                 'fixed_basis_nu', 'basis_nu', 'nu_basis_type', 'nu_epsilon',
                 'series_neg', 'fit_dop', 'normalize_dop', 'fit_inductance',
-                'step_model', 'chrono_mode',
+                'step_model', 'chrono_mode', "v_baseline_deg", "v_baseline_sqrt",
                 'frequency_precision', 'time_precision', 'input_signal_precision',
                 'integrate_method'
             ],
@@ -6034,7 +6056,7 @@ class DRT(DRTBase):
                 'pfrt_result',
                 # These are necessary for extract_qphb_parameters
                 'coefficient_scale', 'inductance_scale', 'input_signal_scale', 'response_signal_scale',
-                'scaled_response_offset', 'impedance_scale', 'dop_scale_vector',
+                'scaled_response_offset', 'impedance_scale', 'dop_scale_vector', "v_baseline_scale",
                 # dual fit attributes
                 'discrete_candidate_df', 'discrete_candidate_dict',
                 'best_candidate_df', 'best_candidate_dict', 'discrete_reordered_candidates',

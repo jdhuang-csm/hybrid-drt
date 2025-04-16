@@ -285,7 +285,7 @@ def display_linear_time_ticks(ax, times, step_times, trans_functions, step_incre
 
 
 def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_by=None,
-                      freq_axis=False, return_info=False, **kw):
+                      freq_axis=False, return_info=False, y_offset: float = 0., **kw):
     """
     Generic function for plotting a distribution as a function of tau in log space
     :param tau:
@@ -319,7 +319,7 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
     scale_factor = get_factor_from_prefix(scale_prefix)
 
     # Plot distribution
-    line = ax.plot(tau, f / scale_factor, **kw)
+    line = ax.plot(tau, f / scale_factor + y_offset, **kw)
     ax.set_xscale('log')
     ax.set_xlabel(r'$\tau$ (s)')
 

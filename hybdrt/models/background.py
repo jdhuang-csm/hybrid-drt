@@ -20,15 +20,20 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 
 from .. import preprocessing as pp
 
-def get_baseline_matrix(times, deg):
+def get_baseline_matrix(times, deg, normalize: bool = False, sqrt: bool = False):
     # For polynomial voltage baseline
-    vb_mat = np.zeros((len(times), deg + 1))
+    vb_mat = np.zeros((len(times), deg + 1 + int(sqrt)))
     for n in range(deg + 1):
         vb_mat[:, n] = (times - times[0]) ** n
-    
-    # Normalize to maximum value
-    vb_mat = vb_mat / np.max(vb_mat, axis=0)[None, :]
         
+    if sqrt:
+        vb_mat[:, -1] = (times - times[0]) ** 0.5
+    
+    if normalize:
+        # Normalize each feature to maximum value
+        scales = np.max(vb_mat, axis=0)
+        vb_mat = vb_mat / scales[None, :]
+        return vb_mat, scales
     return vb_mat
 
 def evaluate_baseline(x_vb, vb_mat):
