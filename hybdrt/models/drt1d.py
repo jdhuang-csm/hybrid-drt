@@ -25,10 +25,11 @@ from ..matrices import mat1d, basis, phasance
 from . import qphb, elements, pfrt, background
 from .. import evaluation
 from .drtbase import DRTBase
-from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono
+from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono, plot_bode
 from ..mapping.surface import (
     peak_prob as calc_peak_prob, trough_prob as calc_trough_prob
 )
+from . import kk
 
 
 class DRT(DRTBase):
@@ -1224,6 +1225,7 @@ class DRT(DRTBase):
         self._qphb_fit_core(None, None, None, frequencies, z, nonneg=nonneg, neg_allowed_tau_range=neg_allowed_tau_range, scale_data=scale_data,
                             update_scale=update_scale, eis_error_structure=error_structure, eis_vmm_epsilon=vmm_epsilon,
                             eis_reim_cor=vmm_reim_cor, **kwargs)
+            
 
     def fit_hybrid(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None,
                    nonneg=True, neg_allowed_tau_range: Optional[Tuple[float, float]] = None, scale_data=True, update_scale=False,
@@ -1348,6 +1350,98 @@ class DRT(DRTBase):
 
         return continue_history
 
+    # --------------------------------
+    # Kramers-Kronig test
+    # --------------------------------
+    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1, extend_basis_decades: int = 2, norm = "modulus", p_thresh=1e-4):
+        # Streamlined single-call KK test
+        # Fit data
+        self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
+        # Identify outliers based on residuals
+        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh)
+        # Identify frequency limits
+        f_min, f_max = self.get_kk_limits(outlier_index)
+        # Get clean data (inside frequency limits)
+        fz_clean = kk.trim_data(frequencies, z, f_min, f_max)
+        
+        return outlier_index, (f_min, f_max), fz_clean
+        
+        
+    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1, extend_basis_decades: int = 2):
+        # Temporarily modify extend_basis_decades for KK test
+        extend_basis_orig = deepcopy(self.extend_basis_decades)
+        self.extend_basis_decades = extend_basis_decades
+        
+        self.fit_eis(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0)
+        
+        # Restore original extend_basis settings
+        self.extend_basis_decades = extend_basis_orig
+        
+    def plot_kk_results(self, axes: Optional[list] = None, norm="modulus", s: float = 20, alpha: float = 0.5, 
+                        outlier_index: Optional[ndarray] = None, **kw):
+        f_fit = self.get_fit_frequencies()
+        y_err = self.eval_kk_residuals()
+        
+        if outlier_index is None:
+            outlier_index = self.get_kk_outliers(norm=norm)
+            
+        outlier_mask = np.zeros(len(f_fit), dtype = bool)
+        outlier_mask[outlier_index] = True
+
+        if norm == "modulus":
+            unit = "% of $|Z|$"
+        else:
+            unit = r"$\Omega$"
+        
+        # Plot residuals
+        # Clean points
+        axes = plot_bode((f_fit[~outlier_mask], y_err[~outlier_mask]), axes=axes, rep="cartesian",
+                 s=s, alpha=alpha,  scale_prefix="", **kw)
+        # Bad points
+        axes = plot_bode((f_fit[outlier_mask], y_err[outlier_mask]), axes=axes, rep="cartesian",
+                 s=s, alpha=alpha,  scale_prefix="", c="r", **kw)
+        
+        # Indicate limits
+        f_lim = self.get_kk_limits(outlier_index)
+
+        # Indicate zero
+        for ax in axes:
+            ax.axhline(0, c='k', lw=1, zorder=-10)
+            # Indicate frequency limits
+            for f in f_lim:
+                ax.axvline(f, c="k", ls=":")
+
+        # Update axis labels
+        axes[0].set_ylabel(fr'$Z^{{\prime}}$ residuals ({unit})')
+        axes[1].set_ylabel(fr'$Z^{{\prime\prime}}$ residuals ({unit})')
+       
+        fig = axes.ravel()[0].get_figure()
+        fig.tight_layout()
+
+        return axes
+    
+    def eval_kk_residuals(self, norm="modulus"):
+        # Get fit frequencies
+        f_fit = self.get_fit_frequencies()
+
+        # Get model impedance
+        y_hat = self.predict_z(f_fit)
+
+        y_err = kk.normalize_residuals(self.z_fit, y_hat, norm=norm)
+        
+        return y_err
+    
+    def get_kk_outliers(self, norm="modulus", n_iter: int = 2, p_thresh=1e-4):
+        y_err = self.eval_kk_residuals(norm=norm)
+        
+        return kk.get_outliers(y_err, n_iter, p_thresh)
+            
+    def get_kk_limits(self, outlier_index: ndarray):
+        f_fit = self.get_fit_frequencies()
+        
+        return kk.get_limits(f_fit, outlier_index)
+
+    
     # --------------------------------
     # Discrete-continuous framework
     # --------------------------------

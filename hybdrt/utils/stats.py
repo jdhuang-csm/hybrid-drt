@@ -18,6 +18,14 @@ def log_pdf_normal(x, mu, sigma):
 def cdf_normal(x, loc, scale):
     return 0.5 * (1 + erf((x - loc) / (scale * (2 ** 0.5))))
 
+def outer_cdf_normal(x, loc, scale):
+    # Integrated pdf for values more extreme than x (farther from the mean)
+    return 2 * (1 - cdf_normal(np.abs(x), loc, scale))
+
+def inner_cdf_normal(x, loc, scale):
+    # Integrated pdf for values less extreme than x (closer to the mean)
+    return 1 - outer_cdf_normal(x, loc, scale)
+
 
 def pdf_gamma(x, shape, rate):
     return (rate ** shape / gamma(shape)) * x ** (shape - 1) * np.exp(-rate * x)
