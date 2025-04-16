@@ -3,6 +3,7 @@ import numpy as np
 import cvxopt
 from copy import deepcopy
 from scipy.ndimage import gaussian_filter1d, median_filter
+from typing import List, Tuple
 
 from ..matrices.basis import construct_func_eval_matrix
 
@@ -26,12 +27,26 @@ def get_offset_pq(drt):
 
     for k, v in drt.special_qp_params.items():
         if k == 'v_baseline':
+            # # Remove the columnwise normalization
+            # vbx_scaled = scale_value(vbx_scaled, 1. / self.v_baseline_scale)
+            
+            # # Subtract the scaled pre-offset from the 0-degree coef 
+            # vbx_scaled[0] -= self.scaled_response_offset
+            
+            # # Remove the data scaling
+            # fit_parameters['v_baseline'] = scale_value(
+            #     vbx_scaled,
+            #     self.response_signal_scale
+            # )
+            
             # Undo scaling, see drt1d.extract_qphb_parameters
-            # unscaled = (scaled - scaled_offset) * scale_factor
-            # scaled = unscaled / scale_factor + scaled_offset
+            # unscaled (raw) = (scaled / v_baseline_scale - scaled_response_offset) * response_signal_scale
+            # scaled = (raw / response_signal_scale + scaled_response_offset) * v_baseline_scale
+            # (scaled_response_offset applies only to zero-degree coefficient)
             unscaled = np.array(drt.fit_parameters['v_baseline'])
             scaled = unscaled / drt.response_signal_scale
             scaled[0] += drt.scaled_response_offset
+            scaled *= drt.v_baseline_scale
             x_remove[v['index']:v['index'] + v["size"]] = scaled
             # x_remove[v['index']] = drt.fit_parameters['v_baseline'] / drt.response_signal_scale \
             #                        + drt.scaled_response_offset
@@ -144,10 +159,8 @@ def offset_special_dict(special_qp_params):
     return shifted_dict
 
 
-def resolve_observations(obs_drt_list, obs_tau_indices, nonneg, obs_psi=None,
-                         truncate=False, sigma=1, lambda_psi=1, unpack=False,
-                         tau_filter_sigma=0, special_filter_sigma=0):
-    # Determine tau grid to resolve
+def get_tau_indices(obs_tau_indices: List[Tuple[int, int]], truncate: bool = False):
+    # Get consistent tau indices for a list of observations
     if truncate:
         # Truncate to shortest grid covered by all obs
         left_index = np.max([oti[0] for oti in obs_tau_indices])
@@ -156,7 +169,24 @@ def resolve_observations(obs_drt_list, obs_tau_indices, nonneg, obs_psi=None,
         # Expand to longest grid
         left_index = np.min([oti[0] for oti in obs_tau_indices])
         right_index = np.max([oti[1] for oti in obs_tau_indices])
-    match_tau_indices = (left_index, right_index)
+        
+    return left_index, right_index
+    
+
+def resolve_observations(obs_drt_list, obs_tau_indices, nonneg, obs_psi=None,
+                         truncate=False, sigma=1, lambda_psi=1, unpack=False,
+                         tau_filter_sigma=0, special_filter_sigma=0):
+    # Determine tau grid to resolve
+    # if truncate:
+    #     # Truncate to shortest grid covered by all obs
+    #     left_index = np.max([oti[0] for oti in obs_tau_indices])
+    #     right_index = np.min([oti[1] for oti in obs_tau_indices])
+    # else:
+    #     # Expand to longest grid
+    #     left_index = np.min([oti[0] for oti in obs_tau_indices])
+    #     right_index = np.max([oti[1] for oti in obs_tau_indices])
+    # match_tau_indices = (left_index, right_index)
+    match_tau_indices = get_tau_indices(obs_tau_indices, truncate=truncate)
 
     # Get special parameters after removing data-dependent parameters
     special_dict = offset_special_dict(obs_drt_list[0].special_qp_params)

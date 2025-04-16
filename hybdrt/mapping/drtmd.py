@@ -5,10 +5,12 @@ from copy import deepcopy
 from scipy import ndimage
 import pandas as pd
 import time
+import warnings
+from typing import Optional
 
-from .ndx import resample, assemble_ndx
+from .ndx import resample, assemble_ndx, filter_ndx
 from .curvature import peak_prob_1d
-from .resolve import resolve_observations
+from .resolve import resolve_observations, get_tau_indices
 from .nddata import impute_nans, flag_bad_obs, flag_outliers
 from ..filters import apply_filter
 from .. import utils
@@ -119,6 +121,10 @@ class DRTMD(object):
         self.obs_resolve_status = np.zeros(0, dtype=bool)
         self.obs_x_resolved = np.zeros((0, *self.drt_param_shape()))
         self.obs_special_resolved = None
+        
+        # Filtered parameters
+        self.obs_x_filt = np.zeros((0, *self.drt_param_shape()))
+        self.obs_special_filt = None
 
         # Precision
         self.frequency_precision = frequency_precision
@@ -197,6 +203,8 @@ class DRTMD(object):
         self.obs_drt_var = np.insert(self.obs_drt_var, len(self.obs_drt_var), np.zeros(self.drt_param_shape()), axis=0)
         self.obs_x_resolved = np.insert(self.obs_x_resolved, len(self.obs_x_resolved),
                                         np.zeros(self.drt_param_shape()), axis=0)
+        self.obs_x_filt = np.insert(self.obs_x_filt, len(self.obs_x_filt),
+                                        np.zeros(self.drt_param_shape()), axis=0)
         self.obs_resolve_status = np.insert(self.obs_resolve_status, len(self.obs_resolve_status), False)
 
         if self.obs_special is not None:
@@ -205,6 +213,8 @@ class DRTMD(object):
                 key_shape = self.special_param_shape(key)
                 self.obs_special[key] = np.insert(self.obs_special[key], self.num_obs - 1, np.zeros(key_shape), axis=0)
                 self.obs_special_resolved[key] = np.insert(self.obs_special_resolved[key], self.num_obs - 1,
+                                                           np.zeros(key_shape), axis=0)
+                self.obs_special_filt[key] = np.insert(self.obs_special_filt[key], self.num_obs - 1,
                                                            np.zeros(key_shape), axis=0)
 
         if fit:
@@ -262,6 +272,7 @@ class DRTMD(object):
                 self.obs_ignore_flag[obs_index] = True
                 self.obs_fit_errors[obs_index] = err
             else:
+                print(f"Error encountered at obs_index {obs_index}")
                 raise err
 
     def fit_observations(self, obs_index, print_interval=None, ignore_errors=False):
@@ -358,6 +369,9 @@ class DRTMD(object):
         self.obs_resolve_status = np.zeros(self.num_obs, dtype=bool)
         self.obs_x_resolved = np.zeros((self.num_obs, *self.drt_param_shape()))
         self.obs_special_resolved = None
+        
+        self.obs_x_filt = np.zeros((self.num_obs, *self.drt_param_shape()))
+        self.obs_special_filt = None
 
     def clear_obs(self):
         """
@@ -383,6 +397,9 @@ class DRTMD(object):
         self.obs_fit_status = np.zeros(0, dtype=bool)
         self.obs_x_resolved = np.zeros((0, *self.drt_param_shape()))
         self.obs_special_resolved = None
+        
+        self.obs_x_filt = np.zeros((0, *self.drt_param_shape()))
+        self.obs_special_filt = None
 
     # ------------------------
     # Resolution
@@ -390,7 +407,7 @@ class DRTMD(object):
     def resolve_observations(self, obs_index, psi_sort_dims=None,
                              psi_distance_dims=None, truncate=False, sigma=1, lambda_psi=1,
                              tau_filter_sigma=0, special_filter_sigma=0):
-
+        
         # Exclude unfitted observations
         include_index = self.obs_fit_status[obs_index] & ~self.obs_ignore_flag[obs_index]
         obs_index = obs_index[include_index]
@@ -412,13 +429,24 @@ class DRTMD(object):
         obs_drt_list = [self.get_fit(i) for i in obs_index]
         obs_tau_indices = [self.obs_tau_indices[i] for i in obs_index]
 
-        x_drt, x_special, tau_indices = resolve_observations(
-            obs_drt_list, obs_tau_indices, self.fit_kw['nonneg'],
-            obs_psi=obs_psi, truncate=truncate, sigma=sigma,
-            lambda_psi=lambda_psi, unpack=True,
-            tau_filter_sigma=tau_filter_sigma, special_filter_sigma=special_filter_sigma
-        )
-
+        # Check number of observations
+        if len(obs_index) == 1:
+            warnings.warn("Only one observation included in resolution group; raw parameters will be copied")
+            x_drt = self.obs_x[obs_index]
+            x_special = {k: v[obs_index] for k, v in self.obs_special.items()}
+            tau_indices = obs_tau_indices[0]
+        elif len(obs_index) > 1:
+            x_drt, x_special, tau_indices = resolve_observations(
+                obs_drt_list, obs_tau_indices, self.fit_kw['nonneg'],
+                obs_psi=obs_psi, truncate=truncate, sigma=sigma,
+                lambda_psi=lambda_psi, unpack=True,
+                tau_filter_sigma=tau_filter_sigma, special_filter_sigma=special_filter_sigma
+            )
+        else:
+            warnings.warn("No valid observations included in resolution group")
+            return
+            
+            
         # Insert resolved parameters
         self.obs_x_resolved[obs_index, tau_indices[0]:tau_indices[1]] = x_drt
         for key in x_special.keys():
@@ -457,14 +485,14 @@ class DRTMD(object):
         num_obs = len(obs_index)
         # Cap batch size at number of observations in group
         batch_size = min(batch_size, num_obs)
-        num_batches = 1 + int(np.ceil((num_obs - batch_size) / (batch_size - overlap)))
+        num_batches = 1 + int(np.ceil((num_obs - batch_size) / max(batch_size - overlap, 1)))
         # print(num_obs, num_batches)
 
         x_batch = np.zeros((num_batches, *self.obs_x_resolved[obs_index].shape))
         x_special = {k: np.zeros((num_batches, *v[obs_index].shape)) for k, v in self.obs_special_resolved.items()}
         batch_margins = np.empty((num_batches, num_obs))
         batch_margins.fill(-1)
-        for i, start in enumerate(range(0, num_obs, batch_size - overlap)):
+        for i, start in enumerate(range(0, num_obs, max(batch_size - overlap, 1))):
             # Ensure a full batch for the last batch
             if num_obs - start < batch_size:
                 start = max(0, num_obs - batch_size)
@@ -484,7 +512,7 @@ class DRTMD(object):
                 break
 
         # Replace last written values with values averaged across overlapping batches
-        if overlap > 0:
+        if overlap > 0 and num_obs > 1:
             # Weight fits from overlapping batches by their distance to the batch edge
             # Add a small number (0.1) for observations at the edge of the batch,
             # since the observations at the edges of the group will always have zero margin
@@ -504,6 +532,84 @@ class DRTMD(object):
 
                 x_k = np.average(val, axis=0, weights=key_weights)
                 self.obs_special_resolved[key][obs_index] = x_k
+                
+    def filter_observations(self, obs_index, psi_sort_dims=None,
+                            truncate: bool = False, resolved: bool = True,
+                            special_kw: Optional[dict] = None,
+                            **kw):
+        # NOTE: this convenience function assumes a 2D DRT
+        # For higher dimensions, use ndx.assemble_ndx to construct the array correctly
+        
+        # Exclude unfitted observations
+        include_index = self.obs_fit_status[obs_index] & ~self.obs_ignore_flag[obs_index]
+        obs_index = obs_index[include_index]
+
+        # Sort by psi
+        if psi_sort_dims is not None:
+            sort_vals = [self.obs_psi[obs_index, self.psi_dim_names.index(d)] for d in psi_sort_dims][::-1]
+            obs_index = obs_index[np.lexsort(sort_vals)]
+
+        obs_tau_indices = [self.obs_tau_indices[i] for i in obs_index]
+        
+        x_drt_in = self.obs_x_resolved if resolved else self.obs_x
+        special_in = self.obs_special_resolved if resolved else self.obs_special
+        
+        # Filter kw for special params
+        # print(kw)
+        # print(special_kw)
+        if special_kw is None:
+            special_kw = kw.copy()
+            for key in ["max_sigma", "sigma"]:
+                # Remove tau axis from sigma
+                if key in list(special_kw.keys()):
+                    if not np.isscalar(special_kw[key]):
+                        special_kw[key] = special_kw[key][:-1]
+        # print(special_kw)
+        
+        # Check number of observations
+        if len(obs_index) == 1:
+            warnings.warn("Only one observation included in filter; raw parameters will be copied")
+            
+            tau_indices = obs_tau_indices[0]
+            x_drt = x_drt_in[obs_index, tau_indices[0]:tau_indices[1]]
+            special = {k: v[obs_index] for k, v in special_in.items()}
+        elif len(obs_index) > 1:
+            tau_indices = get_tau_indices(obs_tau_indices, truncate=truncate)
+            x_drt = filter_ndx(x_drt_in[obs_index, tau_indices[0]:tau_indices[1]], num_group_dims=0, **kw)
+            
+            special = {}
+            
+            if self.fit_dop:
+                x_dop_in = special_in["x_dop"][obs_index]
+                special["x_dop"] = filter_ndx(x_dop_in, num_group_dims=0, **kw)
+                
+            for k in list(special_in.keys()):
+                if k in ["vz_offset", "v_baseline"]:
+                    # Data-dependent paramters - do not filter
+                    special[k] = special_in[k][obs_index]
+                elif k != "x_dop":
+                    x_spec = special_in[k][obs_index]
+                    special[k] = filter_ndx(x_spec, num_group_dims=0, **special_kw)
+        else:
+            warnings.warn("No valid observations included in resolution group")
+            return
+            
+        # Insert filtered parameters
+        self.obs_x_filt[obs_index, tau_indices[0]:tau_indices[1]] = x_drt
+        for key in special.keys():
+            # Initialize array if key is new
+            if key not in list(self.obs_special_filt.keys()):
+                self.obs_special_filt[key] = np.zeros((self.num_obs, *self.special_param_shape(key)))
+            self.obs_special_filt[key][obs_index] = special[key]
+            
+    def filter_group(self, group_id, psi_sort_dims=None,
+                        truncate: bool = False, resolved: bool = True,
+                        special_kw: dict = {},
+                        **kw):
+        obs_index = self.get_group_index(group_id)
+        return self.filter_observations(obs_index, psi_sort_dims, truncate=truncate, resolved=resolved, special_kw=special_kw, **kw)
+
+        
 
     # --------------------------------------------------------------------
     # Data/fit validation (badness)
@@ -1032,6 +1138,7 @@ class DRTMD(object):
             self.obs_special[key] = np.zeros([self.num_obs, *self.special_param_shape(key)])
 
         self.obs_special_resolved = deepcopy(self.obs_special)
+        self.obs_special_filt = deepcopy(self.obs_special)
 
     def validate_psi(self, psi):
         if self.psi_dim_names is not None:
@@ -1054,6 +1161,10 @@ class DRTMD(object):
     def get_psi_index(self, psi):
         psi = self.validate_psi(psi)
         return utils.array.row_match_index(self.obs_psi, psi, precision=8)
+
+    @property    
+    def unique_group_ids(self):
+        return np.unique(self.obs_group_id)
 
     def get_group_index(self, group_id, psi_sort_dims=None, exclude_flagged=False):
         """
@@ -1218,7 +1329,7 @@ class DRTMD(object):
                 # Distribution of phasances
                 'fixed_basis_nu', 'nu_basis_type', 'nu_epsilon', 'fit_dop', 'normalize_dop',
                 # Chrono settings
-                'step_model', 'chrono_mode',
+                'step_model', 'chrono_mode', "v_baseline_deg",
                 # Data readers
                 # 'chrono_reader', 'eis_reader',
                 # Fit kwargs
@@ -1235,7 +1346,8 @@ class DRTMD(object):
                 'obs_fit_status', 'obs_fit_errors', 'obs_fit_attr', 'obs_fit_badness',
                 'obs_tau_indices', 'obs_x', 'obs_special',
                 'obs_drt_var',
-                'obs_resolve_status', 'obs_x_resolved', 'obs_special_resolved'
+                'obs_resolve_status', 'obs_x_resolved', 'obs_special_resolved',
+                "obs_x_filt", "ob_special_filt"
             ]
         }
 
