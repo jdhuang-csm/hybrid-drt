@@ -10,36 +10,6 @@ from .. import utils
 from .. import preprocessing as pp
 
 
-# Functions for use inside matrix construction functions
-# ------------------------------------------------------
-def get_response_derivative_func(basis_type, op_mode, step_model):
-    """
-    Get integrand function for derivative of response with respect to ln(t)
-    Only used when dv_prior=True for ridge_fit. OBSOLETE
-    :param str basis_type: type of basis function. Options: 'gaussian', 'Cole-Cole', 'Zic'
-    :param str op_mode: Operation mode ('galv' or 'pot')
-    :param str step_model: model for signal step to use. Options: 'ideal', 'expdecay'
-    :return: integrand function
-    """
-    utils.validation.check_ctrl_mode(op_mode)
-    f_basis = basis.get_basis_func(basis_type)
-
-    if op_mode == 'galv':
-        if step_model == 'ideal':
-            raise ValueError('Need to derive integrand function for ideal step')
-            # def func(y, tau_m, t_n, epsilon, tau_rise):
-            #     # tau_rise unused - included for compatibility only
-            #     return f_basis(y, epsilon) * (1 - np.exp(-t_n / (tau_m * np.exp(y))))
-        elif step_model == 'expdecay':
-            def func(y, tau_m, t_n, epsilon, tau_rise):
-                a = 1 / (1 - np.exp(y) * tau_m / tau_rise)
-                return f_basis(y, epsilon) * (
-                        a * (-t_n / tau_rise) * np.exp(-t_n / tau_rise)
-                        - (1 + a) * (-t_n / tau_m * np.exp(y)) * np.exp(-t_n / (tau_m * np.exp(y)))
-                )
-
-    return func
-
 
 # Matrix construction
 # -------------------
