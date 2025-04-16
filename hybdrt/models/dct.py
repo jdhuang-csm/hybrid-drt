@@ -74,15 +74,20 @@ def invert_mat(m: ndarray, inplace=False):
     return m
         
 
-def preprocess(frequencies: ndarray, z: ndarray, drt: DRT, keep_errors=True, **kw):
+def preprocess(frequencies: ndarray, z: ndarray, drt: DRT, **kw):
+    # Remove inductance and capacitance from the data prior to fitting
     drt.fit_eis(frequencies, z, **kw)
-    z_clean = drt.predict_z(frequencies, include_inductance=False, include_cap=False)
+    # Get the inductance and capacitance contributions only
+    z_offset = drt.predict_z(frequencies, include_drt=False, include_ohmic=False, include_dop=False)
     
-    if keep_errors:
-        # Add the residuals back to the cleaned data to maintain the 
-        # signal-to-noise ratio (avoid false confidence)
-        z_pred = drt.predict_z(frequencies)
-        z_err = z - z_pred
-        z_clean += z_err
+    return z - z_offset
+    # z_clean = drt.predict_z(frequencies, include_inductance=False, include_cap=False)
+    
+    # if keep_errors:
+    #     # Add the residuals back to the cleaned data to maintain the 
+    #     # signal-to-noise ratio (avoid false confidence)
+    #     z_pred = drt.predict_z(frequencies)
+    #     z_err = z - z_pred
+    #     z_clean += z_err
         
-    return z_clean
+    # return z_clean
