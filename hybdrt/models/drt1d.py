@@ -1330,7 +1330,7 @@ class DRT(DRTBase):
                                   vmm, penalty_matrices, penalty_type, l1_lambda_vector, qphb_hypers, eff_hp, xmx_norms,
                                   dop_xmx_norms, None, None, None, nonneg, self.special_qp_params, xtol, 1,
                                   continue_history, 
-                                  neg_allowed_indices=self._get_neg_allowed_indices(self.fit_kw["nonneg"], self.fit_kw["neg_allowed_tau_range"]))
+                                  neg_allowed_indices=self._get_neg_allowed_indices(self.fit_kwargs["nonneg"], self.fit_kwargs["neg_allowed_tau_range"]))
 
             # Update vz_offset column
             if self.fit_type.find('hybrid') > -1 and 'vz_offset' in self.special_qp_params.keys():
@@ -1353,7 +1353,7 @@ class DRT(DRTBase):
     # --------------------------------
     # Kramers-Kronig test
     # --------------------------------
-    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1, extend_basis_decades: int = 2, norm = "modulus", p_thresh=1e-4):
+    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2, norm = "modulus", p_thresh=1e-4):
         # Streamlined single-call KK test
         # Fit data
         self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
@@ -1367,7 +1367,7 @@ class DRT(DRTBase):
         return outlier_index, (f_min, f_max), fz_clean
         
         
-    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1, extend_basis_decades: int = 2):
+    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2):
         # Temporarily modify extend_basis_decades for KK test
         extend_basis_orig = deepcopy(self.extend_basis_decades)
         self.extend_basis_decades = extend_basis_decades
