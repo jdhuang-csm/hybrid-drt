@@ -460,13 +460,23 @@ def construct_chrono_var_matrix(times, step_times, vmm_epsilon, error_structure=
         # Flexible error structure
 
         # Get transformed times
-        # fwd_trans, rev_trans = get_time_transforms(times, step_times)
-        # tt = fwd_trans(times)
+        rev_trans, fwd_trans = utils.chrono.get_time_transforms(times, step_times)
+        tt = fwd_trans(times)
 
-        # vmm = construct_func_eval_matrix(tt, epsilon=vmm_epsilon, order=0)
+        vmm = basis.construct_func_eval_matrix(tt, epsilon=vmm_epsilon, order=0)
+        
+        # Remove correlation between steps
+        vmm_ = np.zeros_like(vmm)
+        step_index = pp.get_step_indices_from_step_times(times, step_times)
+        step_index = np.concatenate(([0], step_index, [len(times)]))
+        for i in range(len(step_index) - 1):
+            start, end = step_index[i], step_index[i + 1]
+            vmm_[start:end, start:end] = vmm[start:end, start:end]
+        vmm = vmm_
+            
 
         # by time
-        vmm = basis.construct_func_eval_matrix(times, epsilon=vmm_epsilon, order=0)
+        # vmm = basis.construct_func_eval_matrix(times, epsilon=vmm_epsilon, order=0)
         # By index
         # vmm = basis.construct_func_eval_matrix(np.arange(len(times)), epsilon=vmm_epsilon, order=0)
     elif error_structure == 'uniform':

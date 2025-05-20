@@ -602,7 +602,7 @@ class DRT(DRTBase):
 
         # Construct matrices for variance estimation
         if times is not None:
-            chrono_vmm = mat1d.construct_chrono_var_matrix(sample_times, self.step_times,
+            chrono_vmm = mat1d.construct_chrono_var_matrix(sample_times, self.nonconsec_step_times,
                                                            chrono_vmm_epsilon,
                                                            chrono_error_structure)
         else:
@@ -1353,12 +1353,12 @@ class DRT(DRTBase):
     # --------------------------------
     # Kramers-Kronig test
     # --------------------------------
-    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2, norm = "modulus", p_thresh=1e-4):
+    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2, norm: str = "modulus", p_thresh:float = 1e-4, n_iter:int = 2):
         # Streamlined single-call KK test
         # Fit data
         self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
         # Identify outliers based on residuals
-        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh)
+        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_iter)
         # Identify frequency limits
         f_min, f_max = self.get_kk_limits(outlier_index)
         # Get clean data (inside frequency limits)
@@ -3372,10 +3372,11 @@ class DRT(DRTBase):
 
         return response
     
-    def predict_v_baseline(self, times):
+    def predict_v_baseline(self, times, x_vb: Optional[ndarray] = None):
         if "v_baseline" in self.fit_parameters.keys():
             vb_mat = background.get_baseline_matrix(times, self.v_baseline_deg, normalize=False, sqrt=self.v_baseline_sqrt)
-            x_vb = self.fit_parameters["v_baseline"]
+            if x_vb is None:
+                x_vb = self.fit_parameters["v_baseline"]
             return vb_mat @ x_vb
         else:
             return np.zeros_like(times)
@@ -4715,6 +4716,17 @@ class DRT(DRTBase):
 
         y_meas = self.raw_response_signal
         y_bkg = self.raw_response_background
+        
+        # Add the polynomial baseline
+        y_bkg_plot = y_bkg + self.predict_v_baseline(self.get_fit_times())
+        
+        if show_background:
+            # We want to show the background and data on the same axes
+            # We have to remove the 0-degree offset from the background to be subtracted
+            y_bkg = y_bkg_plot - self.fit_parameters["v_baseline"][0]
+        else:
+            # The background won't be shown, so we can subtract the 0-degree offset from the data
+            y_bkg = y_bkg_plot
 
         # Get appropriate scale
         if scale_prefix is None:
@@ -4741,7 +4753,6 @@ class DRT(DRTBase):
                 ax_bkg = ax
                 bkg_scale_prefix = scale_prefix
                 
-            y_bkg_plot = y_bkg + self.predict_v_baseline(self.get_fit_times())
 
             plot_tuple = utils.chrono.signals_to_tuple(times, None, y_bkg_plot,
                                                        self.chrono_mode)
@@ -5693,8 +5704,18 @@ class DRT(DRTBase):
 
                 # Insert penalties for special parameters
                 if 'v_baseline' in special_indices.keys():
-                    for vbi in range(*self.get_special_indices("v_baseline")):
-                        m_k[vbi, vbi] = v_baseline_penalty
+                    vb_start, vb_end = self.get_special_indices("v_baseline")
+                    if not np.isscalar(v_baseline_penalty):
+                        if len(v_baseline_penalty) != vb_end - vb_start:
+                            raise ValueError(
+                                "If v_baseline_penalty is iterable, it must match the number of "
+                                f"v_baseline parameters. Number of v_baseline parameters is {vb_end - vb_start}"
+                            )
+                        for i, vbi in enumerate(range(vb_start, vb_end)):
+                            m_k[vbi, vbi] = v_baseline_penalty[i]
+                    else:
+                        for vbi in range(vb_start, vb_end):
+                            m_k[vbi, vbi] = v_baseline_penalty
                 if 'inductance' in special_indices.keys():
                     m_k[special_indices['inductance'], special_indices['inductance']] = inductance_penalty
                 if 'R_inf' in special_indices.keys():

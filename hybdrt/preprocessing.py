@@ -98,14 +98,15 @@ def get_step_info(times, y, allow_consecutive=True, offset_step_times=False, off
     #     # print('prev values:', y[prev_start:step_idx[n]])
     #     step_sizes[n] = np.mean(y[step_idx[n]:end]) - np.mean(y[prev_start:step_idx[n]])
 
-    step_sizes = get_step_sizes(times, y, step_times)
+    step_sizes = get_step_sizes(times, y, step_times, step_index=step_idx)
 
     return step_times, step_sizes
 
 
-def get_step_sizes(times, y, step_times):
+def get_step_sizes(times, y, step_times, step_index: Optional[ndarray] = None):
     # Get step indices from step times
-    step_index = get_step_indices_from_step_times(times, step_times)
+    if step_index is None:
+        step_index = get_step_indices_from_step_times(times, step_times)
     n_steps = len(step_times)
 
     step_sizes = np.zeros(n_steps)
@@ -117,7 +118,7 @@ def get_step_sizes(times, y, step_times):
         else:
             end = step_index[n + 1]
 
-        # If first step, start at
+        # If first step, start at beginning of data
         if n == 0:
             prev_start = 0
         else:
@@ -204,6 +205,131 @@ def generate_model_signal(times, step_times, step_sizes, tau_rise, step_model):
         signal = evaluate_step_fit(times, step_times, step_sizes, x)
 
     return signal
+
+
+def generate_log_times(times: ndarray, step_times: ndarray, ppd: int, prestep_samples: Optional[int] = None):
+    
+    if prestep_samples is not None:
+        t_out = [np.linspace(times[0], np.max(times[times < step_times[0]]), prestep_samples)]
+    else:
+        # Include all prestep points
+        t_out = [times[times < step_times[0]]]
+        
+    for i in range(len(step_times)):
+        # First time after step
+        t_start = step_times[i]
+        t_start = np.min(times[times > t_start])
+        
+        # Last time before next step
+        if i < len(step_times) - 1:
+            t_end = step_times[i + 1] 
+            t_end = np.max(times[times < t_end])
+        else:
+            t_end = times[-1]
+            
+        lt_start = np.log10(t_start - step_times[i])
+        lt_end = np.log10(t_end - step_times[i])
+        num_points = int((lt_end - lt_start) * ppd + 1)
+        t_step = np.logspace(lt_start, lt_end, num_points) + step_times[i]
+        t_out.append(t_step)
+        
+    return np.concatenate(t_out)
+
+def generate_loguniform_times(times: ndarray, step_times: ndarray, ppd: int, prestep_samples: Optional[int] = None, precision: int = 5):
+    if prestep_samples is not None:
+        t_out = [np.linspace(times[0], np.max(times[times < step_times[0]]), prestep_samples)]
+    else:
+        # Include all prestep points
+        t_out = [times[times < step_times[0]]]
+        
+    step_dt_ranges = []
+    
+    for i in range(len(step_times)):
+        # First time after step
+        t_start = step_times[i]
+        t_start = np.min(times[times > t_start])
+        
+        # Last time before next step
+        if i < len(step_times) - 1:
+            t_end = step_times[i + 1] 
+            t_end = np.max(times[times < t_end])
+        else:
+            t_end = times[-1]
+            
+        dt_start = t_start - step_times[i]
+        dt_end = t_end - step_times[i]
+        
+        step_dt_ranges.append((dt_start, dt_end))
+
+    # # Determine the number of steps that cover each dt range        
+    # dt_min = np.min([x[0] for x in step_dt_ranges])
+    # dt_max = np.max([x[1] for x in step_dt_ranges])
+    # print(dt_min, dt_max)
+    # dt_grid = np.logspace(np.log10(dt_min), np.log10(dt_max), 1000)
+    # steps_by_dt = np.zeros_like(dt_grid)
+    # for dt_range in step_dt_ranges:
+    #     dt_start, dt_end = dt_range
+    #     steps_by_dt[(dt_grid >= dt_start) & (dt_grid <= dt_end)] += 1
+    # print(np.min(steps_by_dt))
+    # # print(dt_grid, steps_by_dt)
+        
+    dt_range_starts = [x[0] for x in step_dt_ranges]
+    dt_range_ends = [x[1] for x in step_dt_ranges]
+    dt_splits = np.concatenate((dt_range_starts, dt_range_ends))
+    # Number of steps increases when we pass a start dt, decreases when we pass an end dt
+    step_inc = np.ones(len(dt_splits))
+    step_inc[len(dt_range_starts):] = -1
+    sort_index = np.argsort(dt_splits)
+    dt_splits = dt_splits[sort_index]
+    num_steps = np.cumsum(step_inc[sort_index])
+    
+    dt_splits, index = np.unique(np.round(dt_splits[::-1], precision), return_index=True)
+    num_steps = num_steps[::-1][index]
+    dt_ppd = ppd / num_steps
+    print(dt_splits, num_steps, dt_ppd)
+    
+        
+    # # Find points where # of steps changes
+    # dt_step_index = np.where(np.diff(steps_by_dt) != 0)[0] + 1
+    # dt_splits = dt_grid[dt_step_index]
+    # dt_ppd = ppd / steps_by_dt[dt_step_index]  
+    # # Insert items for 1st range
+    # dt_splits = np.insert(dt_splits, 0, dt_min)
+    # dt_ppd = np.insert(dt_ppd, 0, ppd / steps_by_dt[0])
+    # # Insert items for last range
+    # dt_splits = np.append(dt_splits, dt_max)
+    # # dt_ppd = np.append(dt_ppd, ppd / steps_by_dt[-1])
+    
+    # print(dt_splits, dt_ppd)      
+    
+    # ppd within each dt range given by total desired ppd divided by # of steps covering that range
+    # step_ppd = ppd / steps_by_dt
+    
+    for i in range(len(step_times)):
+        dt_start, dt_end = step_dt_ranges[i]
+        
+        for j, dt in enumerate(dt_splits[:-1]):
+            # For each dt range, generate a time grid based on the needed ppd for that range
+            dt_step_start = max(dt, dt_start)
+            dt_step_end = min(dt_splits[j + 1], dt_end)
+            if dt_step_end <= dt_step_start:
+                break
+            
+            lt_start = np.log10(dt_step_start)
+            lt_end = np.log10(dt_step_end)
+            num_points = int((lt_end - lt_start) * dt_ppd[j] + 1)
+
+            t_step = np.logspace(lt_start, lt_end, num_points) + step_times[i]
+            t_out.append(t_step)
+            
+            if dt_step_end == dt_end:
+                # Reached the end of this step
+                break
+
+    return np.unique(np.concatenate(t_out))
+    
+    
+
 
 
 def downsample_data(times, i_signal, v_signal, target_times=None, target_size=None, stepwise_sample_times=True,
