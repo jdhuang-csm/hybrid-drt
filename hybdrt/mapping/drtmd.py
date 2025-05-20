@@ -116,6 +116,7 @@ class DRTMD(object):
         self.obs_fit_errors = []
         self.obs_fit_badness = np.zeros(0)
         self.obs_tau_indices = []
+        self.obs_llh = np.zeros(0)
 
         # Resolved parameters
         self.obs_resolve_status = np.zeros(0, dtype=bool)
@@ -200,6 +201,7 @@ class DRTMD(object):
         self.obs_fit_attr.append(None)
         self.obs_tau_indices.append(None)
         self.obs_x = np.insert(self.obs_x, len(self.obs_x), np.zeros(self.drt_param_shape()), axis=0)
+        self.obs_llh = np.append(self.obs_llh, 0)
         self.obs_drt_var = np.insert(self.obs_drt_var, len(self.obs_drt_var), np.zeros(self.drt_param_shape()), axis=0)
         self.obs_x_resolved = np.insert(self.obs_x_resolved, len(self.obs_x_resolved),
                                         np.zeros(self.drt_param_shape()), axis=0)
@@ -233,6 +235,9 @@ class DRTMD(object):
 
             # Store result
             self.obs_fit_attr[obs_index] = self.drt1d.get_attributes(which=self.store_attr_categories)
+            
+            # Store llh for diagnostics
+            self.obs_llh[obs_index] = self.drt1d.evaluate_llh()
 
             # Determine tau indices used for fit
             left_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[0])
@@ -432,9 +437,9 @@ class DRTMD(object):
         # Check number of observations
         if len(obs_index) == 1:
             warnings.warn("Only one observation included in resolution group; raw parameters will be copied")
-            x_drt = self.obs_x[obs_index]
-            x_special = {k: v[obs_index] for k, v in self.obs_special.items()}
             tau_indices = obs_tau_indices[0]
+            x_drt = self.obs_x[obs_index, tau_indices[0]:tau_indices[1]]
+            x_special = {k: v[obs_index] for k, v in self.obs_special.items()}
         elif len(obs_index) > 1:
             x_drt, x_special, tau_indices = resolve_observations(
                 obs_drt_list, obs_tau_indices, self.fit_kw['nonneg'],
