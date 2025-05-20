@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.special import gamma, loggamma, erf
+from scipy.stats.distributions import norm, chi2, rv_continuous
 # from scipy.interpolate import interp1d
 
 
@@ -16,7 +17,12 @@ def log_pdf_normal(x, mu, sigma):
 
 
 def cdf_normal(x, loc, scale):
-    return 0.5 * (1 + erf((x - loc) / (scale * (2 ** 0.5))))
+    return norm.cdf(x, loc, scale)
+    # return 0.5 * (1 + erf((x - loc) / (scale * (2 ** 0.5))))
+    
+def outer_cdf_chi2(x, scale, k: int, loc: float = 0):
+    # Integrated pdf for values more extreme than x (farther from 0)
+    return 1 - chi2.cdf(x, k, loc=loc, scale=scale)
 
 def outer_cdf_normal(x, loc, scale):
     # Integrated pdf for values more extreme than x (farther from the mean)
@@ -108,6 +114,11 @@ def std_normal_quantile(quantiles):
     return s
 
 
+def iqr(x):
+    q1 = np.percentile(x, 25)
+    q3 = np.percentile(x, 75)
+    return q3 - q1
+    
 def robust_std(x):
     """Estimate standard deviation from interquartile range"""
     q1 = np.percentile(x, 25)

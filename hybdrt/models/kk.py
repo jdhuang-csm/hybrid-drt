@@ -2,7 +2,7 @@ import numpy as np
 from numpy import ndarray
 from scipy import ndimage
 
-from ..utils import stats
+from ..utils import stats, eis
 
 def normalize_residuals(z_meas, z_pred, norm="modulus"):
     # Calculate residuals
@@ -34,10 +34,13 @@ def get_outliers(z_err_norm: ndarray, n_iter: int = 2, p_thresh: float = 1e-4):
     for i in range(n_iter):
         # Estimate robust metrics excluding outliers identified so far
         # Use modulus of error (distance in cartesian plane)
-        std = stats.robust_std(np.abs(z_err_norm)[~outlier_mask])
-
-        # Get portion of distribution more extreme than y_err, assuming normally distributed errors
-        prob = stats.outer_cdf_normal(np.abs(z_err_norm), 0, std)
+        
+        # Get std of real and imaginary error components
+        std = stats.robust_std(eis.complex_vector_to_concat(z_err_norm[~outlier_mask]))
+        
+        # The squared error modulus (e_r ** 2 + e_i ** 2) should follow a chi-squared distribution
+        # Get portion of distribution more extreme than y_err
+        prob = stats.outer_cdf_chi2(np.abs(z_err_norm) ** 2, scale=std ** 2, k=2)
         
         outlier_mask = (prob < p_thresh)
         
