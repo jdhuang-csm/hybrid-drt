@@ -543,81 +543,89 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
     return ax
 
 
-def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin=None, ymin=None):
-    if center_coords is not None and (xmin is not None or ymin is not None):
-        raise ValueError("If center_coords is provided, xmin and ymin can not be specified")
-    if set_to_axis == "x" and xmin is not None:
-        raise ValueError("If set_to_axis==x, xmin cannot be provided. ymin should be provided instead")
-    if set_to_axis == "y" and ymin is not None:
-        raise ValueError("If set_to_axis==y, ymin cannot be provided. xmin should be provided instead")
-    
-    fig = ax.get_figure()
-
-    # get data range
-    yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
-    xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
-
-    # Center on the given coordinates
-    if center_coords is not None:
-        x_offset = center_coords[0] - (ax.get_xlim()[0] + 0.5 * xrng)
-        y_offset = center_coords[1] - (ax.get_ylim()[0] + 0.5 * yrng)
-        ax.set_xlim(*np.array(ax.get_xlim()) + x_offset)
-        ax.set_ylim(*np.array(ax.get_ylim()) + y_offset)
-
-    # get axis dimensions
-    bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-    width, height = bbox.width, bbox.height
-
-    # scale = data range / plot dimension
-    yscale = yrng / height
-    xscale = xrng / width
-
-    if set_to_axis is None:
-        if yscale > xscale:
-            set_to_axis = 'y'
-        else:
-            set_to_axis = 'x'
-    elif set_to_axis not in ['x', 'y']:
-        raise ValueError(f"If provided, set_to_axis must be either 'x' or 'y'. Received {set_to_axis}")
-
-    if set_to_axis == 'y':
-        # adjust the x axis
-        diff = (yscale - xscale) * width
-        if xmin is None:
-            xmin = max(0, ax.get_xlim()[0] - diff / 2)
+def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin=None, ymin=None, tight_layout: bool = True):
+    if tight_layout:
+        # We need to adjust the axis limits, then set tight_layout, then re-adjust since tight_layout may change axis dimensions
+        fig = ax.get_figure()
+        for _ in range(2):
+            set_nyquist_aspect(ax, set_to_axis, data, center_coords, xmin, ymin, False)
+            fig.tight_layout()
             
-        mindelta = ax.get_xlim()[0] - xmin
-        xmax = ax.get_xlim()[1] + diff - mindelta
-
-        ax.set_xlim(xmin, xmax)
     else:
-        # adjust the y axis
-        diff = (xscale - yscale) * height # Required change in y data range
-        if data is None:
-            data_min = 0
-        else:
-            df = process_eis_plot_data(data)
-            data_min = np.nanmin(-df['Zimag'])
+        if center_coords is not None and (xmin is not None or ymin is not None):
+            raise ValueError("If center_coords is provided, xmin and ymin can not be specified")
+        if set_to_axis == "x" and xmin is not None:
+            raise ValueError("If set_to_axis==x, xmin cannot be provided. ymin should be provided instead")
+        if set_to_axis == "y" and ymin is not None:
+            raise ValueError("If set_to_axis==y, ymin cannot be provided. xmin should be provided instead")
+        
+        fig = ax.get_figure()
 
-        if min(data_min, ax.get_ylim()[0]) >= 0 and ymin is None:
-            # if -Zimag doesn't go negative, don't go negative on y-axis
-            ymin = max(0, ax.get_ylim()[0] - diff / 2)
-            mindelta = ax.get_ylim()[0] - ymin
-            ymax = ax.get_ylim()[1] + diff - mindelta
-        else:
-            if ymin is None:
-                negrng = abs(ax.get_ylim()[0])
-                posrng = abs(ax.get_ylim()[1])
-                negoffset = negrng * diff / (negrng + posrng)
-                posoffset = posrng * diff / (negrng + posrng)
-                
-                ymin = ax.get_ylim()[0] - negoffset    
-                ymax = ax.get_ylim()[1] + posoffset
+        # get data range
+        yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
+        xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
+
+        # Center on the given coordinates
+        if center_coords is not None:
+            x_offset = center_coords[0] - (ax.get_xlim()[0] + 0.5 * xrng)
+            y_offset = center_coords[1] - (ax.get_ylim()[0] + 0.5 * yrng)
+            ax.set_xlim(*np.array(ax.get_xlim()) + x_offset)
+            ax.set_ylim(*np.array(ax.get_ylim()) + y_offset)
+
+        # get axis dimensions
+        bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+        width, height = bbox.width, bbox.height
+
+        # scale = data range / plot dimension
+        yscale = yrng / height
+        xscale = xrng / width
+
+        if set_to_axis is None:
+            if yscale > xscale:
+                set_to_axis = 'y'
             else:
+                set_to_axis = 'x'
+        elif set_to_axis not in ['x', 'y']:
+            raise ValueError(f"If provided, set_to_axis must be either 'x' or 'y'. Received {set_to_axis}")
+
+        if set_to_axis == 'y':
+            # adjust the x axis
+            diff = (yscale - xscale) * width
+            if xmin is None:
+                xmin = max(0, ax.get_xlim()[0] - diff / 2)
+                
+            mindelta = ax.get_xlim()[0] - xmin
+            xmax = ax.get_xlim()[1] + diff - mindelta
+
+            ax.set_xlim(xmin, xmax)
+        else:
+            # adjust the y axis
+            diff = (xscale - yscale) * height # Required change in y data range
+            if data is None:
+                data_min = 0
+            else:
+                df = process_eis_plot_data(data)
+                data_min = np.nanmin(-df['Zimag'])
+
+            if min(data_min, ax.get_ylim()[0]) >= 0 and ymin is None:
+                # if -Zimag doesn't go negative, don't go negative on y-axis
+                ymin = max(0, ax.get_ylim()[0] - diff / 2)
                 mindelta = ax.get_ylim()[0] - ymin
                 ymax = ax.get_ylim()[1] + diff - mindelta
+            else:
+                if ymin is None:
+                    negrng = abs(ax.get_ylim()[0])
+                    posrng = abs(ax.get_ylim()[1])
+                    negoffset = negrng * diff / (negrng + posrng)
+                    posoffset = posrng * diff / (negrng + posrng)
+                    
+                    ymin = ax.get_ylim()[0] - negoffset    
+                    ymax = ax.get_ylim()[1] + posoffset
+                else:
+                    mindelta = ax.get_ylim()[0] - ymin
+                    ymax = ax.get_ylim()[1] + diff - mindelta
 
-        ax.set_ylim(ymin, ymax)
+            ax.set_ylim(ymin, ymax)
 
 
 # def zoom_nyquist(ax, xlim: Optional[Tuple[float, float]] = None, ylim: Optional[Tuple[float, float]] = None):
@@ -638,7 +646,7 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin
 #     set_nyquist_aspect(ax, set_to_axis=set_to_axis)
     
     
-def zoom_nyquist_x(ax: Axes, xlim: Tuple[float, float], ymin: Optional[float] = None):
+def zoom_nyquist_x(ax: Axes, xlim: Tuple[float, float], ymin: Optional[float] = None, tight_layout: bool = True):
     """
     Zoom in on a specified x-range (Z\' range) of a Nyquist plot 
     while maintaining the correct aspect ratio.
@@ -649,9 +657,9 @@ def zoom_nyquist_x(ax: Axes, xlim: Tuple[float, float], ymin: Optional[float] = 
     """
     ax.set_xlim(*xlim)
         
-    set_nyquist_aspect(ax, set_to_axis="x", ymin=ymin)
+    set_nyquist_aspect(ax, set_to_axis="x", ymin=ymin, tight_layout=tight_layout)
     
-def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: Optional[float] = None):
+def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: Optional[float] = None, tight_layout: bool = True):
     """
     Zoom in on a specified y-range (Z\'\' range) of a Nyquist plot 
     while maintaining the correct aspect ratio.
@@ -662,7 +670,7 @@ def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: O
     """
     ax.set_ylim(*ylim)
         
-    set_nyquist_aspect(ax, set_to_axis="y", xmin=xmin)
+    set_nyquist_aspect(ax, set_to_axis="y", xmin=xmin, tight_layout=tight_layout)
     
 
 
