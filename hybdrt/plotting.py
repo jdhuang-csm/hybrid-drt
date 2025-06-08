@@ -711,10 +711,10 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
         raise ValueError('normalize and area should not be used together')
 
     # formatting for columns
-    col_dict = {'Zmod': {'units': '$\Omega$', 'label': '$|Z|$', 'scale': 'log'},
-                'Zphz': {'units': '$^\circ$', 'label': r'$\theta$', 'scale': 'linear'},
-                'Zreal': {'units': '$\Omega$', 'label': '$Z^\prime$', 'scale': 'linear'},
-                'Zimag': {'units': '$\Omega$', 'label': '$Z^{\prime\prime}$', 'scale': 'linear'}
+    col_dict = {'Zmod': {'units': r'$\Omega$', 'label': r'$|Z|$', 'scale': 'log'},
+                'Zphz': {'units': r'$^\circ$', 'label': r'$\theta$', 'scale': 'linear'},
+                'Zreal': {'units': r'$\Omega$', 'label': r'$Z^\prime$', 'scale': 'linear'},
+                'Zimag': {'units': r'$\Omega$', 'label': r'$Z^{\prime\prime}$', 'scale': 'linear'}
                 }
     if not log_mod:
         col_dict['Zmod']['scale'] = 'linear'
@@ -778,20 +778,20 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
 
     def ax_title(column):
         cdict = col_dict.get(column, {})
-        if area is not None and cdict.get('units', '') == '$\Omega$':
-            title = '{} ({}{}$\cdot\mathrm{{cm}}^2)$'.format(cdict.get('label', column), scale_prefix,
+        if area is not None and cdict.get('units', '') == r'$\Omega$':
+            title = r'{} ({}{}$\cdot\mathrm{{cm}}^2)$'.format(cdict.get('label', column), scale_prefix,
                                                              cdict.get('units', ''))
-        elif normalize and cdict.get('units', '') == '$\Omega$':
-            title = '{} $\, / \, R_p$'.format(cdict.get('label', column))
-        elif cdict.get('units', '') == '$\Omega$':
-            title = '{} ({}{})'.format(cdict.get('label', column), scale_prefix, cdict.get('units', ''))
+        elif normalize and cdict.get('units', '') == r'$\Omega$':
+            title = r'{} $\, / \, R_p$'.format(cdict.get('label', column))
+        elif cdict.get('units', '') == r'$\Omega$':
+            title = r'{} ({}{})'.format(cdict.get('label', column), scale_prefix, cdict.get('units', ''))
         else:
-            title = '{} ({})'.format(cdict.get('label', column), cdict.get('units', 'a.u.'))
+            title = r'{} ({})'.format(cdict.get('label', column), cdict.get('units', 'a.u.'))
 
         if column == 'Zimag' and invert_Zimag:
-            title = '$-$' + title
+            title = r'$-$' + title
         elif column == 'Zphz' and invert_phase:
-            title = '$-$' + title
+            title = r'$-$' + title
         return title
 
     for col, ax in zip(cols, axes):
