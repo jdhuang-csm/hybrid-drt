@@ -130,22 +130,22 @@ def calculate_qp_l2_matrix(hypers, rho_vector, dop_rho_vector, penalty_matrices,
         return l2_lambda_0 * l2_mat
 
 
-def calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors, l2_lambda_0_diagonal,
-                              penalty_type):
-    # Apply rho_diagonals to penalty matrices
-    if penalty_type == 'integral':
-        scaled_penalty_matrices = {f'm{k}': rho_diagonals[k] @ penalty_matrices[f'm{k}'] @ rho_diagonals[k]
-                                   for k in range(len(derivative_weights))}
-    else:
-        scaled_penalty_matrices = {f'l{k}': rho_diagonals[k] @ penalty_matrices[f'l{k}']
-                                   for k in range(len(derivative_weights))}
+# def calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors, l2_lambda_0_diagonal,
+#                               penalty_type):
+#     # Apply rho_diagonals to penalty matrices
+#     if penalty_type == 'integral':
+#         scaled_penalty_matrices = {f'm{k}': rho_diagonals[k] @ penalty_matrices[f'm{k}'] @ rho_diagonals[k]
+#                                    for k in range(len(derivative_weights))}
+#     else:
+#         scaled_penalty_matrices = {f'l{k}': rho_diagonals[k] @ penalty_matrices[f'l{k}']
+#                                    for k in range(len(derivative_weights))}
 
-    l2_mat = calculate_qp_l2_matrix(hypers, np.ones(len(derivative_weights)), dop_rho_vector,
-                                    scaled_penalty_matrices, s_vectors, penalty_type, special_qp_params)
-    # Apply l2_lambda_0 data vector
-    l2_mat = l2_lambda_0_diagonal @ l2_mat @ l2_lambda_0_diagonal
+#     l2_mat = calculate_qp_l2_matrix(hypers, np.ones(len(derivative_weights)), dop_rho_vector,
+#                                     scaled_penalty_matrices, s_vectors, penalty_type, special_qp_params)
+#     # Apply l2_lambda_0 data vector
+#     l2_mat = l2_lambda_0_diagonal @ l2_mat @ l2_lambda_0_diagonal
 
-    return l2_mat
+#     return l2_mat
 
 
 def solve_hyper_l1_lambda(x, hl_beta, lambda_0):
@@ -1183,20 +1183,20 @@ def calculate_pq(rm, rv, penalty_matrices, penalty_type, hypers, l1_lambda_vecto
     return p_matrix, q_vector
 
 
-def calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights, l2_lambda_0_diagonal, l1_lambda_vector,
-                    rho_diagonals,
-                    s_vectors, weights):
-    l2_matrix = calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors,
-                                          l2_lambda_0_diagonal, penalty_type)
+# def calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights, l2_lambda_0_diagonal, l1_lambda_vector,
+#                     rho_diagonals,
+#                     s_vectors, weights):
+#     l2_matrix = calculate_md_qp_l2_matrix(derivative_weights, rho_diagonals, penalty_matrices, s_vectors,
+#                                           l2_lambda_0_diagonal, penalty_type)
 
-    wm = np.diag(weights)
-    wrm = wm @ rm
-    wrv = wm @ rv
+#     wm = np.diag(weights)
+#     wrm = wm @ rm
+#     wrv = wm @ rv
 
-    p_matrix = l2_matrix + wrm.T @ wrm
-    q_vector = -wrm.T @ wrv + l1_lambda_vector
+#     p_matrix = l2_matrix + wrm.T @ wrm
+#     q_vector = -wrm.T @ wrv + l1_lambda_vector
 
-    return p_matrix, q_vector
+#     return p_matrix, q_vector
 
 
 # def evaluate_hessian(p_matrix, q_vector, x):
@@ -1377,48 +1377,48 @@ def evaluate_llh(x_hat, rm, rv, weights, marginalize_weights=True, alpha_0=2, be
     return llh
 
 
-def evaluate_md_posterior_lp(x, derivative_weights, penalty_matrices, penalty_type, l2_lambda_0_vector,
-                             l2_lambda_0_diagonal,
-                             l1_lambda_vector, rho_diagonals, rho_array, s_vectors, weights, rm, rv, rho_alpha, rho_0,
-                             s_alpha, s_0, xmx_norm_array):
-    p_matrix, q_vector = calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights,
-                                         l2_lambda_0_diagonal, l1_lambda_vector, rho_diagonals, s_vectors, weights)
+# def evaluate_md_posterior_lp(x, derivative_weights, penalty_matrices, penalty_type, l2_lambda_0_vector,
+#                              l2_lambda_0_diagonal,
+#                              l1_lambda_vector, rho_diagonals, rho_array, s_vectors, weights, rm, rv, rho_alpha, rho_0,
+#                              s_alpha, s_0, xmx_norm_array):
+#     p_matrix, q_vector = calculate_md_pq(rm, rv, penalty_matrices, penalty_type, derivative_weights,
+#                                          l2_lambda_0_diagonal, l1_lambda_vector, rho_diagonals, s_vectors, weights)
 
-    wm = np.diag(weights)
-    wrv = wm @ rv
+#     wm = np.diag(weights)
+#     wrv = wm @ rv
 
-    lp_x = -0.5 * (x.T @ p_matrix @ x) - q_vector.T @ x - 0.5 * wrv.T @ wrv
+#     lp_x = -0.5 * (x.T @ p_matrix @ x) - q_vector.T @ x - 0.5 * wrv.T @ wrv
 
-    # Tile arrays to consistent shape
-    num_obs = len(l2_lambda_0_vector)
-    num_params = int(len(x) / num_obs)
-    rho_alpha_nk = np.tile(rho_alpha, (num_obs, 1))
-    s_alpha_nk = np.tile(s_alpha, (num_obs, 1))
-    d_weight_nk = np.tile(derivative_weights, (num_obs, 1))
-    l2_lambda_0_nk = np.tile(l2_lambda_0_vector, (len(derivative_weights), 1)).T
+#     # Tile arrays to consistent shape
+#     num_obs = len(l2_lambda_0_vector)
+#     num_params = int(len(x) / num_obs)
+#     rho_alpha_nk = np.tile(rho_alpha, (num_obs, 1))
+#     s_alpha_nk = np.tile(s_alpha, (num_obs, 1))
+#     d_weight_nk = np.tile(derivative_weights, (num_obs, 1))
+#     l2_lambda_0_nk = np.tile(l2_lambda_0_vector, (len(derivative_weights), 1)).T
 
-    # Convert effective hyperparameters to raw (true) hyperparameters
-    rho_alpha_raw, rho_beta_raw, s_alpha_raw, s_beta_raw = get_raw_hyperparams(rho_alpha_nk, rho_0, s_alpha_nk, s_0,
-                                                                               rho_array, l2_lambda_0_nk,
-                                                                               xmx_norm_array, d_weight_nk)
+#     # Convert effective hyperparameters to raw (true) hyperparameters
+#     rho_alpha_raw, rho_beta_raw, s_alpha_raw, s_beta_raw = get_raw_hyperparams(rho_alpha_nk, rho_0, s_alpha_nk, s_0,
+#                                                                                rho_array, l2_lambda_0_nk,
+#                                                                                xmx_norm_array, d_weight_nk)
 
-    # rho prior
-    lp_rho = log_pdf_gamma(rho_array, rho_alpha_raw, rho_beta_raw, True)
-    lp_rho = np.sum(lp_rho)  # / rho_alpha_raw)
+#     # rho prior
+#     lp_rho = log_pdf_gamma(rho_array, rho_alpha_raw, rho_beta_raw, True)
+#     lp_rho = np.sum(lp_rho)  # / rho_alpha_raw)
 
-    # s prior
-    lp_s = 0
+#     # s prior
+#     lp_s = 0
 
-    for k in range(len(derivative_weights)):
-        s_alpha_raw_rep = np.repeat(s_alpha_raw[:, k], num_params)
-        s_beta_raw_rep = np.repeat(s_beta_raw[:, k], num_params)
-        lp_s_vec = log_pdf_gamma(s_vectors[k], s_alpha_raw_rep, s_beta_raw_rep, True)
-        lp_s += np.sum(lp_s_vec)  # - len(s_vectors[k]) * np.log(s_alpha_raw[k] * s_beta_raw[k])#/ s_alpha_raw[k]
+#     for k in range(len(derivative_weights)):
+#         s_alpha_raw_rep = np.repeat(s_alpha_raw[:, k], num_params)
+#         s_beta_raw_rep = np.repeat(s_beta_raw[:, k], num_params)
+#         lp_s_vec = log_pdf_gamma(s_vectors[k], s_alpha_raw_rep, s_beta_raw_rep, True)
+#         lp_s += np.sum(lp_s_vec)  # - len(s_vectors[k]) * np.log(s_alpha_raw[k] * s_beta_raw[k])#/ s_alpha_raw[k]
 
-    # print('eval time: {:.3f} s'.format(time.time() - start))
-    # print(lp_x, lp_rho, lp_s)
+#     # print('eval time: {:.3f} s'.format(time.time() - start))
+#     # print(lp_x, lp_rho, lp_s)
 
-    return lp_x + lp_rho + lp_s
+#     return lp_x + lp_rho + lp_s
 
 
 # def optimize_lp_semi_fixed(x_in, fixed_x_index, fixed_prior, s_vectors, rho_vector, rv, weights, est_weights,
