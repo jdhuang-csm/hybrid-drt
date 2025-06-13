@@ -107,9 +107,9 @@ def pdf_lognormal(x, mu, sigma):
 
 def std_normal_quantile(quantiles):
     """Get value of standard normal random variable corresponding to quantiles"""
-    s_interp = np.linspace(-7, 7, 2000)
+    s_interp = np.linspace(0, 14, 2000)
     cdf = cdf_normal(s_interp, 0, 1)
-    s = np.interp(quantiles, cdf, s_interp)
+    s = np.interp(np.abs(quantiles), cdf, s_interp) * np.sign(quantiles)
 
     return s
 
@@ -119,12 +119,17 @@ def iqr(x):
     q3 = np.percentile(x, 75)
     return q3 - q1
     
-def robust_std(x):
+def robust_std(x, sample_fraction: float = 0.5):
+    if sample_fraction > 1:
+        raise ValueError("sample_fraction must be no greater than 1")
     """Estimate standard deviation from interquartile range"""
-    q1 = np.percentile(x, 25)
-    q3 = np.percentile(x, 75)
+    q_lo = np.percentile(x, 50 - 100 * sample_fraction / 2)
+    q_hi = np.percentile(x, 50 + 100 * sample_fraction / 2)
+    
+    # Get number of standard deviations corresponding to percentile range
+    n_std = std_normal_quantile(0.5 + sample_fraction / 2)
 
-    return (q3 - q1) / 1.349
+    return (q_hi - q_lo) / (2 * n_std)
 
 
 def bic(k, n, llh):

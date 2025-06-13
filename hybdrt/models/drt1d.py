@@ -1353,12 +1353,13 @@ class DRT(DRTBase):
     # --------------------------------
     # Kramers-Kronig test
     # --------------------------------
-    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2, norm: str = "modulus", p_thresh:float = 1e-4, n_iter:int = 2):
+    def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2, 
+                norm: str = "modulus", p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, n_iter:int = 2):
         # Streamlined single-call KK test
         # Fit data
         self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
         # Identify outliers based on residuals
-        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_iter)
+        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_iter, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
         # Identify frequency limits
         f_min, f_max = self.get_kk_limits(outlier_index)
         # Get clean data (inside frequency limits)
@@ -1367,7 +1368,7 @@ class DRT(DRTBase):
         return outlier_index, (f_min, f_max), fz_clean
         
         
-    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-1, extend_basis_decades: int = 2):
+    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2):
         # Temporarily modify extend_basis_decades for KK test
         extend_basis_orig = deepcopy(self.extend_basis_decades)
         self.extend_basis_decades = extend_basis_decades
@@ -1377,7 +1378,7 @@ class DRT(DRTBase):
         # Restore original extend_basis settings
         self.extend_basis_decades = extend_basis_orig
         
-    def plot_kk_results(self, axes: Optional[list] = None, norm="modulus", s: float = 20, alpha: float = 0.5, 
+    def plot_kk_results(self, axes: Optional[ndarray] = None, norm="modulus", s: float = 20, alpha: float = 0.5, 
                         outlier_index: Optional[ndarray] = None, **kw):
         f_fit = self.get_fit_frequencies()
         y_err = self.eval_kk_residuals()
@@ -1392,14 +1393,27 @@ class DRT(DRTBase):
             unit = "% of $|Z|$"
         else:
             unit = r"$\Omega$"
+            
+        if axes is None:
+            fig, axes = plt.subplots(1, 3, figsize=(9, 2.75))
         
         # Plot residuals
         # Clean points
-        axes = plot_bode((f_fit[~outlier_mask], y_err[~outlier_mask]), axes=axes, rep="cartesian",
+        plot_bode((f_fit[~outlier_mask], y_err[~outlier_mask]), axes=axes[:2], rep="cartesian",
                  s=s, alpha=alpha,  scale_prefix="", **kw)
         # Bad points
-        axes = plot_bode((f_fit[outlier_mask], y_err[outlier_mask]), axes=axes, rep="cartesian",
-                 s=s, alpha=alpha,  scale_prefix="", c="r", **kw)
+        if np.sum(outlier_mask) > 0:
+            plot_bode((f_fit[outlier_mask], y_err[outlier_mask]), axes=axes[:2], rep="cartesian",
+                    s=s, alpha=alpha,  scale_prefix="", c="r", **kw)
+        
+        # Error modulus
+        axes[2].scatter(f_fit[~outlier_mask], np.abs(y_err[~outlier_mask]), s=s, alpha=alpha, **kw)
+        axes[2].scatter(f_fit[outlier_mask], np.abs(y_err[outlier_mask]), s=s, alpha=alpha, c="r", **kw)
+        axes[2].set_xscale("log")
+        axes[2].set_xlabel("$f$ (Hz)")
+        axes[2].set_ylabel(fr"Error modulus ({unit})")
+        axes[2].set_ylim(0, axes[2].get_ylim()[1])
+        
         
         # Indicate limits
         f_lim = self.get_kk_limits(outlier_index)
@@ -1431,10 +1445,10 @@ class DRT(DRTBase):
         
         return y_err
     
-    def get_kk_outliers(self, norm="modulus", n_iter: int = 2, p_thresh=1e-4):
+    def get_kk_outliers(self, norm="modulus", n_iter: int = 2, p_thresh=1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6):
         y_err = self.eval_kk_residuals(norm=norm)
         
-        return kk.get_outliers(y_err, n_iter, p_thresh)
+        return kk.get_outliers(y_err, n_iter, p_thresh, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
             
     def get_kk_limits(self, outlier_index: ndarray):
         f_fit = self.get_fit_frequencies()

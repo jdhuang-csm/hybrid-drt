@@ -283,6 +283,14 @@ def display_linear_time_ticks(ax, times, step_times, trans_functions, step_incre
 #
 #     return axes
 
+def add_freq_axis(ax):
+    # Add frequency axis to DRT plot
+    def ft_trans(x):
+        return 1 / (2 * np.pi * x)
+
+    freq_ax = ax.secondary_xaxis('top', functions=(ft_trans, ft_trans))
+    freq_ax.set_xlabel('$f$ (Hz)')
+    return freq_ax
 
 def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_by=None,
                       freq_axis=False, return_info=False, y_offset: float = 0., **kw):
@@ -335,11 +343,7 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
 
     # Add frequency axis
     if freq_axis:
-        def ft_trans(x):
-            return 1 / (2 * np.pi * x)
-
-        freq_ax = ax.secondary_xaxis('top', functions=(ft_trans, ft_trans))
-        freq_ax.set_xlabel('$f$ (Hz)')
+        add_freq_axis(ax)
 
     if return_info:
         return ax, (line, scale_prefix, scale_factor)

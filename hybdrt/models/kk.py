@@ -1,6 +1,7 @@
 import numpy as np
 from numpy import ndarray
 from scipy import ndimage
+from typing import Optional
 
 from ..utils import stats, eis
 
@@ -16,7 +17,7 @@ def normalize_residuals(z_meas, z_pred, norm="modulus"):
     
     return z_err
 
-def get_outliers(z_err_norm: ndarray, n_iter: int = 2, p_thresh: float = 1e-4):
+def get_outliers(z_err_norm: ndarray, n_iter: int = 2, p_thresh: float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction=0.6):
     
     outlier_mask = np.zeros(len(z_err_norm), dtype=bool)
     
@@ -36,13 +37,17 @@ def get_outliers(z_err_norm: ndarray, n_iter: int = 2, p_thresh: float = 1e-4):
         # Use modulus of error (distance in cartesian plane)
         
         # Get std of real and imaginary error components
-        std = stats.robust_std(eis.complex_vector_to_concat(z_err_norm[~outlier_mask]))
+        std = stats.robust_std(eis.complex_vector_to_concat(z_err_norm[~outlier_mask]), sample_fraction=std_sample_fraction)
         
-        # The squared error modulus (e_r ** 2 + e_i ** 2) should follow a chi-squared distribution
-        # Get portion of distribution more extreme than y_err
-        prob = stats.outer_cdf_chi2(np.abs(z_err_norm) ** 2, scale=std ** 2, k=2)
+        if n_sigma is None:
+            # The squared error modulus (e_r ** 2 + e_i ** 2) should follow a chi-squared distribution
+            # Get portion of distribution more extreme than y_err
+            prob = stats.outer_cdf_chi2(np.abs(z_err_norm) ** 2, scale=std ** 2, k=2)
+            outlier_mask = (prob < p_thresh)
+        else:
+            # Simply find errors larger than n_sigma * std
+            outlier_mask = np.abs(z_err_norm) > std * n_sigma
         
-        outlier_mask = (prob < p_thresh)
         
     return np.where(outlier_mask)[0]
         
