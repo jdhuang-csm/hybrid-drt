@@ -400,7 +400,7 @@ def downsample_data(times, i_signal, v_signal, target_times=None, target_size=No
                 num_prestep = step_indices[0]
                 prestep_samples = min(prestep_samples, num_prestep)
                 # prestep_index = np.arange(0, num_prestep, num_prestep // prestep_samples, dtype=int)  # uniformly spaced
-                prestep_index = np.arange(step_indices[0] - prestep_samples, step_indices[0], dtype=int)
+                prestep_index = np.arange(0, step_indices[0], dtype=int)
                 sample_index = np.unique(np.concatenate((prestep_index, sample_index)))
         elif method == 'decimate':
             t_sample = np.min(np.diff(times))
