@@ -357,10 +357,17 @@ def unpack_resolved_x(x, obs_drt_list, special_dict):
 
         # Scale to true values
         x_k = x_k * coef_scale[:, None]
-
+        
         if key == 'x_dop':
             dop_scale = np.array([drt.dop_scale_vector for drt in obs_drt_list])
             x_k = x_k * dop_scale
+        elif key == "C_inv":
+            cap_scale = np.array([drt.capacitance_scale for drt in obs_drt_list])
+            x_k = x_k * cap_scale[:, None]
+        elif key == "inductance":
+            ind_scale = np.array([drt.inductance_scale for drt in obs_drt_list])
+            x_k = x_k * ind_scale[:, None]
+        
 
         if size == 1:
             x_k = x_k.flatten()
