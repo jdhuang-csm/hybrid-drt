@@ -107,9 +107,11 @@ def pdf_lognormal(x, mu, sigma):
 
 def std_normal_quantile(quantiles):
     """Get value of standard normal random variable corresponding to quantiles"""
+    quantiles = np.array(quantiles)
+    # Reflect for more dense interp
     s_interp = np.linspace(0, 14, 2000)
     cdf = cdf_normal(s_interp, 0, 1)
-    s = np.interp(np.abs(quantiles), cdf, s_interp) * np.sign(quantiles)
+    s = np.interp(np.abs(quantiles - 0.5) + 0.5, cdf, s_interp) * np.sign(quantiles - 0.5)
 
     return s
 

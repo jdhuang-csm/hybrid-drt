@@ -25,7 +25,10 @@ from ..matrices import mat1d, basis, phasance
 from . import qphb, elements, pfrt, background
 from .. import evaluation
 from .drtbase import DRTBase
-from ..plotting import get_transformed_plot_time, add_linear_time_axis, plot_eis, plot_distribution, plot_chrono, plot_bode
+from ..plotting import (
+    get_transformed_plot_time, add_linear_time_axis, plot_eis, 
+    plot_distribution, plot_chrono, plot_bode, shade_extrap_regions
+)
 from ..mapping.surface import (
     peak_prob as calc_peak_prob, trough_prob as calc_trough_prob
 )
@@ -86,6 +89,14 @@ class DRT(DRTBase):
             index = np.where((self.basis_tau >= tau_min) & (self.basis_tau <= tau_max))[0]
             # Offset by special parameters
             return index + self.get_qp_mat_offset()
+        
+    def get_data_tau_limits(self):
+        """Get tau limits of measured data.
+
+        :return tuple: Tuple of tau_min, tau_max
+        """
+        return pp.get_tau_lim(self.get_fit_frequencies(True), self.get_fit_times(True), self.nonconsec_step_times)
+        
 
 
     def _qphb_fit_core(self, times, i_signal, v_signal, frequencies, z, step_times=None, step_sizes=None, 
@@ -972,7 +983,7 @@ class DRT(DRTBase):
             if converged:
                 break
             elif it == max_iter - 1 and self.warn:
-                warnings.warn(f'Solution did not converge within {max_iter} iterations')
+                warnings.warn(f'Solution did not converge within {max_iter} iterations. This is usually not an issue.')
 
             it += 1
 
@@ -1354,14 +1365,15 @@ class DRT(DRTBase):
     # Kramers-Kronig test
     # --------------------------------
     def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2, 
-                norm: str = "modulus", p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, n_iter:int = 2):
+                norm: str = "modulus", max_num_outliers: int = 2,
+                p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, n_iter:int = 2):
         # Streamlined single-call KK test
         # Fit data
         self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
         # Identify outliers based on residuals
         outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_iter, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
         # Identify frequency limits
-        f_min, f_max = self.get_kk_limits(outlier_index)
+        f_min, f_max = self.get_kk_limits(outlier_index, max_num_outliers=max_num_outliers)
         # Get clean data (inside frequency limits)
         fz_clean = kk.trim_data(frequencies, z, f_min, f_max)
         
@@ -1379,9 +1391,9 @@ class DRT(DRTBase):
         self.extend_basis_decades = extend_basis_orig
         
     def plot_kk_results(self, axes: Optional[ndarray] = None, norm="modulus", s: float = 20, alpha: float = 0.5, 
-                        outlier_index: Optional[ndarray] = None, **kw):
+                        outlier_index: Optional[ndarray] = None, f_lim: Optional[Tuple[float]] = None, **kw):
         f_fit = self.get_fit_frequencies()
-        y_err = self.eval_kk_residuals()
+        y_err = self.eval_kk_residuals(norm=norm)
         
         if outlier_index is None:
             outlier_index = self.get_kk_outliers(norm=norm)
@@ -1416,7 +1428,8 @@ class DRT(DRTBase):
         
         
         # Indicate limits
-        f_lim = self.get_kk_limits(outlier_index)
+        if f_lim is None:
+            f_lim = self.get_kk_limits(outlier_index)
 
         # Indicate zero
         for ax in axes:
@@ -1430,6 +1443,8 @@ class DRT(DRTBase):
         axes[1].set_ylabel(fr'$Z^{{\prime\prime}}$ residuals ({unit})')
        
         fig = axes.ravel()[0].get_figure()
+        # Need 2x tight layout calls - WHY
+        fig.tight_layout()
         fig.tight_layout()
 
         return axes
@@ -1450,10 +1465,10 @@ class DRT(DRTBase):
         
         return kk.get_outliers(y_err, n_iter, p_thresh, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
             
-    def get_kk_limits(self, outlier_index: ndarray):
+    def get_kk_limits(self, outlier_index: ndarray, max_num_outliers: int = 2):
         f_fit = self.get_fit_frequencies()
         
-        return kk.get_limits(f_fit, outlier_index)
+        return kk.get_limits(f_fit, outlier_index, max_num_outliers=max_num_outliers)
 
     
     # --------------------------------
@@ -4946,6 +4961,7 @@ class DRT(DRTBase):
         return axes
 
     def plot_distribution(self, tau=None, ppd=20, x=None, ax=None, scale_prefix=None, plot_bounds=False,
+                          shade_extrap: bool=False, shade_kw: Optional[dict] = None,
                           normalize=False, normalize_by=None, sign=None,
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
                           area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
@@ -5081,6 +5097,11 @@ class DRT(DRTBase):
             # Indicate bounds with vertical lines
             ax.axvline(tau_min, ls=':', c='k', alpha=0.6, lw=1.5, zorder=-10)
             ax.axvline(tau_max, ls=':', c='k', alpha=0.6, lw=1.5, zorder=-10)
+            
+        if shade_extrap:
+            if shade_kw is None:
+                shade_kw = {}
+            shade_extrap_regions(ax, *self.get_data_tau_limits(), **shade_kw)
 
         if tight_layout:
             fig.tight_layout()
@@ -6184,7 +6205,7 @@ class DRT(DRTBase):
                 'special_qp_params',
                 'pfrt_result',
                 # These are necessary for extract_qphb_parameters
-                'coefficient_scale', 'inductance_scale', 'input_signal_scale', 'response_signal_scale',
+                'coefficient_scale', 'inductance_scale', 'capacitance_scale', 'input_signal_scale', 'response_signal_scale',
                 'scaled_response_offset', 'impedance_scale', 'dop_scale_vector', "v_baseline_scale",
                 # dual fit attributes
                 'discrete_candidate_df', 'discrete_candidate_dict',

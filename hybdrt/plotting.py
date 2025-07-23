@@ -292,6 +292,26 @@ def add_freq_axis(ax):
     freq_ax.set_xlabel('$f$ (Hz)')
     return freq_ax
 
+def normalize_and_scale(f, area=None, scale_prefix=None, normalize_by=None):
+    if area is not None and normalize_by is not None:
+        warnings.warn('If both area and normalize_by are provided, the normalization will not hold')
+        
+    # Normalize by area
+    if area is not None:
+        f = f * area
+
+    # Normalize by R_p
+    if normalize_by is not None:
+        f = f / normalize_by
+        
+    # Scale to appropriate magnitude
+    if scale_prefix is None:
+        scale_prefix = get_scale_prefix(f)
+    scale_factor = get_factor_from_prefix(scale_prefix)
+
+    return f, scale_prefix, scale_factor    
+    
+
 def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_by=None,
                       freq_axis=False, return_info=False, y_offset: float = 0., **kw):
     """
@@ -315,11 +335,11 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
 
     # Normalize by area
     if area is not None:
-        f *= area
+        f = f * area
 
     # Normalize by R_p
     if normalize_by is not None:
-        f /= normalize_by
+        f =  f / normalize_by
 
     # Scale to appropriate magnitude
     if scale_prefix is None:
@@ -350,7 +370,13 @@ def plot_distribution(tau, f, ax=None, area=None, scale_prefix=None, normalize_b
     else:
         return ax
 
-
+def shade_extrap_regions(ax: Axes, tau_min, tau_max, color="gray", alpha=0.2, ls="", **kw):
+    if tau_min is not None:
+        ax.axvspan(ax.get_xlim()[0], tau_min, color=color, alpha=alpha, ls=ls, **kw)
+    
+    if tau_max is not None:
+        ax.axvspan(tau_max, ax.get_xlim()[1], color=color, alpha=alpha, ls=ls, **kw)
+    
 # --------------------
 # EIS plotting
 # --------------------
@@ -437,7 +463,7 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
     df['Zimag'] /= scale_factor
 
     if plot_func == 'scatter':
-        scatter_defaults = {'s': 10, 'alpha': 0.5}
+        scatter_defaults = {'s': 20, 'alpha': 0.5}
         scatter_defaults.update(kw)
         ax.scatter(df['Zreal'], -df['Zimag'], label=label, **scatter_defaults)
     elif plot_func == 'plot':
@@ -774,7 +800,7 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
         df['Zphz'] *= -1
 
     if plot_func == 'scatter':
-        scatter_defaults = {'s': 10, 'alpha': 0.5}
+        scatter_defaults = {'s': 20, 'alpha': 0.5}
         scatter_defaults.update(kw)
         for col, ax in zip(cols, axes):
             ax.scatter(df['Freq'], df[col], label=label, **scatter_defaults)

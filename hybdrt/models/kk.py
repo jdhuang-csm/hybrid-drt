@@ -52,23 +52,74 @@ def get_outliers(z_err_norm: ndarray, n_iter: int = 2, p_thresh: float = 1e-4, n
     return np.where(outlier_mask)[0]
         
         
-def get_limits(f_fit, outlier_index: ndarray):
+def get_limits(f_fit: ndarray, outlier_index: ndarray, max_num_outliers: int = 2, return_index: bool = False):
+    """Get frequency limits of valid data.
+
+    :param ndarray f_fit: frequencies
+    :param ndarray outlier_index: indices of outliers identified by KK test
+    :param int max_num_outliers: maximum number of allowable outliers inside the valid range
+    :param bool return_index: if True, return indices corresponding to maximum and minimum frequencies.
+        If False, only return f_min and f_max. Defaults to False
+    :return Tuple[float, float]: Frequency limits: (f_min, f_max)
+    """
+    # Sort descending
+    sort_index = np.argsort(f_fit)[::-1]
+    f_fit = f_fit[sort_index]
+    # outlier_index = outlier_index[sort_index[::-1]]
+    outlier_index = [sort_index.tolist().index(i) for i in outlier_index]
     
-    outlier_mask = np.zeros(len(f_fit), dtype = bool)
-    outlier_mask[outlier_index] = True
+    # outlier_mask = np.zeros(len(f_fit), dtype = bool)
+    # outlier_mask[outlier_index] = True
     
-    badness = np.zeros(len(f_fit))
-    badness[outlier_index] = 1
+    is_outlier = np.zeros(len(f_fit))
+    is_outlier[outlier_index] = 1
     # Spread badness to nearest neighbors
-    badness = ndimage.uniform_filter1d(badness, size=3)
+    badness = ndimage.uniform_filter1d(is_outlier, size=3)
     
     # Find the first frequency where there is a clean point neighbored by at least 1 other clean point
-    # clean_index = np.where((badness < 1) & (~outlier_mask))[0]
     clean_index = np.where(badness == 0)[0]
-    f_max = np.max(f_fit[clean_index])
-    f_min = np.min(f_fit[clean_index])
     
-    return f_min, f_max
+    i_left = clean_index[0]
+    i_right = clean_index[-1]
+    # print(i_left, i_right)
+    
+    
+    # Check how many bad points are inside the limits
+    num_bad_inside = np.sum(is_outlier[i_left:i_right])
+    
+    # If there are too many outliers inside the clean range, move the bounds in
+    if num_bad_inside > max_num_outliers:
+        num_to_remove = num_bad_inside - max_num_outliers
+        # Number of outliers that will be removed by moving each boundary inwards
+        from_left = np.cumsum(is_outlier[i_left:i_right + 1])
+        from_right = np.cumsum(is_outlier[i_left:i_right + 1][::-1])
+        # print(from_left, from_right)
+        # 2D grid of possible combinations of left and right boundary movements
+        ll, rr = np.meshgrid(from_left, from_right)
+        # Total number of outliers that will be removed by the combination of boundary movements
+        tot_removed = ll + rr
+        # Find movements that will satisfy the number of allowable outliers inside bounds
+        index = np.argwhere(tot_removed >= num_to_remove)
+        # Find combination that minimizes reduction in window size (maximizes clean frquency range)
+        r, l = index[np.argmin(np.sum(index, axis=1))]
+        # print(l, r)
+        i_left = i_left + l
+        i_right = i_right - r
+        
+    # If the chosen bounds are at outliers, move them to the next clean point
+    if is_outlier[i_left] == 1:
+        i_left = np.min(clean_index[clean_index >= i_left])
+    if is_outlier[i_right] == 1:
+        i_right = np.max(clean_index[clean_index <= i_right])
+        
+    
+    f_max = f_fit[i_left]
+    f_min = f_fit[i_right]
+    
+    if return_index:
+        return (f_min, f_max), (i_left, i_right)
+    else:
+        return f_min, f_max
 
 def trim_data(frequencies: ndarray, z: ndarray, f_min: float, f_max: float):
     mask = (frequencies <= f_max) & (frequencies >= f_min)

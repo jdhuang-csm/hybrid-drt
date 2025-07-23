@@ -16,7 +16,7 @@ from .. import utils
 from .. import peaks
 from .. import preprocessing as pp
 from ..matrices import mat1d, basis
-from hybdrt.plotting import plot_distribution, plot_eis
+from hybdrt.plotting import plot_distribution, plot_eis, normalize_and_scale
 
 
 
@@ -40,6 +40,7 @@ class DiscreteElementModel:
         self.scaled_bounds = None
         self.parameter_indices = param_indices
 
+        self.element_z_functions = {name: element_impedance_function(element) for name, element in zip(el_names, el_types)}
         self.z_function = model_impedance_function(model_string)
         self.v_function = model_voltage_function(model_string, chrono_step_model)
         self.gamma_function = model_distribution_function(model_string)
@@ -1117,6 +1118,15 @@ class DiscreteElementModel:
         if x is None:
             x = self.parameter_values
         return self.z_function(freq, *x)
+    
+    def predict_element_z(self, el_name, freq, x=None):
+        z_func = self.element_z_functions[el_name]
+        
+        if x is None:
+            param_indices = self.parameter_indices[self.element_names.index(el_name)]
+            x = self.parameter_values[param_indices[0]:param_indices[1]]
+            
+        return z_func(freq, *x)
 
     def predict_v(self, times, step_times, step_sizes, x=None):
         if x is None:
@@ -1534,6 +1544,80 @@ class DiscreteElementModel:
             return ax, lines
         else:
             return ax
+        
+    def fill_element_distributions(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
+                                   return_patches=False,
+                                   y_offset=0, kw_list=None, **common_kw):
+        if element_names is None:
+            element_names = [el_name for el_name, el_type in zip(self.element_names, self.element_types)
+                            if element_has_distribution(el_type)]
+
+        if kw_list is None:
+            kw_list = [{} for i in range(len(element_names))]  # need unique dicts
+
+        if len(kw_list) != len(element_names):
+            raise ValueError(f'Length of kw_list ({len(kw_list)}) must match number of elements ({len(element_names)})')
+
+        # Get normalization factor
+        if normalize:
+            scale_prefix = ''
+            normalize_by = self.predict_r_p()
+        else:
+            normalize_by = None
+
+        # Get element distributions
+        el_gammas = [self.predict_element_distribution(tau, el_name, x=x) for el_name in element_names]
+
+
+        # Get common scale factor
+        if scale_prefix is None:
+            scale_prefix = utils.scale.get_common_scale_prefix(el_gammas)
+        scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
+
+        # # Update the scale factor for area and/or R_p
+        # if area is not None:
+        #     scale_factor /= area
+        #
+        # if normalize_by is not None:
+        #     scale_factor *= normalize_by
+
+        # Plot each element distribution
+        patches = []
+        for i, el_name in enumerate(element_names):
+            el_index = self.element_names.index(el_name)
+            el_is_singular, sing_info = element_distribution_is_singular(
+                self.element_types[el_index], *self.get_element_parameter_values(el_name, x=x), return_info=True
+            )
+
+            el_gamma = el_gammas[i]
+            
+            # Apply normalization
+            el_gamma_norm, _, _ = normalize_and_scale(el_gamma, area=area, scale_prefix=scale_prefix, normalize_by=normalize_by)
+
+            patch = ax.fill_between(tau, (np.zeros(len(tau)) + y_offset), el_gamma_norm / scale_factor + y_offset, **kw_list[i], **common_kw)
+
+            patches.append(patch)
+
+
+        if normalize:
+            y_label = fr'$\gamma \, / \, R_p$'
+        else:
+            if area is not None:
+                y_units = r'$\Omega \cdot \mathrm{cm}^2$'
+            else:
+                y_units = r'$\Omega$'
+            y_label = fr'$\gamma$ ({scale_prefix}{y_units})'
+
+        ax.set_xlabel(r"$\tau$ (s)")
+        ax.set_xscale("log")
+        ax.set_ylabel(y_label)
+        fig = ax.get_figure()
+        fig.tight_layout()
+
+        if return_patches:
+            return ax, patches
+        else:
+            return ax
 
     def plot_singularities(self, ax, scale_factor=1, scale=None, x=None, y_offset=0, **kw):
         """
@@ -1595,7 +1679,7 @@ class DiscreteElementModel:
         if predict_kw is None:
             predict_kw = {}
         if data_kw is None:
-            data_kw = dict(s=10, alpha=0.5)
+            data_kw = dict(s=20, alpha=0.5)
 
         # # Get data df if requested
         # if plot_data:
@@ -1646,7 +1730,7 @@ class DiscreteElementModel:
         return axes
 
     def plot_eis_residuals(self, plot_sigma=True, axes=None, scale_prefix=None, predict_kw=None, part='both',
-                           s=10, alpha=0.5, **kw):
+                           s=20, alpha=0.5, **kw):
 
         if part == 'both':
             bode_cols = ['Zreal', 'Zimag']
@@ -2124,6 +2208,10 @@ def model_impedance_function(model_string):
         return np.sum(z_vectors, axis=0)
 
     return z_model
+
+
+def model_impedance_function_list(model_string):
+    return 
 
 
 def model_voltage_function(model_string, step_model='ideal'):
