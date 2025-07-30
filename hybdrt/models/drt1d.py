@@ -3316,6 +3316,8 @@ class DRT(DRTBase):
 
     def predict_response(self, times=None, input_signal=None, step_times=None, step_sizes=None, op_mode=None,
                          offset_steps=None, step_offset_size=None,
+                         include_dop=True, include_drt=True,
+                        include_ohmic=True, include_cap=True,
                          smooth_inf_response=None, x=None, include_vz_offset=True, subtract_background=True,
                          y_bkg=None, v_baseline=None):
         # If chrono_mode is not provided, use fitted chrono_mode
@@ -3362,17 +3364,31 @@ class DRT(DRTBase):
         induc = fit_parameters.get('inductance', 0)
         c_inv = fit_parameters.get('C_inv', 0)
 
+        response = np.zeros(len(times))
+        
         if v_baseline is None:
             # if use_fit_times:
             # Only include the baseline if the prediction times match the fitted times
             v_baseline = self.predict_v_baseline(times)
             # else:
             #     v_baseline = 0
+            
+        if include_drt:
+            response += rm_drt @ x_drt
 
-        response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv + c_inv * cap_rv
+        if include_ohmic:
+            response += inf_rv * r_inf
+        
+        if include_cap:
+            response += c_inv * cap_rv
 
-        if x_dop is not None:
+        if x_dop is not None and include_dop:
             response += rm_dop @ x_dop
+
+        # response = rm_drt @ x_drt + inf_rv * r_inf + induc * induc_rv + c_inv * cap_rv
+
+        # if x_dop is not None:
+        #     response += rm_dop @ x_dop
 
         # if not subtract_background:
         #     if not np.array_equal(times, self.get_fit_times()):
