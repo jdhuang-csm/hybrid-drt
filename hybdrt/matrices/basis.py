@@ -128,7 +128,7 @@ def get_basis_func(basis_type, zga_params=None):
                 else:
                     return 0
             else:
-                out = np.zeros_like(y, dtype=np.float_)
+                out = np.zeros_like(y, dtype=float)
                 out[y == 0] = 1
                 return out
     elif basis_type == 'Zic':
