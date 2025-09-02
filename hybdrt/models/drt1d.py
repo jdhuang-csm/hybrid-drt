@@ -1366,26 +1366,40 @@ class DRT(DRTBase):
     # --------------------------------
     def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2, 
                 norm: str = "modulus", max_num_outliers: int = 2,
-                p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, n_iter:int = 2):
+                p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, 
+                n_iter: int = 2, n_outlier_iter: int = 2):
+        
         # Streamlined single-call KK test
-        # Fit data
-        self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades)
-        # Identify outliers based on residuals
-        outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_iter, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
-        # Identify frequency limits
-        f_min, f_max = self.get_kk_limits(outlier_index, max_num_outliers=max_num_outliers)
-        # Get clean data (inside frequency limits)
-        fz_clean = kk.trim_data(frequencies, z, f_min, f_max)
+        outlier_index = None
+        for i in range(n_iter):
+            # Fit data
+            self.kk_fit(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, extend_basis_decades=extend_basis_decades, outlier_index=outlier_index)
+            # Identify outliers based on residuals
+            outlier_index = self.get_kk_outliers(norm=norm, p_thresh=p_thresh, n_iter=n_outlier_iter, n_sigma=n_sigma, std_sample_fraction=std_sample_fraction)
+            # Identify frequency limits
+            f_min, f_max = self.get_kk_limits(outlier_index, max_num_outliers=max_num_outliers)
+            # Get clean data (inside frequency limits)
+            fz_clean = kk.trim_data(frequencies, z, f_min, f_max)
         
         return outlier_index, (f_min, f_max), fz_clean
         
         
-    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2):
+    def kk_fit(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2,
+               outlier_index: Optional[ndarray] = None):
         # Temporarily modify extend_basis_decades for KK test
         extend_basis_orig = deepcopy(self.extend_basis_decades)
         self.extend_basis_decades = extend_basis_decades
         
-        self.fit_eis(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0)
+        if outlier_index is not None:
+            # Apply zero weight to outliers, but still include them in the fit data
+            # so that they will show up in the residual plots
+            weight_factor = np.ones(len(frequencies) * 2)
+            weight_factor[outlier_index] = 0
+            weight_factor[outlier_index + len(frequencies)] = 0
+        else:
+            weight_factor = 1
+            
+        self.fit_eis(frequencies, z, nonneg=nonneg, l2_lambda_0=l2_lambda_0, weight_factor=weight_factor)
         
         # Restore original extend_basis settings
         self.extend_basis_decades = extend_basis_orig
@@ -4366,7 +4380,16 @@ class DRT(DRTBase):
     def evaluate_rss(self, weights=None, x=None, normalize=False):
         if weights is None:
             weights = self.qphb_params['est_weights']
-
+        elif weights == "uniform":
+            # Uniform weights within each domain
+            n_chrono = self.qphb_params["num_chrono"]
+            weights = np.empty(len(self.qphb_params["est_weights"]))
+            weights[:n_chrono] = np.mean(self.qphb_params["est_weights"][:n_chrono])
+            weights[n_chrono:] = np.mean(self.qphb_params["est_weights"][n_chrono:])
+        elif np.isscalar(weights):
+            weights = np.ones_like(self.qphb_params['est_weights']) * weights
+        
+            
         if x is None:
             x = self.qphb_history[-1]['x']  # Get parameters in scaled space with special params included
 
@@ -4379,9 +4402,17 @@ class DRT(DRTBase):
         return rss
 
     def evaluate_llh(self, weights=None, x=None, marginalize_weights=True, alpha_0=2, beta_0=1,
-                     subtract_background=True):
+                     subtract_background=True, normalize: bool = False):
         if weights is None:
             weights = self.qphb_params['est_weights']
+        elif weights == "uniform":
+            # Uniform weights within each domain
+            n_chrono = self.qphb_params["num_chrono"]
+            weights = np.empty(len(self.qphb_params["est_weights"]))
+            weights[:n_chrono] = np.mean(self.qphb_params["est_weights"][:n_chrono])
+            weights[n_chrono:] = np.mean(self.qphb_params["est_weights"][n_chrono:])
+        elif np.isscalar(weights):
+            weights = np.ones_like(self.qphb_params['est_weights']) * weights
 
         if x is None:
             x = self.qphb_history[-1]['x']  # Get parameters in scaled space with special params included
@@ -4401,6 +4432,10 @@ class DRT(DRTBase):
         llh = qphb.evaluate_llh(x, rzm, rzv, weights,
                                 marginalize_weights=marginalize_weights, alpha_0=alpha_0, beta_0=beta_0
                                 )
+        
+        # Normalize to number of data points
+        if normalize:
+            llh /= self.num_data
 
         return llh
 
@@ -4982,6 +5017,7 @@ class DRT(DRTBase):
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
                           area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
                           return_line=False, freq_axis=False, y_offset: float = 0.,
+                          set_xlim: bool = False,
                           **kw):
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
@@ -5118,6 +5154,9 @@ class DRT(DRTBase):
             if shade_kw is None:
                 shade_kw = {}
             shade_extrap_regions(ax, *self.get_data_tau_limits(), **shade_kw)
+            
+        if set_xlim:
+            ax.set_xlim(np.min(tau), np.max(tau))
 
         if tight_layout:
             fig.tight_layout()
@@ -5131,7 +5170,9 @@ class DRT(DRTBase):
                  invert_nu=True, phase=True, area=None,
                  plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975], order=0,
                  delta_density=False, include_ideal=True,
-                 tight_layout=True, return_line=False, normalize_quantiles=(0, 1), **kw):
+                 tight_layout=True, return_line=False, normalize_quantiles=(0, 1), 
+                 y_offset: float = 0.0,
+                 **kw):
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
@@ -5166,7 +5207,7 @@ class DRT(DRTBase):
             # Multiply by area
             scale_factor = scale_factor / area
 
-        line = ax.plot(nu_plot, dop / scale_factor, **kw)
+        line = ax.plot(nu_plot, dop / scale_factor + y_offset, **kw)
 
         # Plot CI
         if plot_ci:
@@ -5187,7 +5228,7 @@ class DRT(DRTBase):
                     ci_defaults.update(ci_kw)
                     ci_kw = ci_defaults
 
-                    ax.fill_between(nu_plot, dop_lo / scale_factor, dop_hi / scale_factor, **ci_kw)
+                    ax.fill_between(nu_plot, dop_lo / scale_factor + y_offset, dop_hi / scale_factor + y_offset, **ci_kw)
 
         if invert_nu:
             ax.set_xlabel(x_label)
@@ -5255,7 +5296,8 @@ class DRT(DRTBase):
         else:
             if distribution_kw is None:
                 distribution_kw = {}
-            self.plot_distribution(x=x, ax=drt_ax, **dict(plot_ci=True, c='k') | distribution_kw)
+            
+            self.plot_distribution(x=x, ax=drt_ax, **dict(plot_ci=True, c='k', shade_extrap=True, set_xlim=True) | distribution_kw)
             
         drt_ax.set_title('DRT')
 

@@ -30,7 +30,10 @@ class DRTMD(object):
                  time_precision=10, input_signal_precision=10, frequency_precision=10,
                  chrono_reader=None, eis_reader=None,
                  fit_kw=None, fit_type='drt', pfrt_factors=None,
-                 print_diagnostics=False, print_progress=True, warn=False):
+                 print_diagnostics=False, print_progress=True, warn=False,
+                 llh_kw: Optional[dict] = None,
+                 rss_kw: Optional[dict] = None,
+                 ):
 
         # Initialize workhorse DRT instance. Set up integral interpolation using tau_supergrid
         self.drt1d = DRT(interpolate_integrals=True,
@@ -116,7 +119,22 @@ class DRTMD(object):
         self.obs_fit_errors = []
         self.obs_fit_badness = np.zeros(0)
         self.obs_tau_indices = []
+        
+        # Fit metrics
+        if llh_kw is None:
+            llh_kw = {}
+        if rss_kw is None:
+            rss_kw = {}
+            
+        for kw_dict in (llh_kw, rss_kw):
+            kw_dict.setdefault("normalize", True)
+            kw_dict.setdefault("weights", "uniform")
+            
+        self.llh_kw = llh_kw
+        self.rss_kw = rss_kw
+            
         self.obs_llh = np.zeros(0)
+        self.obs_rss = np.zeros(0)
 
         # Resolved parameters
         self.obs_resolve_status = np.zeros(0, dtype=bool)
@@ -202,6 +220,7 @@ class DRTMD(object):
         self.obs_tau_indices.append(None)
         self.obs_x = np.insert(self.obs_x, len(self.obs_x), np.zeros(self.drt_param_shape()), axis=0)
         self.obs_llh = np.append(self.obs_llh, 0)
+        self.obs_rss = np.append(self.obs_rss, 0)
         self.obs_drt_var = np.insert(self.obs_drt_var, len(self.obs_drt_var), np.zeros(self.drt_param_shape()), axis=0)
         self.obs_x_resolved = np.insert(self.obs_x_resolved, len(self.obs_x_resolved),
                                         np.zeros(self.drt_param_shape()), axis=0)
@@ -237,7 +256,8 @@ class DRTMD(object):
             self.obs_fit_attr[obs_index] = self.drt1d.get_attributes(which=self.store_attr_categories)
             
             # Store llh for diagnostics
-            self.obs_llh[obs_index] = self.drt1d.evaluate_llh()
+            self.obs_llh[obs_index] = self.drt1d.evaluate_llh(**self.llh_kw)
+            self.obs_rss[obs_index] = self.drt1d.evaluate_rss(**self.rss_kw)
 
             # Determine tau indices used for fit
             left_index = utils.array.nearest_index(self.tau_supergrid, self.drt1d.basis_tau[0])
