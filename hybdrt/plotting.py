@@ -528,44 +528,10 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
             xmax = ax.get_xlim()[1]
         ax.set_xlim(xmin, xmax)
 
-        # # get data range
-        # yrng = ax.get_ylim()[1] - ax.get_ylim()[0]
-        # xrng = ax.get_xlim()[1] - ax.get_xlim()[0]
-        #
-        # # get axis dimensions
-        # bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-        # width, height = bbox.width, bbox.height
-        #
-        # yscale = yrng / height
-        # xscale = xrng / width
-        #
-        # if yscale > xscale:
-        #     # expand the x axis
-        #     diff = (yscale - xscale) * width
-        #     xmin = max(0, ax.get_xlim()[0] - diff / 2)
-        #     mindelta = ax.get_xlim()[0] - xmin
-        #     xmax = ax.get_xlim()[1] + diff - mindelta
-        #
-        #     ax.set_xlim(xmin, xmax)
-        # elif xscale > yscale:
-        #     # expand the y axis
-        #     diff = (xscale - yscale) * height
-        #     if min(np.min(-df['Zimag']), ax.get_ylim()[0]) >= 0:
-        #         # if -Zimag doesn't go negative, don't go negative on y-axis
-        #         ymin = max(0, ax.get_ylim()[0] - diff / 2)
-        #         mindelta = ax.get_ylim()[0] - ymin
-        #         ymax = ax.get_ylim()[1] + diff - mindelta
-        #     else:
-        #         negrng = abs(ax.get_ylim()[0])
-        #         posrng = abs(ax.get_ylim()[1])
-        #         negoffset = negrng * diff / (negrng + posrng)
-        #         posoffset = posrng * diff / (negrng + posrng)
-        #         ymin = ax.get_ylim()[0] - negoffset
-        #         ymax = ax.get_ylim()[1] + posoffset
-        #
-        #     ax.set_ylim(ymin, ymax)
-
         set_nyquist_aspect(ax, data=df)
+        
+        # ax.set_aspect("equal", adjustable="datalim")
+        
 
     if draw_zero_line and ax.get_ylim()[0] < 0:
         ax.axhline(0, c='k', lw=0.5, zorder=-10, alpha=0.75)

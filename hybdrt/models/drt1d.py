@@ -3241,7 +3241,7 @@ class DRT(DRTBase):
     def predict_dop(self, nu=None, x=None, normalize=False, normalize_tau=None, order=0, return_nu=False,
                     normalize_quantiles=(0, 1), delta_density=False, include_ideal=True):
         if nu is None:
-            nu = np.linspace(-1, 1, 401)
+            nu = np.linspace(-1, 1, 1001)
             # Ensure basis_nu is included
             nu = np.unique(np.concatenate([self.basis_nu, nu]))
             # Ensure pure inductance, resistance, and capacitance are included
@@ -4873,7 +4873,9 @@ class DRT(DRTBase):
 
     def plot_eis_fit(self, frequencies=None, axes=None, plot_type='nyquist', plot_data=True, data_kw=None,
                      bode_cols=None, bode_rep="cartesian", data_label='', scale_prefix=None, area=None, normalize=False,
-                     x=None, predict_kw={}, c='k', tight_layout=True, show_outliers=False, outlier_kw=None, **kw):
+                     x=None, predict_kw={}, c='k', tight_layout=True, show_outliers=False, outlier_kw=None, 
+                     y_offset: float = 0.0,
+                     **kw):
 
         # Set default data plotting kwargs if not provided
         if data_kw is None:
@@ -4906,7 +4908,7 @@ class DRT(DRTBase):
 
         # Plot data if requested
         if plot_data:
-            axes = plot_eis((self.get_fit_frequencies(), self.z_fit), plot_type, axes=axes, scale_prefix=scale_prefix,
+            axes = plot_eis((self.get_fit_frequencies(), self.z_fit - 1j * y_offset), plot_type, axes=axes, scale_prefix=scale_prefix,
                             label=data_label, bode_rep=bode_rep,
                             bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                             tight_layout=False, **data_kw)
@@ -4915,12 +4917,12 @@ class DRT(DRTBase):
         if show_outliers and self.eis_outliers is not None:
             if outlier_kw is None:
                 outlier_kw = {'c': 'r', 'label': 'Outliers'}
-            axes = plot_eis(self.eis_outliers, plot_type, axes=axes, scale_prefix=scale_prefix, bode_rep=bode_rep,
+            axes = plot_eis((self.eis_outliers[0], self.eis_outliers[1]  - 1j * y_offset), plot_type, axes=axes, scale_prefix=scale_prefix, bode_rep=bode_rep,
                             bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                             tight_layout=False, **outlier_kw)
 
         # Plot fit
-        axes = plot_eis((frequencies, z_hat), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix, bode_rep=bode_rep,
+        axes = plot_eis((frequencies, z_hat  - 1j * y_offset), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix, bode_rep=bode_rep,
                         bode_cols=bode_cols, area=area, normalize=normalize, normalize_rp=normalize_rp,
                         tight_layout=tight_layout, **kw)
 
