@@ -6,7 +6,7 @@ from scipy import ndimage
 import pandas as pd
 import time
 import warnings
-from typing import Optional
+from typing import Optional, Callable
 
 from .ndx import resample, assemble_ndx, filter_ndx
 from .curvature import peak_prob_1d
@@ -28,7 +28,7 @@ class DRTMD(object):
                  fixed_basis_nu=None, fit_dop=False, normalize_dop=True,
                  nu_basis_type='gaussian', nu_epsilon=None,
                  time_precision=10, input_signal_precision=10, frequency_precision=10,
-                 chrono_reader=None, eis_reader=None,
+                 chrono_reader: Optional[Callable] = None, eis_reader: Optional[Callable] = None,
                  fit_kw=None, fit_type='drt', pfrt_factors=None,
                  print_diagnostics=False, print_progress=True, warn=False,
                  llh_kw: Optional[dict] = None,
