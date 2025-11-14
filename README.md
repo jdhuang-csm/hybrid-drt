@@ -13,7 +13,7 @@ Additional tutorials and new functionality will be added soon.
 *Disclaimer:* `hybrid-drt` is experimental and under active development. The code is provided to demonstrate several conceptual approaches to electrochemical analysis, but the details of the implementation may change in the future.
 
 ## Webinar
-You can find a recording of a webinar providing a general introduction to the DRT in the `webinar` folder. This uses `hybrid-drt` for a short software demonstration, which can be found in the same folder.
+You can find the recording of a webinar providing a general introduction to the DRT in the `webinar` folder. This uses `hybrid-drt` for a short software demonstration, which can be found in the same folder.
 
 ## Requirements
 `hybrid-drt` requires the `mittag-leffler` package, which is available at https://github.com/jdhuang-csm/mittag-leffler.
@@ -24,6 +24,8 @@ You can find a recording of a webinar providing a general introduction to the DR
 * pandas
 * cvxopt
 * scikit-learn
+
+The `galvani` can optionally be installed for direct reading of EC-Lab `mpr` files.
 
 ## Installation
 Install `hybrid-drt` from the repository files using either conda or pip. See `installation.txt` for step-by-step instructions.
