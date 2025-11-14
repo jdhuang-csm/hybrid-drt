@@ -1354,7 +1354,7 @@ class DRTMD(object):
                 # Distribution of phasances
                 'fixed_basis_nu', 'nu_basis_type', 'nu_epsilon', 'fit_dop', 'normalize_dop',
                 # Chrono settings
-                'step_model', 'chrono_mode', "v_baseline_deg",
+                'step_model', 'chrono_mode',
                 # Data readers
                 # 'chrono_reader', 'eis_reader',
                 # Fit kwargs
@@ -1372,7 +1372,8 @@ class DRTMD(object):
                 'obs_tau_indices', 'obs_x', 'obs_special',
                 'obs_drt_var',
                 'obs_resolve_status', 'obs_x_resolved', 'obs_special_resolved',
-                "obs_x_filt", "ob_special_filt"
+                "obs_x_filt", "obs_special_filt",
+                "obs_llh", "obs_rss"
             ]
         }
 
