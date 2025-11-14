@@ -339,17 +339,6 @@ def find_time_column(data: DataFrame, source: str):
     
 
 
-def read_header(file):
-    txt = read_txt(file)
-
-    # find start of curve data
-    table_index = txt.upper().find('\nCURVE\tTABLE')
-    if table_index == -1:
-        table_index = txt.upper().find('\nZCURVE\tTABLE')
-
-    return txt[:table_index + 1]
-
-
 def read_generic(
     file: Union[Path, str], 
     source: Optional[str] = None,
