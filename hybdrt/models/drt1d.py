@@ -987,6 +987,9 @@ class DRT(DRTBase):
 
             it += 1
 
+        # Re-apply weight scaling factor, since weights come out of iterate_qphb
+        weights = weights * weight_factor
+        
         # # Set the outlier weights to nearly zero (final update)
         # if remove_outliers:
         #     weights[outlier_index] = 1e-10
