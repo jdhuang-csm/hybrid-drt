@@ -25,7 +25,7 @@ You can find the recording of a webinar providing a general introduction to the 
 * cvxopt
 * scikit-learn
 
-The `galvani` can optionally be installed for direct reading of EC-Lab `mpr` files.
+The `galvani` package can optionally be installed for direct reading of EC-Lab `mpr` files.
 
 ## Installation
 Install `hybrid-drt` from the repository files using either conda or pip. See `installation.txt` for step-by-step instructions.
