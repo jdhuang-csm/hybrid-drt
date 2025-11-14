@@ -16,7 +16,7 @@ Additional tutorials and new functionality will be added soon.
 You can find the recording of a webinar providing a general introduction to the DRT in the `webinar` folder. This uses `hybrid-drt` for a short software demonstration, which can be found in the same folder.
 
 ## Requirements
-`hybrid-drt` requires the `mittag-leffler` package, which is available at https://github.com/jdhuang-csm/mittag-leffler.
+`hybrid-drt` requires the [`mittag-leffler`](https://github.com/jdhuang-csm/mittag-leffler) package.
 `hybrid-drt` also requires the following packages:
 * numpy
 * matplotlib
@@ -25,7 +25,7 @@ You can find the recording of a webinar providing a general introduction to the 
 * cvxopt
 * scikit-learn
 
-The `galvani` package can optionally be installed for direct reading of EC-Lab `mpr` files.
+The [`galvani`](https://github.com/echemdata/galvani) package can optionally be installed for direct reading of EC-Lab `mpr` files.
 
 ## Installation
 Install `hybrid-drt` from the repository files using either conda or pip. See `installation.txt` for step-by-step instructions.
