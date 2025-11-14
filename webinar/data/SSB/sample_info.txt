@@ -1,0 +1,7 @@
+Sample 1: J:\Home\AK_Zeier\User\jhuang2\data\echem\PressCells\HalfCells\250226_NCM-LPSCl_7030_EPRO-POSCO_premix_Half\rate
+Filename: RateTest3_12_PEIS_C06.mpr
+PEIS measured at end of C/10 discharge after 20 minutes rest.
+
+Sample 2: J:\Home\AK_Zeier\User\jhuang2\data\echem\PressCells\HalfCells\250210_NCM-LPSCl_7030_EPRO-POSCO_premix_Half\run11_HybridVal_Rest
+Filename: HybridVal3_Rest_Iac=0.0033C_C01_004_StandardPEIS.csv
+PEIS measured at rest.
