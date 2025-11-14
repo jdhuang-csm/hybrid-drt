@@ -1,19 +1,19 @@
+# OBSOLETE - tuple hack is too messy
 import pandas as pd
 import numpy as np
 from numpy import ndarray
 from typing import List, Union, Optional
+from datetime import datetime
 
 
 class DataTuple(tuple):
     fields: List[str]
+    timestamp: Optional[datetime]
     
     def __new__(cls, data: Union[tuple, list]):
         if len(data) != len(cls.fields):
             raise ValueError(f"Expected {len(cls.fields)} fields, but received {len(data)}")
         obj = super().__new__(cls, tuple(data))
-        
-        # for field, field_data in zip(cls.fields, data):
-        #     setattr(obj, field, field_data)
         
         return obj
         
