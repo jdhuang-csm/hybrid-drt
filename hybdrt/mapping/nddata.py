@@ -149,7 +149,9 @@ def impute_nans(ndy, method='filter', filter_func=None, **filter_kw):
     return y_out
 
 
-def flag_outliers(ndy, filter_size, thresh=0.9, p_prior=0.01, impute=True, impute_kw=None):
+def flag_outliers(ndy, filter_size, thresh=0.9, p_prior=0.01, 
+                  full_std_contribution: float = 0.05,
+                  impute=True, impute_kw=None):
 
     # Impute nans
     if impute and np.any(np.isnan(ndy)):
@@ -162,7 +164,9 @@ def flag_outliers(ndy, filter_size, thresh=0.9, p_prior=0.01, impute=True, imput
     # Calculate local center and spread w/robust metrics
     mu_in = ndimage.median_filter(y_filt, filter_size)
     sigma_in = iqr_filter(y_filt, size=filter_size) / 1.349
-    sigma_in += 0.05 * stats.robust_std(np.nan_to_num(y_filt, np.nanmedian(y_filt))) + 1e-8
+    sigma_in += full_std_contribution * stats.robust_std(np.nan_to_num(y_filt, np.nanmedian(y_filt))) 
+    # Prevent 0 std
+    sigma_in += 1e-8
     sigma_out = np.abs(ndy - mu_in) + 1e-8
 
     p_out = outlier_prob(ndy, mu_in, sigma_in, sigma_out, p_prior)
