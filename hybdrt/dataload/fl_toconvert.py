@@ -3,12 +3,21 @@ from pandas import DataFrame
 from datetime import datetime, timedelta
 import warnings
 import numpy as np
-from hybdrt.utils.eis import polar_from_complex
 import calendar
 import time
 import re
 from typing import Union, Optional
 from pathlib import Path
+
+def polar_from_complex(data):
+    if type(data) == pd.core.frame.DataFrame:
+        Zmod = (data['Zreal'].values ** 2 + data['Zimag'].values ** 2) ** 0.5
+        Zphz = (180 / np.pi) * np.arctan2(data['Zimag'].values, data['Zreal'].values)
+    elif type(data) == np.ndarray:
+        Zmod = np.abs(data)
+        Zphz = (180 / np.pi) * np.arctan2(data.imag, data.real)
+
+    return Zmod, Zphz
 
 
 FilePath = Union[Path, str]
@@ -60,20 +69,6 @@ def read_txt(file):
     return txt
 
 
-# def check_source(file: FilePath, source: Optional[str] = None):
-#     known_sources = ['gamry', 'zplot', 'biologic', 'relaxis']
-
-#     if source is None:
-#         source = get_file_source(read_txt(file))
-#         if source is None:
-#             raise ValueError('Could not identify file format. To read this file, '
-#                              'manually specify the file format by providing the source argument. '
-#                              'Recognized sources: {}'.format(', '.join(known_sources)))
-
-#     if source not in known_sources:
-#         raise ValueError('Unrecognized source {}. Recognized sources: {}'.format(source, ', '.join(known_sources)))
-
-#     return source
 
 _known_sources = ['gamry', 'zplot', 'biologic', 'relaxis']
 
@@ -659,38 +654,6 @@ def get_chrono_tuple(
 
     return tup
 
-
-def get_hybrid_tuple(chrono_data, eis_data, append_eis_iv=False,
-                     start_time=None, end_time=None,
-                     min_freq=None, max_freq=None):
-    """
-    Get data tuple for hybrid measurement
-    :param chrono_data: chrono file path or DataFrame
-    :param eis_data: EIS file path or DataFrame
-    :param bool append_eis_iv: if True, extract DC I-V data from the EIS data
-    and append it to the chrono data. Only valid if the EIS measurement was
-    performed after the chrono measurement
-    :return:
-    """
-    # if type(chrono_data) != pd.DataFrame:
-    #     chrono_data = read_chrono(chrono_data)
-
-    # if type(eis_data) != pd.DataFrame:
-    #     eis_data = read_eis(eis_data)
-
-    times, i_sig, v_sig = get_chrono_tuple(chrono_data, start_time=start_time, end_time=end_time)
-    freq, z = get_eis_tuple(eis_data, min_freq=min_freq, max_freq=max_freq)
-
-    if append_eis_iv:
-        time_offset = get_time_offset(eis_data, chrono_data)
-        if time_offset > 0:
-            t_eis, i_eis, v_eis = iv_from_eis(eis_data)
-            t_eis += time_offset
-            times = np.concatenate([times, t_eis])
-            i_sig = np.concatenate([i_sig, i_eis])
-            v_sig = np.concatenate([v_sig, v_eis])
-
-    return times, i_sig, v_sig, freq, z
 
 
 def get_time_offset(df, df_ref):
