@@ -1345,6 +1345,16 @@ class DiscreteElementModel:
                           mark_peaks=False, limit_peak_heights=True,
                           mark_peaks_kw=None, normalize=False, show_singularities=True, singularity_scale=None,
                           return_line=False, y_offset=0, **kw):
+        warnings.warn("plot_distribution is deprecated and will be removed in the future. Please use plot_drt instead", DeprecationWarning, stacklevel=2)
+        return self.plot_drt(tau, x=x, ax=ax, area=area, scale_prefix=scale_prefix,
+                          mark_peaks=mark_peaks, limit_peak_heights=limit_peak_heights,
+                          mark_peaks_kw=mark_peaks_kw, normalize=normalize, show_singularities=show_singularities, singularity_scale=singularity_scale,
+                          return_line=return_line, y_offset=y_offset, **kw)
+    
+    def plot_drt(self, tau, x=None, ax=None, area=None, scale_prefix=None,
+                          mark_peaks=False, limit_peak_heights=True,
+                          mark_peaks_kw=None, normalize=False, show_singularities=True, singularity_scale=None,
+                          return_line=False, y_offset=0, **kw):
 
         gamma = self.predict_distribution(tau, x)
 
@@ -1434,8 +1444,16 @@ class DiscreteElementModel:
             return ax, line
         else:
             return ax
-
+    
     def plot_element_distributions(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
+                                   show_singularities=True, singularity_scale=None, return_lines=False,
+                                   y_offset=0, kw_list=None, mark_peaks=False, mark_peaks_kw=None, **common_kw):
+        warnings.warn("plot_element_distributions is deprecated and will be removed in the future. Please use plot_element_drts instead", DeprecationWarning)
+        return self.plot_element_drts(tau, element_names=element_names, x=x, ax=ax, area=area, scale_prefix=scale_prefix, normalize=normalize,
+                                   show_singularities=show_singularities, singularity_scale=singularity_scale, return_lines=return_lines,
+                                   y_offset=y_offset, kw_list=kw_list, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw, **common_kw)
+        
+    def plot_element_drts(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
                                    show_singularities=True, singularity_scale=None, return_lines=False,
                                    y_offset=0, kw_list=None, mark_peaks=False, mark_peaks_kw=None, **common_kw):
         if element_names is None:

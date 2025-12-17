@@ -1370,7 +1370,7 @@ class DRT(DRTBase):
     def kk_test(self, frequencies, z, nonneg: bool = False, l2_lambda_0: float = 1e-2, extend_basis_decades: int = 2, 
                 norm: str = "modulus", max_num_outliers: int = 2,
                 p_thresh:float = 1e-4, n_sigma: Optional[float] = None, std_sample_fraction: float = 0.6, 
-                n_iter: int = 2, n_outlier_iter: int = 2):
+                n_iter: int = 2, n_outlier_iter: int = 2, show_plot: bool = True):
         
         # Streamlined single-call KK test
         outlier_index = None
@@ -1383,6 +1383,9 @@ class DRT(DRTBase):
             f_min, f_max = self.get_kk_limits(outlier_index, max_num_outliers=max_num_outliers)
             # Get clean data (inside frequency limits)
             fz_clean = kk.trim_data(frequencies, z, f_min, f_max)
+            
+        if show_plot:
+            self.plot_kk_results(outlier_index=outlier_index, f_lim=(f_min, f_max))
         
         return outlier_index, (f_min, f_max), fz_clean
         
@@ -1397,8 +1400,8 @@ class DRT(DRTBase):
             # Apply zero weight to outliers, but still include them in the fit data
             # so that they will show up in the residual plots
             weight_factor = np.ones(len(frequencies) * 2)
-            weight_factor[outlier_index] = 0
-            weight_factor[outlier_index + len(frequencies)] = 0
+            weight_factor[outlier_index] = 1e-10
+            weight_factor[outlier_index + len(frequencies)] = 1e-10
         else:
             weight_factor = 1
             
@@ -2320,8 +2323,14 @@ class DRT(DRTBase):
                     self.discrete_candidate_dict[candidate]['bic'] - best_bic
 
         return test_models
-
+    
     def plot_candidate_distribution(self, candidate_id, candidate_type, mark_peaks=False, mark_peaks_kw=None,
+                                    tau=None, ppd=20, **kw):
+        warnings.warn("plot_candidate_distribution is deprecated and will be removed in the future. Please use plot_candidate_drt instead", DeprecationWarning)
+        return self.plot_candidate_drt(candidate_id, candidate_type, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw,
+                                    tau=tau, ppd=ppd, **kw)
+
+    def plot_candidate_drt(self, candidate_id, candidate_type, mark_peaks=False, mark_peaks_kw=None,
                                     tau=None, ppd=20, **kw):
         candidate_info = self.get_candidate(candidate_id, candidate_type)
 
@@ -2333,7 +2342,7 @@ class DRT(DRTBase):
                 mark_peaks_kw = {}
             mark_peaks_kw = dict(mark_peaks_default, **mark_peaks_kw)
 
-            return self.plot_distribution(tau=tau, x=candidate_x, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw,
+            return self.plot_drt(tau=tau, x=candidate_x, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw,
                                           **kw)
         else:
             dem = candidate_info['model']
@@ -2341,22 +2350,26 @@ class DRT(DRTBase):
             if tau is None:
                 tau = self.get_tau_eval(ppd)
 
-            return dem.plot_distribution(tau, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw, **kw)
-
+            return dem.plot_drt(tau, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw, **kw)
+    
     def predict_candidate_distribution(self, candidate_id, candidate_type, tau=None, **kw):
+        warnings.warn("predict_candidate_distribution is deprecated and will be removed in the future. Please use predict_candidate_drt instead", DeprecationWarning)
+        return self.predict_candidate_drt(candidate_id, candidate_type, tau=tau, **kw)
+
+    def predict_candidate_drt(self, candidate_id, candidate_type, tau=None, **kw):
         candidate_info = self.get_candidate(candidate_id, candidate_type)
 
         if candidate_type == 'continuous':
             candidate_x = self.extract_qphb_parameters(candidate_info['x'])['x']
 
-            return self.predict_distribution(tau=tau, x=candidate_x, **kw)
+            return self.predict_drt(tau=tau, x=candidate_x, **kw)
         else:
             dem = candidate_info['model']
 
             if tau is None:
                 tau = self.get_tau_eval(20)
 
-            return dem.predict_distribution(tau, **kw)
+            return dem.predict_drt(tau, **kw)
 
     def plot_candidate_eis_fit(self, candidate_id, candidate_type, **kw):
         candidate_info = self.get_candidate(candidate_id, candidate_type)
@@ -2753,7 +2766,7 @@ class DRT(DRTBase):
         for i, x_raw in enumerate(step_x):
             x_drt = self.extract_qphb_parameters(x_raw)['x']
             # x_drt = self.get_drt_params(x_raw, sign)
-            fxx = self.predict_distribution(tau_pfrt, x=x_drt, sign=sign, order=2, normalize=True)
+            fxx = self.predict_drt(tau_pfrt, x=x_drt, sign=sign, order=2, normalize=True)
 
             # Get curvature std
             fxx_cov = self.estimate_distribution_cov(tau_pfrt, p_matrix=step_p_mat[i], order=2, sign=sign,
@@ -2765,7 +2778,7 @@ class DRT(DRTBase):
             fxx_sigmas.append(fxx_sigma)
 
             # Get dist and std
-            f = self.predict_distribution(tau_pfrt, x=x_drt, sign=sign, order=0, normalize=True)
+            f = self.predict_drt(tau_pfrt, x=x_drt, sign=sign, order=0, normalize=True)
             f_cov = self.estimate_distribution_cov(tau_pfrt, p_matrix=step_p_mat[i], order=0, sign=sign,
                                                    normalize=True,
                                                    var_floor=fxx_var_floor,
@@ -3016,8 +3029,15 @@ class DRT(DRTBase):
             normalize_by = 1
             
         return normalize_by
-
+    
     def predict_distribution(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                             normalize=False, normalize_by: Optional[float] = None, 
+                             abs_norm: bool = False):
+        warnings.warn("predict_distribution is deprecated and will be removed in the future. Please use predict_drt instead", DeprecationWarning)
+        return self.predict_drt(tau=tau, ppd=ppd, x=x, order=order, sign=sign, 
+                                normalize=normalize, normalize_by=normalize_by, abs_norm=abs_norm)
+
+    def predict_drt(self, tau=None, ppd=20, x=None, order=0, sign=1, 
                              normalize=False, normalize_by: Optional[float] = None, 
                              abs_norm: bool = False):
         """ 
@@ -3187,7 +3207,7 @@ class DRT(DRTBase):
             dist_sigma = np.diag(dist_cov) ** 0.5
 
             # Distribution mean
-            dist_mu = self.predict_distribution(tau=tau, ppd=ppd, x=x, order=order, sign=sign, 
+            dist_mu = self.predict_drt(tau=tau, ppd=ppd, x=x, order=order, sign=sign, 
                                                 normalize=normalize, normalize_by=normalize_by)
 
             # Determine number of std devs to obtain quantiles
@@ -3557,7 +3577,7 @@ class DRT(DRTBase):
     def integrate_distribution(self, tau_min, tau_max, ppd=10, **predict_kw):
         num_decades = np.log10(tau_max) - np.log10(tau_min)
         tau = np.logspace(np.log10(tau_min), np.log10(tau_max), int(num_decades * ppd) + 1)
-        gamma = self.predict_distribution(tau, **predict_kw)
+        gamma = self.predict_drt(tau, **predict_kw)
         return np.trapz(gamma, x=np.log(tau))
 
     def split_r_p(self, tau_splits, resolve_peaks=False, **predict_kw):
@@ -3568,7 +3588,7 @@ class DRT(DRTBase):
         else:
             tau = predict_kw.pop('tau')
 
-        gamma = self.predict_distribution(tau, **predict_kw)
+        gamma = self.predict_drt(tau, **predict_kw)
 
         split_index = [utils.array.nearest_index(tau, ts) for ts in tau_splits]
         start_index = np.array([0] + split_index)
@@ -3576,7 +3596,7 @@ class DRT(DRTBase):
 
         if resolve_peaks:
             # Find min curvature in each window
-            fxx = self.predict_distribution(tau, order=2, **predict_kw)
+            fxx = self.predict_drt(tau, order=2, **predict_kw)
             peak_index = [np.argmin(fxx[i:j]) + i for i, j in zip(start_index, end_index)]
             # peaks.estimate_peak_weight_distributions(tau, gamma, fxx, peak_index, self.basis_tau, )
             peak_coef = self.estimate_peak_coef(tau, peak_indices=peak_index)
@@ -3631,7 +3651,7 @@ class DRT(DRTBase):
         mus = []
         bvar = []
         for order in [0, 1, 2]:
-            mu = self.predict_distribution(tau, x=x, order=order)
+            mu = self.predict_drt(tau, x=x, order=order)
             mus.append(mu)
             
             if bayes_cov:
@@ -3794,7 +3814,7 @@ class DRT(DRTBase):
             tau = self.get_tau_eval(ppd)
 
         # fx = self.predict_distribution(tau=tau, x=x, order=1)
-        fxx = self.predict_distribution(tau=tau, x=x, order=2, sign=sign, normalize=normalize)
+        fxx = self.predict_drt(tau=tau, x=x, order=2, sign=sign, normalize=normalize)
 
         # if normalize:
         # fx = fx / self.predict_r_p()
@@ -3856,7 +3876,7 @@ class DRT(DRTBase):
             peak_indices, peak_info = signal.find_peaks(-sign * fxx, height=height, prominence=prominence, **kw)
             # peak_indices = peaks.find_peaks_compound(fx, fxx, **kw)
         else:
-            f = self.predict_distribution(tau=tau, x=x, order=0, sign=sign, normalize=normalize)
+            f = self.predict_drt(tau=tau, x=x, order=0, sign=sign, normalize=normalize)
             # Find positive and negative peaks separately
             peak_index_list = []
             peak_info_list = []
@@ -3928,8 +3948,8 @@ class DRT(DRTBase):
         if tau is None:
             tau = self.get_tau_eval(10)
 
-        f = self.predict_distribution(tau, x=x, sign=sign)
-        fxx = self.predict_distribution(tau, x=x, sign=sign, order=2)
+        f = self.predict_drt(tau, x=x, sign=sign)
+        fxx = self.predict_drt(tau, x=x, sign=sign, order=2)
         peak_weights = peaks.estimate_peak_weight_distributions(tau, f, fxx, peak_indices, self.basis_tau,
                                                                 epsilon_factor, max_epsilon, min_epsilon, epsilon_uniform,
                                                                 peak_tau=peak_tau, trough_tau=trough_tau)
@@ -3986,7 +4006,7 @@ class DRT(DRTBase):
             squeeze_factor = squeeze_factors[i]
             if squeeze_factor != 1:
                 x_peak = peaks.squeeze_peak_coef(x_peak, self.basis_tau, squeeze_factor)
-            peak_gammas[i] = self.predict_distribution(tau, x=x_peak)
+            peak_gammas[i] = self.predict_drt(tau, x=x_peak)
 
         return peak_gammas
 
@@ -4000,7 +4020,7 @@ class DRT(DRTBase):
         if peak_tau is None:
             peak_tau = self.find_peaks(x=x, sign=sign, **find_peaks_kw)
 
-        gamma_peaks = self.predict_distribution(peak_tau, 
+        gamma_peaks = self.predict_drt(peak_tau, 
                                                 normalize=normalize, normalize_by=normalize_by, 
                                                 x=x, sign=sign)
 
@@ -4406,7 +4426,10 @@ class DRT(DRTBase):
 
     def evaluate_llh(self, weights=None, x=None, marginalize_weights=True, alpha_0=2, beta_0=1,
                      subtract_background=True, normalize: bool = False):
-        if weights is None:
+        if isinstance(weights, ndarray):
+            if not np.shape(weights) == self.qphb_params['est_weights'].shape:
+                raise ValueError('Expected weights array of shape {}, but received shape {}'.format(self.qphb_params['est_weights'].shape, np.shape(weights)))
+        elif weights is None:
             weights = self.qphb_params['est_weights']
         elif weights == "uniform":
             # Uniform weights within each domain
@@ -4992,13 +5015,13 @@ class DRT(DRTBase):
             sigma = self.predict_sigma('eis')
             if sigma is not None:
                 scale_factor = scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
-                if 'Zreal' in bode_cols:
-                    axes[bode_cols.index('Zreal')].fill_between(f_fit, -3 * sigma.real / scale_factor,
+                if 'real' in bode_cols:
+                    axes[bode_cols.index('real')].fill_between(f_fit, -3 * sigma.real / scale_factor,
                                                                 3 * sigma.real / scale_factor,
                                                                 color='k', lw=0, alpha=0.15, zorder=-10,
                                                                 label=r'$\pm 3 \sigma$')
-                if 'Zimag' in bode_cols:
-                    axes[bode_cols.index('Zimag')].fill_between(f_fit, -3 * sigma.imag / scale_factor,
+                if 'imag' in bode_cols:
+                    axes[bode_cols.index('imag')].fill_between(f_fit, -3 * sigma.imag / scale_factor,
                                                                 3 * sigma.imag / scale_factor,
                                                                 color='k', lw=0, alpha=0.15, zorder=-10,
                                                                 label=r'$\pm 3 \sigma$')
@@ -5006,17 +5029,33 @@ class DRT(DRTBase):
             axes[-1].legend()
 
         # Update axis labels
-        if 'Zreal' in bode_cols:
-            axes[bode_cols.index('Zreal')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
-        if 'Zimag' in bode_cols:
-            axes[bode_cols.index('Zimag')].set_ylabel(
+        if 'real' in bode_cols:
+            axes[bode_cols.index('real')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
+        if 'imag' in bode_cols:
+            axes[bode_cols.index('imag')].set_ylabel(
                 fr'$-(Z^{{\prime\prime}} - \hat{{Z}}^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
 
         fig.tight_layout()
 
         return axes
-
+    
     def plot_distribution(self, tau=None, ppd=20, x=None, ax=None, scale_prefix=None, plot_bounds=False,
+                          shade_extrap: bool=False, shade_kw: Optional[dict] = None,
+                          normalize=False, normalize_by=None, sign=None,
+                          plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
+                          area=None, order=0, mark_peaks=False, mark_peaks_kw=None, tight_layout=True,
+                          return_line=False, freq_axis=False, y_offset: float = 0.,
+                          set_xlim: bool = False,
+                          **kw):
+        warnings.warn("plot_distribution is deprecated and will be removed in the future. Please use plot_drt instead", DeprecationWarning)
+        return self.plot_drt(tau=tau, ppd=ppd, x=x, ax=ax, scale_prefix=scale_prefix, plot_bounds=plot_bounds,
+                             shade_extrap=shade_extrap, shade_kw=shade_kw, normalize=normalize, normalize_by=normalize_by,
+                             sign=sign, plot_ci=plot_ci, ci_kw=ci_kw, ci_quantiles=ci_quantiles,
+                             area=area, order=order, mark_peaks=mark_peaks, mark_peaks_kw=mark_peaks_kw, tight_layout=tight_layout,
+                             return_line=return_line, freq_axis=freq_axis, y_offset=y_offset,
+                             set_xlim=set_xlim, **kw)
+
+    def plot_drt(self, tau=None, ppd=20, x=None, ax=None, scale_prefix=None, plot_bounds=False,
                           shade_extrap: bool=False, shade_kw: Optional[dict] = None,
                           normalize=False, normalize_by=None, sign=None,
                           plot_ci=False, ci_kw=None, ci_quantiles=[0.025, 0.975],  # sample_kw={},
@@ -5055,14 +5094,14 @@ class DRT(DRTBase):
 
         # Get common scale prefix if plotting multiple signs
         if self.series_neg and len(signs) > 1 and scale_prefix is None:
-            gamma_pos = self.predict_distribution(tau, x=x, order=order, sign=1)
-            gamma_neg = self.predict_distribution(tau, x=x, order=order, sign=-1)
+            gamma_pos = self.predict_drt(tau, x=x, order=order, sign=1)
+            gamma_neg = self.predict_drt(tau, x=x, order=order, sign=-1)
             scale_prefix = utils.scale.get_common_scale_prefix([gamma_pos, gamma_neg])
 
         lines = []
         for sign in signs:
             # Calculate MAP distribution at evaluation points
-            gamma = self.predict_distribution(tau, x=x, order=order, sign=sign)
+            gamma = self.predict_drt(tau, x=x, order=order, sign=sign)
             # if line == 'mode':
             #     # Calculate MAP distribution at evaluation points
             #     gamma = self.predict_distribution(tau, x=x, order=order, sign=sign)
@@ -5259,7 +5298,7 @@ class DRT(DRTBase):
             return ax
 
     def plot_results(self, axes=None, x=None, show_outliers=False, outlier_kw=None,
-                     distribution_kw=None, eis_fit_kw=None, eis_resid_kw=None,
+                     drt_kw=None, eis_fit_kw=None, eis_resid_kw=None,
                      chrono_fit_kw=None, chrono_resid_kw=None):
 
         # Define axes
@@ -5295,14 +5334,14 @@ class DRT(DRTBase):
             chrono_resid_ax = axes[1, 2]
 
         # Plot distribution
-        if distribution_kw is None and self.series_neg:
+        if drt_kw is None and self.series_neg:
             for sign, c in zip([1, -1], ['b', 'r']):
-                self.plot_distribution(x=x, sign=sign, ax=drt_ax, plot_ci=True, c=c)
+                self.plot_drt(x=x, sign=sign, ax=drt_ax, plot_ci=True, c=c)
         else:
-            if distribution_kw is None:
-                distribution_kw = {}
+            if drt_kw is None:
+                drt_kw = {}
             
-            self.plot_distribution(x=x, ax=drt_ax, **dict(plot_ci=True, c='k', shade_extrap=True, set_xlim=True) | distribution_kw)
+            self.plot_drt(x=x, ax=drt_ax, **dict(plot_ci=True, c='k', shade_extrap=True, set_xlim=True) | drt_kw)
             
         drt_ax.set_title('DRT')
 
