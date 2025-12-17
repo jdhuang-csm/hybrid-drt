@@ -8,9 +8,10 @@ from .core import (
     FileSource, detect_file_source, read_with_source, get_extension, extract_timestamp,
     detect_time_column
 )
-from .srcconvert import standardize_z_data, reader_kwarg_gen
-from .datatypes import ZData, TimeSeriesData
-from .mpr import read_mpr
+from .srcconvert import standardize_z_data, standardize_chrono_data, reader_kwarg_gen
+from .datatypes import ZData, ChronoData
+from .sources.eclab_mpr import read_mpr
+from ..utils import units
 
 FilePath = Union[str, Path]
 
@@ -37,27 +38,17 @@ def read_eis(
     convert = standardize and not as_dataframe
     
     # Only load timestamps into the dataframe if convert==False
-    df, source = _read_generic(file, source, with_timestamp=with_timestamp and not convert)
+    df, source = _read_generic(file, source, with_timestamp=(with_timestamp and not convert))
 
     if standardize:
+        # standardize column names
         df = standardize_z_data(df, source=source)
-    # if source == FileSource.ZPLOT:
-    #     df = df.rename({"Z'(a)": "z_real", "Z''(b)": "z_imag", "Freq(Hz)": "frequency"}, axis=1)
-    # elif source in {FileSource.ECLAB_TXT, FileSource.ECLAB_MPT, FileSource.ECLAB_MPR}:
-    #     df = df.rename(
-    #         {"freq/Hz": "frequency", "Re(Z)/Ohm": "z_real", "-Im(Z)/Ohm": "z_imag"},
-    #         axis=1,
-    #     )
-    #     df["z_imag"] *= -1
-    # elif source == FileSource.RELAXIS:
-    #     df = df.rename({"Frequency": "frequency", "Z'": "z_real", "Z''": "z_imag"}, axis=1)
 
     if not convert:
         # Leave as dataframe (unstandardized or partially standardized)
         data = df
     else:
         # Convert to ZData (standardized)
-        # TODO: clean up timestamp - currently this is loaded into the df above, and also added here.
         if with_timestamp:
             ts = extract_timestamp(file, source)
         else:
@@ -68,33 +59,41 @@ def read_eis(
     return (data, source) if return_source else data
 
 
-def read_timeseries(
+def read_chrono(
     file: FilePath,
     source: Optional[FileSource] = None,
+    standardize: bool = True,
+    as_dataframe: bool = False,
     with_timestamp: bool = False,
     return_source: bool = False,
-) -> Union[TimeSeriesData, Tuple[TimeSeriesData, FileSource]]:
+) -> Union[ChronoData, Tuple[ChronoData, FileSource]]:
     """Read chrono/IV data and normalize into TimeSeriesData."""
     if source is None:
         source = detect_file_source(file)
     if source is None:
         raise ValueError(f"Could not detect source for {file}")
+    
+    # Convert to ChronoData: if standardize==True and as_dataframe==False
+    convert = standardize and not as_dataframe
 
-    df, source = _read_generic(file, source, with_timestamp=with_timestamp)
+    df, source = _read_generic(file, source, with_timestamp=(with_timestamp and not convert))
 
-    if source == FileSource.GAMRY_DTA:
-        time_col = _find_time_column(df, source)
-        df = df.rename({time_col: "time", "Im": "current", "Vf": "voltage"}, axis=1)
-    elif source in {FileSource.ECLAB_TXT, FileSource.ECLAB_MPR, FileSource.ECLAB_MPT}:
-        df = df.rename({"time/s": "time", "I/mA": "current", "Ewe/V": "voltage"}, axis=1)
+    if standardize:
+        # standardize column names
+        df = standardize_chrono_data(df, source=source)
+   
+    if not convert:
+        # Leave as dataframe (unstandardized or partially standardized)
+        data = df
+    else:
+        # Convert to ChronoData (standardized)
+        if with_timestamp:
+            ts = extract_timestamp(file, source)
+        else:
+            ts = None
+        data = ChronoData.from_dataframe(df, timestamp=ts)
 
-
-    ts = TimeSeriesData(df["time"].to_list(), df["current"].to_list(), df["voltage"].to_list())
-    # if timestamps:
-    #     timestamp = extract_timestamps(file, source, df) if with_timestamp else None
-    #     ts.timestamp = timestamps
-
-    return (ts, source) if return_source else ts
+    return (data, source) if return_source else data
 
 
 # ---------------------------------------------------------------------
@@ -306,13 +305,14 @@ def _read_generic(
     ) -> Tuple[pd.DataFrame, FileSource]:
     
     if get_extension(file).lower() == 'mpr':
-        mpr = read_mpr(file)
+        mpr = read_mpr(file, unscale=True)
         data = pd.DataFrame(mpr.data)
+        source = FileSource.ECLAB_MPR
     else:
         txt, source = read_with_source(file, source)
 
         # Get kwargs for reading based on source and header
-        read_kw = reader_kwarg_gen(source)(txt, source) #, data_start_str)
+        read_kw, unit_kw = reader_kwarg_gen(source)(txt, source) #, data_start_str)
         
         # print(read_kw)
         
@@ -322,8 +322,10 @@ def _read_generic(
         # Read into dataframe
         data = pd.read_csv(file, **read_kw)
     
-        # if with_timestamp:
-        #     append_timestamp(file, data, source)
+        # Handle units as needed
+        if len(unit_kw) > 0:
+            data = unscale_data(data, unit_kw["unit_prefixes"], unit_kw["new_names"])
+
             
     if with_timestamp:
         timestamp = extract_timestamp(file, source)
@@ -337,6 +339,31 @@ def _read_generic(
     return data, source
 
 
+def unscale_data(data: pd.DataFrame, prefixes, new_names):
+    """Scale all fields in a dataframe to their base units (e.g., mV -> V).
 
+    :param data: data array; must be a structured ndarray
+    :type data: ndarray
+    :return: unscaled data array
+    :rtype: ndarray
+    """
+    # TODO: consider precision loss?
+    if len(prefixes) != len(new_names) or len(prefixes) != len(data.columns):
+        raise ValueError("Number of columns, prefixes, and new_names must be equal")  
+    
+    # Scale each field
+    old_names = list(data.columns)
+    scaled = data.copy()
+    for i in range(len(new_names)):
+        prefix = prefixes[i]
+        if prefix is not None:
+            # Remove prefix and return to raw scaling
+            up = units.UnitPrefix(prefix)
+            scaled[old_names[i]] = up.scaled_to_raw(data[old_names[i]])
+            
+    # Rename fields with new units
+    scaled = scaled.rename(dict(zip(old_names, new_names)), axis=1)
+    
+    return scaled
 
 

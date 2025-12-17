@@ -1,2 +1,2 @@
-100 mg LPSCl (POSCO) between stainless steel stamps. 50 MPa frame pressure.
-Directory: J:\Home\AK_Zeier\User\jhuang2\data\echem\PressCells\ThermalDecomp\LPSCl\250514_POSCO_Pristine\PC06_100mg_IonBlock\00_TOvershoot_k=0.05
+LPSCl pellet between blocking stainless steel electrode. Measured at -25 deg. C with 50 MPa stack pressure.
+Original path: data\echem\PressCells\ThermalDecomp\LPSCl\250514_POSCO_Pristine\PC06_100mg_IonBlock\00_TOvershoot_k=0.05\PEIS_TSeq7_-25C_#51_C01.mpr

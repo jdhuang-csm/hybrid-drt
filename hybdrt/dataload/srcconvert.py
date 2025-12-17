@@ -1,20 +1,23 @@
 import pandas as pd
 from typing import Callable
-from .sources import gamry, eclab, relaxis
+from .sources import eclab_txt, gamry, relaxis, zplot
 from .core import FileSource
+
 
 def get_module(source: FileSource):
     if source.software == "GAMRY":
         return gamry
     if source.software == "ECLAB":
-        return eclab
+        return eclab_txt
     if source.software == "RELAXIS":
         return relaxis
+    if source.software == "ZPLOT":
+        return zplot
     
     # Could replace with getattr(sources, source.software.lower())
     
 
-def reader_kwarg_gen(source: FileSource) -> Callable[[str, FileSource]]:
+def reader_kwarg_gen(source: FileSource) -> Callable[[str, FileSource], dict]:
     """Get function to generate kwargs for reader
 
     :param source: _description_
@@ -30,13 +33,13 @@ def standardize_z_data(data: pd.DataFrame, source: FileSource):
     module = get_module(source)
     data = data.rename(module.Z_HEADER_MAP, axis=1)
     
-    if module.INVERT_Z_IM:
+    if module.INVERT_Z_IM and "z_im" in list(data.columns):
         data["z_im"] *= -1
         
     return data
 
 
-def rename_chrono_columns(data: pd.DataFrame, source: FileSource):
+def standardize_chrono_data(data: pd.DataFrame, source: FileSource):
     module = get_module(source)
     data = data.rename(module.CHRONO_HEADER_MAP, axis=1)
         

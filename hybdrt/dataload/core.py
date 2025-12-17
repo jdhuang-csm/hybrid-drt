@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Union, Optional, List
 from enum import StrEnum, auto
 from datetime import datetime
-from .mpr import read_mpr
+from .sources.eclab_mpr import read_mpr
 
 FilePath = Union[str, Path]
 
@@ -66,6 +66,8 @@ def detect_source_from_text(text: str) -> Optional[FileSource]:
     header = text.split("\n")[0]
     source = HEADER_SOURCE_MAP.get(header)
     if source is None:
+        # If detection fails with full header, try first word only
+        # This is expected e.g. for RelaxIS files, where version number may vary (RelaxIS 2.0, RelaxIS 3.0, etc)
         header_word = header.split(" ")[0]
         source = {k.split(" ")[0]: v for k, v in HEADER_SOURCE_MAP.items()}.get(header_word)
     return source
@@ -75,6 +77,10 @@ def detect_file_source(file: FilePath) -> Optional[FileSource]:
     source = detect_source_from_ext(file)
     if source is None:
         source = detect_source_from_text(read_txt(file))
+    if source is None:
+        ext = get_extension(file)
+        header = read_txt(file).split("\n")[0]
+        raise ValueError(f"Could not detect source for {file}. Extension: {ext}, Header: {header}")
     return source
 
 def read_with_source(file: FilePath, source: Optional[FileSource] = None):
@@ -126,8 +132,8 @@ def extract_timestamp(file: FilePath, source: Optional[FileSource] = None) -> Op
 
             time_line = get_line(txt, "TIME")
             time_txt = time_line.split('\t')[2]
-
-            return datetime.strptime(f"{date} {time_txt}", "%m/%d/%Y %H:%M:%S")
+            
+            return datetime.strptime(f"{date} {time_txt}", "%m/%d/%Y %H:%M:%S.%f")
         
         elif source == FileSource.ZPLOT:
             date_line = get_line(txt, "Date")
@@ -141,7 +147,7 @@ def extract_timestamp(file: FilePath, source: Optional[FileSource] = None) -> Op
         elif source == FileSource.ECLAB_TXT:
             find_str = 'Acquisition started on :'
             index = txt.find(find_str) + len(find_str)
-            timestr = txt[index:].splitlines[0].strip()
+            timestr = txt[index:].splitlines()[0].strip()
             return datetime.strptime(timestr, "%m/%d/%Y %H:%M:%S.%f")
         
     return

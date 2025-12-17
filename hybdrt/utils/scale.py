@@ -1,3 +1,4 @@
+# TODO: deprecate this in favor of units module
 import numpy as np
 
 prefix_map = {-3: 'n', -2: r'$\mu$', -1: 'm', 0: '', 1: 'k', 2: 'M', 3: 'G'}

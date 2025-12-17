@@ -4939,11 +4939,11 @@ class DRT(DRTBase):
                            s=10, alpha=0.5, **kw):
 
         if part == 'both':
-            bode_cols = ['Zreal', 'Zimag']
+            bode_cols = ['real', 'imag']
         elif part == 'real':
-            bode_cols = ['Zreal']
+            bode_cols = ['real']
         elif part == 'imag':
-            bode_cols = ['Zimag']
+            bode_cols = ['imag']
         else:
             raise ValueError(f"Invalid part argument {part}. Options: 'both', 'real', 'imag'")
 

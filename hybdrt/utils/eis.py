@@ -35,14 +35,14 @@ def construct_eis_df(frequencies, z):
     :param ndarray frequencies: array of frequencies
     :param ndarray z: array of impedance values
     """
-    df = pd.DataFrame(frequencies, columns=['Freq'])
-    df['Zreal'] = z.real
-    df['Zimag'] = z.imag
+    df = pd.DataFrame(frequencies, columns=['freq'])
+    df['real'] = z.real
+    df['imag'] = z.imag
 
     # Get polar data
     zmod, zphz = polar_from_complex(z)
-    df['Zmod'] = zmod
-    df['Zphz'] = zphz
+    df['modulus'] = zmod
+    df['phase'] = zphz
 
     return df
 

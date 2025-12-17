@@ -1,57 +1,64 @@
-from ..core import FileSource
+from typing import Callable, Tuple, Union, List
+
+from ...utils import units
 
 
-def get_read_kwargs(text: str, source: FileSource):
-    # TODO: need to check mpt format
-    if source == FileSource.ECLAB_TXT:
-        # Get number of header lines
-        nh_str = 'Nb header lines :'
-        nh_index = text.find(nh_str)
-        if nh_index > 0:
-            nh = int(text[nh_index + len(nh_str):].split('\n')[0].strip())
-        else:
-            # No header
-            nh = 0
-            
-        # Identify separator - could be tab or comma
-        header_row = text.split('\n')[nh - 1]
-        if len(header_row.split('\t')) > 1:
-            sep = '\t'
-        else:
-            sep = ','
-            
-        # Get header names
-        names = header_row.split(sep)
-            
-        return dict(
-            sep=sep,
-            skiprows=nh,
-            names=names,
-        )
+def split_list(x: list, split_func: Callable) -> Tuple[list]:
+    """Split each entry of a list with split_func, then return separate
+    lists of the split_func outputs.
+
+    :param list x: List to split.
+    :param Callable split_func: Function with which to split each entry of x.
+    :return Tuple[List]: A tuple of lists. The ith list contains the
+        ith split_func output for all entries of the input 
+        list.
+    """
+    split = [split_func(xi) for xi in x]
+    return tuple([[s[i] for s in split] for i in range(len(split[0]))])
+
+
+def split_fieldname(fieldname: str):
+    """Split a fieldname into name and unit components.
+    :param fieldname: Fieldname string (e.g., "voltage/mV")
+    :type fieldname: str
+    :return: name and unit components
+    :rtype: Tuple[str, Union[str, None]]
+    """
+    # Find last slash separator
+    index = fieldname[::-1].find('/')
+    if index == -1:
+        return fieldname, None
+    
+    index = -(index + 1)
+    name = fieldname[:index]
+    unit = fieldname[index + 1:]
         
+    return name, unit
 
-# TODO: does df.rename break if columns in map are not in df? 
-Z_HEADER_MAP = {
-    'freq/Hz': 'freq',
-    'Re(Z)/Ohm': 'z_re',
-    '-Im(Z)/Ohm': 'z_im',
-    '|Z|/Ohm': 'modulus',
-    'Phase(Z)/deg': 'phase',
-    'time/s': 'time',
-    # Averaged values
-    '<Ewe>/V': 'voltage',
-    '<I>/mA': 'current',
-    # Raw values
-    'Ewe/V': 'voltage',
-    'I/mA': 'current',
-}
 
-CHRONO_HEADER_MAP = {
-    "time/s": "time",
-    '<Ewe>/V': 'voltage',
-    '<I>/mA': 'current',
-    'Ewe/V': 'voltage',
-    'I/mA': 'current',
-}
+def split_unit(unit: Union[str, None]):
+    if unit is None:
+        return None, None
+    elif len(unit) > 1 and unit[0] in units.ALL_PREFIXES:
+        prefix = unit[0]
+        base_unit = unit[1:]
+    else:
+        prefix = None
+        base_unit = unit
+        
+    return prefix, base_unit
 
-INVERT_Z_IM = True
+def process_fieldnames(fieldnames: List[str]):
+    """Given a list of field names with arbitrary units, extract unit prefixes, base units, and new field names with base units
+
+    :param fieldnames: _description_
+    :type fieldnames: List[str]
+    :return: _description_
+    :rtype: _type_
+    """
+    names, unit_list = split_list(fieldnames, split_fieldname)
+    prefixes, base_units = split_list(unit_list, split_unit)
+    
+    new_names = [f'{names[i]}/{base_units[i]}' for i in range(len(names))]
+    
+    return prefixes, base_units, new_names

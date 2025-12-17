@@ -4,16 +4,18 @@ from matplotlib.axes import Axes
 import numpy as np
 import warnings
 import pandas as pd
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from .utils.chrono import get_time_transforms, get_input_and_response
 from .utils.scale import get_scale_prefix, get_scale_factor, get_factor_from_prefix
 from .utils.eis import construct_eis_df
 from .utils import validation
 from .preprocessing import identify_steps, estimate_rp
+from .dataload.datatypes import ImmittanceData, ZData, YData, ChronoData
 
 
-def plot_chrono(data, chrono_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
+def plot_chrono(data: Union[ChronoData, pd.DataFrame, Tuple[np.ndarray, np.ndarray, np.ndarray]], 
+                chrono_mode=None, step_times=None, axes=None, plot_func='scatter', area=None,
                 transform_time=False, trans_functions=None, linear_time_axis=False, display_linear_ticks=False,
                 linear_tick_kw=None, plot_i=True, plot_v=True, i_sign_convention=1,
                 scale_prefix=None, tight_layout=True, **kw):
@@ -112,14 +114,19 @@ def plot_chrono(data, chrono_mode=None, step_times=None, axes=None, plot_func='s
     return axes
 
 
-def process_chrono_plot_data(data):
+def process_chrono_plot_data(data: Union[ChronoData, pd.DataFrame, Tuple[np.ndarray, np.ndarray, np.ndarray]]):
     times, i_signal, v_signal = None, None, None
-    if type(data) in (list, tuple):
+    if type(data) == ChronoData:
+        times = data.time
+        i_signal = data.i
+        v_signal = data.v
+    elif type(data) in (list, tuple):
         if len(data) == 3:
             times, i_signal, v_signal = data
         else:
             raise ValueError('If data is a tuple, it must be a 3-tuple of time, i_signal, and v_signal arrays')
     elif type(data) == pd.core.frame.DataFrame:
+        # TODO: this is based on Gamry data format. Remove or generalize later
         is_valid_df = True
         time_intersect = np.intersect1d(['elapsed', 'Time', 'T'], list(data.columns))
         if len(time_intersect) == 0:
@@ -380,30 +387,29 @@ def shade_extrap_regions(ax: Axes, tau_min, tau_max, color="gray", alpha=0.2, ls
 # --------------------
 # EIS plotting
 # --------------------
-def process_eis_plot_data(data):
-    if type(data) == tuple:
+def process_eis_plot_data(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.DataFrame]):
+    # TODO: incorporate scaling, normalization, and cell area
+    if isinstance(data, ImmittanceData):
+        return data.as_generic_dataframe()
+    elif type(data) == tuple:
         if len(data) == 2:
             validation.check_eis_data(*data)
         else:
-            raise ValueError('If data is a tuple, must be a 2-tuple of frequency and complex impedance arrays')
+            raise ValueError('If data is a tuple, must be a 2-tuple of frequency and complex immittance arrays')
+        return ImmittanceData(*data).as_generic_dataframe()
     elif type(data) == pd.core.frame.DataFrame:
-        required_columns = ['Freq', 'Zreal', 'Zimag', 'Zmod', 'Zphz']
+        required_columns = ['freq', 'real', 'imag', 'modulus', 'phase']
         intersection = np.intersect1d(required_columns, list(data.columns))
         if len(intersection) != len(required_columns):
-            raise ValueError(f'If data is a DataFrame, must contain columns: {required_columns}')
+            raise ValueError(f'If data is a DataFrame, it must contain columns: {required_columns}')
+        return data.copy()
     else:
-        raise ValueError('data must either be a pandas DataFrame or a 2-tuple of of frequency and complex impedance '
-                         'arrays')
-
-    if type(data) == tuple:
-        data_out = construct_eis_df(*data)
-    else:
-        data_out = data.copy()
-
-    return data_out
+        raise ValueError('data must be one of the following: an ImmittanceData instance, a 2-tuple of of frequency and complex immittance '
+                         'arrays, or a pandas DataFrame')
 
 
-def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_prefix=None, set_aspect_ratio=True,
+def plot_nyquist(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.DataFrame], 
+                 area=None, ax=None, label='', plot_func='scatter', scale_prefix=None, set_aspect_ratio=True,
                  normalize=False, normalize_rp=None, draw_zero_line=True, tight_layout=True, **kw):
     """
     Generate Nyquist plot.
@@ -428,6 +434,7 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
     kw:
         Keywords to pass to matplotlib.pyplot.plot_func
     """
+    # TODO: handle admittance data (scaling and axis labels need to change)
     df = process_eis_plot_data(data)
 
     if normalize and area is not None:
@@ -440,46 +447,60 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
 
     if area is not None:
         # if area given, convert to ASR
-        df['Zreal'] *= area
-        df['Zimag'] *= area
+        if isinstance(data, YData):
+            # Admittance data
+            df['real'] /= area
+            df['imag'] /= area
+        else:
+            # Assume impedance in all other cases
+            df['real'] *= area
+            df['imag'] *= area
 
     if normalize:
         if normalize_rp is None:
-            normalize_rp = estimate_rp(None, None, None, None, None, df['Zreal'].values + 1j * df['Zimag'].values)
-        df['Zreal'] /= normalize_rp
-        df['Zimag'] /= normalize_rp
+            normalize_rp = estimate_rp(None, None, None, None, None, df['real'].values + 1j * df['imag'].values)
+        df['real'] /= normalize_rp
+        df['imag'] /= normalize_rp
 
         if scale_prefix is None:
             scale_prefix = ''
 
     # get/set unit scale
     if scale_prefix is None:
-        z_concat = np.concatenate((df['Zreal'], df['Zimag']))
+        z_concat = np.concatenate((df['real'], df['imag']))
         scale_prefix = get_scale_prefix(z_concat)
     scale_factor = get_factor_from_prefix(scale_prefix)
 
     # scale data
-    df['Zreal'] /= scale_factor
-    df['Zimag'] /= scale_factor
+    df['real'] /= scale_factor
+    df['imag'] /= scale_factor
+    
+    # Invert imaginary component for impedance; keep sign for admittance
+    imag_sign = 1 if isinstance(data, YData) else -1
+    imag_sign_str = '' if isinstance(data, YData) else '-'
 
     if plot_func == 'scatter':
         scatter_defaults = {'s': 20, 'alpha': 0.5}
         scatter_defaults.update(kw)
-        ax.scatter(df['Zreal'], -df['Zimag'], label=label, **scatter_defaults)
+        ax.scatter(df['real'], imag_sign * df['imag'], label=label, **scatter_defaults)
     elif plot_func == 'plot':
-        ax.plot(df['Zreal'], -df['Zimag'], label=label, **kw)
+        ax.plot(df['real'], imag_sign * df['imag'], label=label, **kw)
     else:
         raise ValueError(f'Invalid plot type {plot_func}. Options are scatter, plot')
 
+    # Configure axis labels
+    symbol = "Y" if isinstance(data, YData) else "Z"
+    unit = r"$\Omega$" if not isinstance(data, YData) else "S"
+    
     if area is not None:
-        ax.set_xlabel(fr'$Z^\prime$ ({scale_prefix}$\Omega\cdot \mathrm{{cm}}^2$)')
-        ax.set_ylabel(fr'$-Z^{{\prime\prime}}$ ({scale_prefix}$\Omega\cdot \mathrm{{cm}}^2$)')
+        ax.set_xlabel(fr'${symbol}^\prime$ ({scale_prefix}{unit}$\cdot \mathrm{{cm}}^2$)')
+        ax.set_ylabel(fr'${imag_sign_str}{symbol}^{{\prime\prime}}$ ({scale_prefix}{unit}$\cdot \mathrm{{cm}}^2$)')
     elif normalize:
-        ax.set_xlabel(r'$Z^\prime \, / \, R_p$')
-        ax.set_ylabel(r'$-Z^{\prime\prime} \, / \, R_p$')
+        ax.set_xlabel(rf'${symbol}^\prime \, / \, R_p$')
+        ax.set_ylabel(rf'${imag_sign_str}{symbol}^{{\prime\prime}} \, / \, R_p$')
     else:
-        ax.set_xlabel(fr'$Z^\prime$ ({scale_prefix}$\Omega$)')
-        ax.set_ylabel(fr'$-Z^{{\prime\prime}}$ ({scale_prefix}$\Omega$)')
+        ax.set_xlabel(fr'${symbol}^\prime$ ({scale_prefix}{unit})')
+        ax.set_ylabel(fr'${imag_sign_str}{symbol}^{{\prime\prime}}$ ({scale_prefix}{unit})')
 
     if label != '':
         ax.legend()
@@ -492,8 +513,8 @@ def plot_nyquist(data, area=None, ax=None, label='', plot_func='scatter', scale_
         # make scale of x and y axes the same
 
         # if data extends beyond axis limits, adjust to capture all data
-        zi_min, zi_max = np.nanmin(-df['Zimag']), np.nanmax(-df['Zimag'])
-        zr_min, zr_max = np.nanmin(df['Zreal']), np.nanmax(df['Zreal'])
+        zi_min, zi_max = np.nanmin(imag_sign * df['imag']), np.nanmax(imag_sign * df['imag'])
+        zr_min, zr_max = np.nanmin(df['real']), np.nanmax(df['real'])
         ydata_range = zi_max - zi_min
         xdata_range = zr_max - zr_min
         if zi_min < ax.get_ylim()[0]:
@@ -601,7 +622,7 @@ def set_nyquist_aspect(ax, set_to_axis=None, data=None, center_coords=None, xmin
                 data_min = 0
             else:
                 df = process_eis_plot_data(data)
-                data_min = np.nanmin(-df['Zimag'])
+                data_min = np.nanmin(-df['imag'])
 
             if min(data_min, ax.get_ylim()[0]) >= 0 and ymin is None:
                 # if -Zimag doesn't go negative, don't go negative on y-axis
@@ -670,10 +691,11 @@ def zoom_nyquist_y(ax: Axes, ylim: Optional[Tuple[float, float]] = None, xmin: O
     
 
 
-def plot_bode(data, area=None, axes=None, label='', plot_func='scatter', 
+def plot_bode(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.DataFrame], 
+              area=None, axes=None, label='', plot_func='scatter', 
               rep="polar",
               cols=None, scale_prefix=None,
-              invert_phase=True, invert_Zimag=True, log_mod=True, normalize=False, normalize_rp=None,
+              invert_phase: Optional[bool] = None, invert_imag: Optional[bool] = None, log_mod=True, normalize=False, normalize_rp=None,
               tight_layout=True, **kw):
     """
     Generate Bode plots.
@@ -696,7 +718,7 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
         Options are 'mu', 'm', '', 'k', 'M', 'G'
     invert_phase : bool, optional (default: True)
         If True, plot negative phase
-    invert_Zimag : bool, optional (default: True)
+    invert_imag : bool, optional (default: True)
         If True, plot negative Zimag
     kw:
         Keywords to pass to matplotlib.pyplot.plot_func
@@ -705,9 +727,9 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
     
     if cols is None:
         if rep == "polar":
-            cols = ["Zmod", "Zphz"]
+            cols = ["modulus", "phase"]
         elif rep == "cartesian":
-            cols = ["Zreal", "Zimag"]
+            cols = ["real", "imag"]
         else:
             raise ValueError(f"Invalid representation {rep}. Options: 'polar', 'cartesian'")
 
@@ -715,13 +737,15 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
         raise ValueError('normalize and area should not be used together')
 
     # formatting for columns
-    col_dict = {'Zmod': {'units': r'$\Omega$', 'label': r'$|Z|$', 'scale': 'log'},
-                'Zphz': {'units': r'$^\circ$', 'label': r'$\theta$', 'scale': 'linear'},
-                'Zreal': {'units': r'$\Omega$', 'label': r'$Z^\prime$', 'scale': 'linear'},
-                'Zimag': {'units': r'$\Omega$', 'label': r'$Z^{\prime\prime}$', 'scale': 'linear'}
+    immittance_units = "S" if isinstance(data, YData) else r"$\Omega$"
+    symbol = "Y" if isinstance(data, YData) else "Z"
+    col_dict = {'modulus': {'units': immittance_units, 'label': rf'$|{symbol}|$', 'scale': 'log'},
+                'phase': {'units': r'$^\circ$', 'label': r'$\theta$', 'scale': 'linear'},
+                'real': {'units': immittance_units, 'label': rf'${symbol}^\prime$', 'scale': 'linear'},
+                'imag': {'units': immittance_units, 'label': rf'${symbol}^{{\prime\prime}}$', 'scale': 'linear'}
                 }
     if not log_mod:
-        col_dict['Zmod']['scale'] = 'linear'
+        col_dict['modulus']['scale'] = 'linear'
 
     # if type(axes) not in [list, np.ndarray, tuple] and axes is not None:
     #     axes = [axes]
@@ -734,45 +758,49 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
         fig = axes[0].get_figure()
 
     if area is not None:
-        for col in ['Zreal', 'Zimag', 'Zmod']:
+        for col in ['real', 'imag', 'modulus']:
             if col in df.columns:
                 df[col] *= area
 
     if normalize:
         if normalize_rp is None:
-            normalize_rp = estimate_rp(None, None, None, None, None, df['Zreal'].values + 1j * df['Zimag'].values)
-        df['Zreal'] /= normalize_rp
-        df['Zimag'] /= normalize_rp
-        df['Zmod'] /= normalize_rp
+            normalize_rp = estimate_rp(None, None, None, None, None, df['real'].values + 1j * df['imag'].values)
+        df['real'] /= normalize_rp
+        df['imag'] /= normalize_rp
+        df['modulus'] /= normalize_rp
 
         if scale_prefix is None:
             scale_prefix = ''
 
     # get/set unit scale
     if scale_prefix is None:
-        z_concat = np.concatenate((df['Zreal'], df['Zimag']))
+        z_concat = np.concatenate((df['real'], df['imag']))
         scale_prefix = get_scale_prefix(z_concat)
     scale_factor = get_factor_from_prefix(scale_prefix)
 
     # scale data
-    for col in ['Zreal', 'Zimag', 'Zmod']:
+    for col in ['real', 'imag', 'modulus']:
         if col in df.columns:
             df[col] /= scale_factor
 
-    if invert_Zimag:
-        df['Zimag'] *= -1
+    if invert_imag is None:
+        invert_imag = False if isinstance(data, YData) else True
+    if invert_imag:
+        df['imag'] *= -1
 
+    if invert_phase is None:
+        invert_phase = False if isinstance(data, YData) else True
     if invert_phase:
-        df['Zphz'] *= -1
+        df['phase'] *= -1
 
     if plot_func == 'scatter':
         scatter_defaults = {'s': 20, 'alpha': 0.5}
         scatter_defaults.update(kw)
         for col, ax in zip(cols, axes):
-            ax.scatter(df['Freq'], df[col], label=label, **scatter_defaults)
+            ax.scatter(df['freq'], df[col], label=label, **scatter_defaults)
     elif plot_func == 'plot':
         for col, ax in zip(cols, axes):
-            ax.plot(df['Freq'], df[col], label=label, **kw)
+            ax.plot(df['freq'], df[col], label=label, **kw)
     else:
         raise ValueError(f'Invalid plot type {plot_func}. Options are scatter, plot')
 
@@ -782,19 +810,19 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
 
     def ax_title(column):
         cdict = col_dict.get(column, {})
-        if area is not None and cdict.get('units', '') == r'$\Omega$':
+        if area is not None and cdict.get('units', '') == immittance_units:
             title = r'{} ({}{}$\cdot\mathrm{{cm}}^2)$'.format(cdict.get('label', column), scale_prefix,
                                                              cdict.get('units', ''))
-        elif normalize and cdict.get('units', '') == r'$\Omega$':
+        elif normalize and cdict.get('units', '') == immittance_units:
             title = r'{} $\, / \, R_p$'.format(cdict.get('label', column))
-        elif cdict.get('units', '') == r'$\Omega$':
+        elif cdict.get('units', '') == immittance_units:
             title = r'{} ({}{})'.format(cdict.get('label', column), scale_prefix, cdict.get('units', ''))
         else:
             title = r'{} ({})'.format(cdict.get('label', column), cdict.get('units', 'a.u.'))
 
-        if column == 'Zimag' and invert_Zimag:
+        if column == 'imag' and invert_imag:
             title = r'$-$' + title
-        elif column == 'Zphz' and invert_phase:
+        elif column == 'phase' and invert_phase:
             title = r'$-$' + title
         return title
 
@@ -810,8 +838,8 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
 
     for ax in axes:
         # manually set x axis limits - sometimes matplotlib doesn't get them right
-        fmin = min(df['Freq'].min(), ax.get_xlim()[0] * 5)
-        fmax = max(df['Freq'].max(), ax.get_xlim()[1] / 5)
+        fmin = min(df['freq'].min(), ax.get_xlim()[0] * 5)
+        fmax = max(df['freq'].max(), ax.get_xlim()[1] / 5)
         ax.set_xlim(fmin / 5, fmax * 5)
 
     if tight_layout:
@@ -820,11 +848,12 @@ def plot_bode(data, area=None, axes=None, label='', plot_func='scatter',
     return axes
 
 
-def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='scatter', scale_prefix=None,
+def plot_eis(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.DataFrame], 
+             plot_type='all', area=None, axes=None, label='', plot_func='scatter', scale_prefix=None,
              bode_rep="polar", bode_cols=None, set_aspect_ratio=True, normalize=False, normalize_rp=None,
              tight_layout=True, nyquist_kw=None, bode_kw=None, **kw):
     """
-    Plot eis data in Nyquist and/or Bode plot(s)
+    Plot EIS data in Nyquist and/or Bode plot(s)
     Parameters
     ----------
     :param data: DataFrame of impedance data or 2-tuple of frequency and complex impedance arrays
@@ -857,20 +886,17 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
     -------
 
     """
-    # Process data
-    df = process_eis_plot_data(data)
-
     if nyquist_kw is None:
         nyquist_kw = {}
     if bode_kw is None:
         bode_kw = {}
 
     if plot_type == 'bode':
-        axes = plot_bode(df, area=area, axes=axes, label=label, plot_func=plot_func, cols=bode_cols,
+        axes = plot_bode(data, area=area, axes=axes, label=label, plot_func=plot_func, cols=bode_cols,
                          scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp,
                          tight_layout=tight_layout, rep=bode_rep, **bode_kw, **kw)
     elif plot_type == 'nyquist':
-        axes = plot_nyquist(df, area=area, ax=axes, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
+        axes = plot_nyquist(data, area=area, ax=axes, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
                             set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
                             tight_layout=tight_layout, **nyquist_kw, **kw)
     elif plot_type == 'all':
@@ -882,12 +908,12 @@ def plot_eis(data, plot_type='all', area=None, axes=None, label='', plot_func='s
             fig = axes.ravel()[0].get_figure()
 
         # Nyquist plot
-        plot_nyquist(df, area=area, ax=ax1, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
+        plot_nyquist(data, area=area, ax=ax1, label=label, plot_func=plot_func, scale_prefix=scale_prefix,
                      set_aspect_ratio=set_aspect_ratio, normalize=normalize, normalize_rp=normalize_rp,
                      tight_layout=tight_layout, **nyquist_kw, **kw)
 
         # Bode plots
-        plot_bode(df, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols, rep=bode_rep,
+        plot_bode(data, area=area, axes=(ax2, ax3), label=label, plot_func=plot_func, cols=bode_cols, rep=bode_rep,
                   scale_prefix=scale_prefix, normalize=normalize, normalize_rp=normalize_rp, tight_layout=tight_layout,
                   **bode_kw, **kw)
 

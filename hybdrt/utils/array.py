@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.core.multiarray import normalize_axis_index
+from numpy.lib.array_utils import normalize_axis_index
 
 
 # Utility functions
