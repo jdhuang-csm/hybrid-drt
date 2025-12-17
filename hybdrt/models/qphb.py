@@ -1587,6 +1587,9 @@ def estimate_weights(x, y, vmm, rm, est_weights=None, w_alpha=None, w_beta=None,
         w_scale = np.mean(w_hat)
         # w_beta = w_0 ** 2 * (w_alpha - 1.5)
         w_hat = w_hat * solve_init_weight_scale(w_scale, w_alpha, w_beta) / w_scale
+    
+    # Prevent weights going to zero
+    w_hat = np.maximum(w_hat, 1e-10)
 
     return w_hat, outlier_t, out_tvt
 
