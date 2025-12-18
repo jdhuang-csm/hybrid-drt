@@ -79,6 +79,11 @@ class ImmittanceData(BaseData):
         super().__init__(time=time, timestamp=timestamp, raw_data=raw_data)
         
     @property
+    def fx(self):
+        """Return frequency and immittance as a tuple for fitting"""
+        return self.freq, self._x
+        
+    @property
     def fields(self):
         return [f.value for f in self.field_enum if hasattr(self, f.value)]
         
@@ -292,6 +297,11 @@ class ChronoData(BaseData):
         super().__init__(time=time, timestamp=timestamp, raw_data=raw_data)
         
         
+    @property
+    def tiv(self):
+        """Return time, current, voltage as a tuple for fitting"""
+        return self.time, self.i, self.v
+    
     def trim_time(self, t_min: Optional[float] = None, t_max: Optional[float] = None) -> BaseData:
         """Return a new ChronoData object limited to times between t_min and t_max
 
