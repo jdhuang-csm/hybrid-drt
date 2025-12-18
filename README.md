@@ -38,7 +38,8 @@ I gave a webinar providing a general introduction to the DRT, which may be helpf
 * pandas
 * cvxopt
 * scikit-learn
-
+* scikit-image
+  
 The [`galvani`](https://github.com/echemdata/galvani) package can optionally be installed for direct reading of EC-Lab `mpr` files.
 
 ## Installation
