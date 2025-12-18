@@ -5,6 +5,10 @@ PEIS_LPSCl_IonBlocking_-25C: EIS measurement from an LPSCl pellet between blocki
 Original path: data\echem\PressCells\ThermalDecomp\LPSCl\250514_POSCO_Pristine\PC06_100mg_IonBlock\00_TOvershoot_k=0.05\PEIS_TSeq7_-25C_#51_C01.mpr
 
 HybridValidation_SSB: Joint-domain ("hybrid") impedance measurements and conventional EIS measurements performed on a solid-state battery near 0% state of charge with NCM-LPSCl composite cathode, LPSCl separator, and InLi alloy counter electrode. Measured at 25 deg. C with 50 MPa stack pressure.
-Original path: 
+Original path: data\echem\PressCells\HalfCells\250210_NCM-LPSCl_7030_EPRO-POSCO_premix_Half\run11_HybridVal_Rest\HybridVal5_Rest_Iac=0.0033C_C01.mpr
+
+
+PEIS_SSB: EIS measurement from a solid-state battery near 0% state of charge with NCM-LPSCl composite cathode, LPSCl separator, and InLi alloy counter electrode. Measured at 25 deg. C with 50 MPa stack pressure.
+Original path: data\echem\PressCells\HalfCells\250210_NCM-LPSCl_7030_EPRO-POSCO_premix_Half\run9_HybridValidation\PEIS_StdEIS_RepVal_EOD_vac=5mV_#0_C01.mpr
 
 
