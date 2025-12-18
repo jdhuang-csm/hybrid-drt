@@ -83,6 +83,9 @@ def check_source(source):
     
 
 def read_with_source(file: Union[Path, str], source: Optional[str] = None):
+    warnings.warn("The module fileload is deprecated and will be removed in future versions. "
+                  "Please use the functions in the new dataload module (see tutorials for usage).", 
+                  DeprecationWarning, stacklevel=2)
     text = read_txt(file)
 
     if source is None:

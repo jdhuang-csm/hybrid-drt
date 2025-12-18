@@ -2872,7 +2872,7 @@ class DRT(DRTBase):
 
         # Initialize discrete model from candidate DRT
         if model_init_kw is None:
-            model_init_kw = {'estimate_peak_distributions': True}
+            model_init_kw = {'estimate_peak_drts': True}
         dem = elements.DiscreteElementModel.from_drt(self, x, tau_find_peaks, peak_indices, **model_init_kw)
         # dem.drt_estimates['eis_weights'] = utils.eis.complex_vector_to_concat(self.predict_sigma('eis')) ** -1
 
@@ -3196,8 +3196,17 @@ class DRT(DRTBase):
         else:
             # Error in precision matrix inversion
             return None
-
+        
     def predict_distribution_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, 
+                                normalize=False, normalize_by: Optional[float] = None,
+                                quantiles=[0.025, 0.975]):
+        warnings.warn("predict_distribution_ci is deprecated. Please use predict_drt_ci instead", DeprecationWarning)
+        return self.predict_drt_ci(tau=tau, ppd=ppd, x=x, order=order, sign=sign,
+                                   normalize=normalize, normalize_by=normalize_by,
+                                   quantiles=quantiles)
+        
+
+    def predict_drt_ci(self, tau=None, ppd=20, x=None, order=0, sign=1, 
                                 normalize=False, normalize_by: Optional[float] = None,
                                 quantiles=[0.025, 0.975]):
         # Get distribution std
@@ -3575,6 +3584,10 @@ class DRT(DRTBase):
         return self.predict_r_inf() + self.predict_r_p()
 
     def integrate_distribution(self, tau_min, tau_max, ppd=10, **predict_kw):
+        warnings.warn("integrate_distribution is deprecated. Please use integrate_drt instead", DeprecationWarning)
+        return self.integrate_drt(tau_min, tau_max, ppd=ppd, **predict_kw)
+    
+    def integrate_drt(self, tau_min, tau_max, ppd=10, **predict_kw):
         num_decades = np.log10(tau_max) - np.log10(tau_min)
         tau = np.logspace(np.log10(tau_min), np.log10(tau_max), int(num_decades * ppd) + 1)
         gamma = self.predict_drt(tau, **predict_kw)
@@ -3957,8 +3970,18 @@ class DRT(DRTBase):
         x_peaks = x * peak_weights
 
         return x_peaks
-
+    
     def estimate_peak_distributions(self, tau=None, ppd=10, tau_find_peaks=None, peak_indices=None, x=None, sign=None,
+                                    epsilon_factor=1.25,
+                                    max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None,
+                                    peak_tau=None, trough_tau=None):
+        warnings.warn("estimate_peak_distributions is deprecated. Please use estimate_peak_drts instead", DeprecationWarning)
+        return self.estimtate_peak_drts(tau=tau, ppd=ppd, tau_find_peaks=tau_find_peaks, peak_indices=peak_indices, x=x, sign=sign,
+                                    epsilon_factor=epsilon_factor,
+                                    max_epsilon=max_epsilon, min_epsilon=min_epsilon, epsilon_uniform=epsilon_uniform, squeeze_factors=squeeze_factors, find_peaks_kw=find_peaks_kw,
+                                    peak_tau=peak_tau, trough_tau=trough_tau)
+
+    def estimate_peak_drts(self, tau=None, ppd=10, tau_find_peaks=None, peak_indices=None, x=None, sign=None,
                                     epsilon_factor=1.25,
                                     max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None,
                                     peak_tau=None, trough_tau=None):
@@ -4033,11 +4056,18 @@ class DRT(DRTBase):
 
         ax.scatter(peak_tau, gamma_peaks / scale_factor + y_offset, **plot_kw)
 
-    def plot_peak_distributions(self, ax=None, tau=None, ppd=10, peak_gammas=None, estimate_peak_distributions_kw=None,
+    def plot_peak_distributions(self, ax=None, tau=None, ppd=10, peak_gammas=None, estimate_peak_drts_kw=None,
+                                scale_prefix=None, x=None, sign=None, **plot_kw):
+        warnings.warn("plot_peak_distributions is deprecated and will be removed in the future. Please use plot_peak_drts instead", DeprecationWarning)
+        
+        return self.plot_peak_drts(ax=ax, tau=tau, ppd=ppd, peak_gammas=peak_gammas, estimate_peak_drts_kw=estimate_peak_drts_kw,
+                                scale_prefix=scale_prefix, x=x, sign=sign, **plot_kw)
+    
+    def plot_peak_drts(self, ax=None, tau=None, ppd=10, peak_gammas=None, estimate_peak_drts_kw=None,
                                 scale_prefix=None, x=None, sign=None, **plot_kw):
 
-        if estimate_peak_distributions_kw is None:
-            estimate_peak_distributions_kw = {}
+        if estimate_peak_drts_kw is None:
+            estimate_peak_drts_kw = {}
 
         if tau is None:
             tau = self.get_tau_eval(ppd)
@@ -4046,7 +4076,7 @@ class DRT(DRTBase):
             sign = self.default_dist_sign
 
         if peak_gammas is None:
-            peak_gammas = self.estimate_peak_distributions(tau=tau, x=x, sign=sign, **estimate_peak_distributions_kw)
+            peak_gammas = self.estimate_peak_drts(tau=tau, x=x, sign=sign, **estimate_peak_drts_kw)
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(4, 3))
@@ -4068,12 +4098,12 @@ class DRT(DRTBase):
 
         return ax
 
-    def quantify_peaks(self, tau=None, ppd=10, **estimate_peak_distributions_kw):
+    def quantify_peaks(self, tau=None, ppd=10, **estimate_peak_drts_kw):
         if tau is None:
             tau = self.get_tau_eval(ppd)
 
         # Get peak distributions
-        peak_gammas = self.estimate_peak_distributions(tau=tau, **estimate_peak_distributions_kw)
+        peak_gammas = self.estimate_peak_drts(tau=tau, **estimate_peak_drts_kw)
 
         # Get peak magnitudes
         r_peaks = [np.trapz(gamma, x=np.log(tau)) for gamma in peak_gammas]
@@ -5120,7 +5150,7 @@ class DRT(DRTBase):
 
             if plot_ci:
                 if self.fit_type.find('qphb') > -1:
-                    gamma_lo, gamma_hi = self.predict_distribution_ci(
+                    gamma_lo, gamma_hi = self.predict_drt_ci(
                         tau, ppd, x=x, order=order, sign=sign, 
                         normalize=normalize, normalize_by=normalize_by,
                         quantiles=ci_quantiles

@@ -87,8 +87,8 @@ class DiscreteElementModel:
     # Initialization from DRT
     # -----------------------
     @classmethod
-    def from_drt(cls, drt, x_raw=None, tau=None, peak_indices=None, estimate_peak_distributions=True,
-                 estimate_peak_distributions_kw=None,
+    def from_drt(cls, drt, x_raw=None, tau=None, peak_indices=None, estimate_peak_drts=True,
+                 estimate_peak_drts_kw=None,
                  model_string=None, drt_element='HN',
                  set_bounds=True, parameter_limits=None, **find_peaks_kw):
 
@@ -111,13 +111,13 @@ class DiscreteElementModel:
         if peak_indices is None:
             _, _, peak_indices, _ = drt.find_peaks(tau=tau, **find_peaks_kw, return_info=True)
 
-        # Estimate separate peak distributions
-        if estimate_peak_distributions:
-            if estimate_peak_distributions_kw is None:
-                estimate_peak_distributions_kw = {}
-            peak_gammas = drt.estimate_peak_distributions(tau=tau, tau_find_peaks=tau, peak_indices=peak_indices,
-                                                          x=fit_parameters['x'],
-                                                          **estimate_peak_distributions_kw)
+        # Estimate separate peak drts
+        if estimate_peak_drts:
+            if estimate_peak_drts_kw is None:
+                estimate_peak_drts_kw = {}
+            peak_gammas = drt.estimate_peak_drts(tau=tau, tau_find_peaks=tau, peak_indices=peak_indices,
+                                                  x=fit_parameters['x'],
+                                                  **estimate_peak_drts_kw)
         else:
             peak_gammas = None
 
@@ -177,11 +177,11 @@ class DiscreteElementModel:
         model = cls(model_string)
 
         # Estimate DRT element parameters from peaks
-        if estimate_peak_distributions:
+        if estimate_peak_drts:
             drt_params = peaks.estimate_peak_params(tau, drt_element, peak_indices=peak_indices, f_peaks=peak_gammas)
         else:
-            f = drt.predict_distribution(tau, x=fit_parameters['x'])
-            fxx = drt.predict_distribution(tau, x=fit_parameters['x'], order=2)
+            f = drt.predict_drt(tau, x=fit_parameters['x'])
+            fxx = drt.predict_drt(tau, x=fit_parameters['x'], order=2)
             trough_indices = peaks.find_troughs(f, fxx, peak_indices)
             drt_params = peaks.estimate_peak_params(tau, drt_element,
                                                     f=f, peak_indices=peak_indices, trough_indices=trough_indices)
@@ -331,6 +331,10 @@ class DiscreteElementModel:
                     if element_has_distribution(self.element_types[i])]
         return elements
 
+    @property
+    def num_drt_elements(self):
+        return len(self.drt_elements)
+    
     def get_element_parameter_values(self, element_name, x=None):
         if x is None:
             x = self.parameter_values
@@ -463,7 +467,7 @@ class DiscreteElementModel:
             tau_grid = pp.get_basis_tau(self.f_fit, self.t_fit, self.step_times, 50, 2)
             # print(tau_grid)
 
-        gamma = self.predict_distribution(tau_grid, x=x)
+        gamma = self.predict_drt(tau_grid, x=x)
         if normalize:
             gamma /= self.predict_r_p()
 
@@ -1170,11 +1174,15 @@ class DiscreteElementModel:
         return rp
 
     def predict_distribution(self, tau, x=None):
+        warnings.warn("predict_distribution is deprecated. Please use predict_drt instead", DeprecationWarning)
+        return self.predict_drt(tau, x=x)
+    
+    def predict_drt(self, tau, x=None):
         if x is None:
             x = self.parameter_values
         return self.gamma_function(tau, *x)
 
-    def predict_element_distribution(self, tau, element, x=None):
+    def predict_element_drt(self, tau, element, x=None):
         if type(element) == int:
             element_index = element
             element_name = self.element_names[element]
@@ -1356,7 +1364,7 @@ class DiscreteElementModel:
                           mark_peaks_kw=None, normalize=False, show_singularities=True, singularity_scale=None,
                           return_line=False, y_offset=0, **kw):
 
-        gamma = self.predict_distribution(tau, x)
+        gamma = self.predict_drt(tau, x)
 
         # max_val = np.max(gamma[gamma < np.inf])
         # min_val = np.min(gamma[gamma > -np.inf])
@@ -1398,15 +1406,15 @@ class DiscreteElementModel:
             # Get exact peak positions and heights
             peak_tau = self.get_time_constants()  # self.get_peak_tau(tau, find_peaks_kw={'prominence': 0})
             # Evaluate just to the left of the peak to avoid infinite values in case of singularities
-            peak_gamma = self.predict_distribution(peak_tau * (1 - 1e-5), x=x)
+            peak_gamma = self.predict_drt(peak_tau * (1 - 1e-5), x=x)
 
             if limit_peak_heights:
                 # Select tau locations from provided tau. Use height at selected location to mark peak
                 def get_peak_plot_tau(pt, pg):
                     t1 = tau[utils.array.nearest_index(tau, pt, constraint=-1)]
                     t2 = tau[utils.array.nearest_index(tau, pt, constraint=1)]
-                    g1 = self.predict_distribution(t1, x=x)
-                    g2 = self.predict_distribution(t2, x=x)
+                    g1 = self.predict_drt(t1, x=x)
+                    g2 = self.predict_drt(t2, x=x)
                     if abs(pg - g1) < abs(pg - g2):
                         return t1
                     else:
@@ -1415,7 +1423,7 @@ class DiscreteElementModel:
                 plot_peak_tau = np.array(
                     [get_peak_plot_tau(pt, pg) for pt, pg in zip(peak_tau, peak_gamma)]
                 )
-                plot_peak_gamma = self.predict_distribution(plot_peak_tau, x=x)
+                plot_peak_gamma = self.predict_drt(plot_peak_tau, x=x)
             else:
                 # Use the exact location and height to mark peaks
                 # May yield undesirable results for peaks with dispersion parameter (beta) close to 1
@@ -1474,7 +1482,7 @@ class DiscreteElementModel:
             normalize_by = None
 
         # Get element distributions
-        el_gammas = [self.predict_element_distribution(tau, el_name, x=x) for el_name in element_names]
+        el_gammas = [self.predict_element_drt(tau, el_name, x=x) for el_name in element_names]
 
         # Set singularity scale
         if singularity_scale is None:
@@ -1566,6 +1574,14 @@ class DiscreteElementModel:
     def fill_element_distributions(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
                                    return_patches=False,
                                    y_offset=0, kw_list=None, **common_kw):
+        warnings.warn("fill_element_distributions is deprecated. Please use fill_element_drts instead", DeprecationWarning)
+        return self.fill_element_drts(tau, element_names=element_names, x=x, ax=ax, area=area, scale_prefix=scale_prefix, normalize=normalize,
+                                   return_patches=return_patches,
+                                   y_offset=y_offset, kw_list=kw_list, **common_kw)
+    
+    def fill_element_drts(self, tau, element_names=None, x=None, ax=None, area=None, scale_prefix=None, normalize=False,
+                                   return_patches=False,
+                                   y_offset=0, kw_list=None, **common_kw):
         if element_names is None:
             element_names = [el_name for el_name, el_type in zip(self.element_names, self.element_types)
                             if element_has_distribution(el_type)]
@@ -1584,7 +1600,7 @@ class DiscreteElementModel:
             normalize_by = None
 
         # Get element distributions
-        el_gammas = [self.predict_element_distribution(tau, el_name, x=x) for el_name in element_names]
+        el_gammas = [self.predict_element_drt(tau, el_name, x=x) for el_name in element_names]
 
 
         # Get common scale factor
@@ -1651,7 +1667,7 @@ class DiscreteElementModel:
         for si in self.get_singularity_info(x):
             r, tau = si
             # Start at distribution value just past singularity
-            y_start = (self.predict_distribution(tau * (1 + 1e-3)) + y_offset) / scale_factor
+            y_start = (self.predict_drt(tau * (1 + 1e-3)) + y_offset) / scale_factor
 
             # End at axis limit
             if scale is not None:
@@ -1690,7 +1706,7 @@ class DiscreteElementModel:
         fig.tight_layout()
 
     def plot_eis_fit(self, frequencies=None, axes=None, plot_type='nyquist', plot_data=True, data_kw=None,
-                     bode_cols=['Zreal', 'Zimag'], data_label='', scale_prefix=None, area=None,
+                     bode_rep="cartesian", bode_cols=None, data_label='', scale_prefix=None, area=None,
                      predict_kw=None, c='k', **kw):
 
         # Set default data plotting kwargs if not provided
@@ -1725,21 +1741,15 @@ class DiscreteElementModel:
             else:
                 scale_prefix = utils.scale.get_scale_prefix(z_hat_concat)
 
-            # if plot_data:
-            #     z_data_concat = np.concatenate([data_df['Zreal'], data_df['Zimag']])
-            #     z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
-            #     scale_prefix = utils.scale.get_common_scale_prefix([z_data_concat, z_hat_concat])
-            # else:
-            #     z_hat_concat = np.concatenate([df_hat['Zreal'], df_hat['Zimag']])
-            #     scale_prefix = utils.scale.get_scale_prefix(z_hat_concat)
-
         # Plot data if requested
         if plot_data:
             axes = plot_eis((self.f_fit, self.z_fit), plot_type, axes=axes, scale_prefix=scale_prefix, label=data_label,
+                            bode_rep=bode_rep,
                             bode_cols=bode_cols, area=area, **data_kw)
 
         # Plot fit
         axes = plot_eis((frequencies, z_hat), plot_type, axes=axes, plot_func='plot', c=c, scale_prefix=scale_prefix,
+                        bode_rep=bode_rep,
                         bode_cols=bode_cols, area=area, **kw)
 
         fig = np.atleast_1d(axes)[0].get_figure()
@@ -1751,11 +1761,11 @@ class DiscreteElementModel:
                            s=20, alpha=0.5, **kw):
 
         if part == 'both':
-            bode_cols = ['Zreal', 'Zimag']
+            bode_cols = ['real', 'imag']
         elif part == 'real':
-            bode_cols = ['Zreal']
+            bode_cols = ['real']
         elif part == 'imag':
-            bode_cols = ['Zimag']
+            bode_cols = ['imag']
         else:
             raise ValueError(f"Invalid part {part}. Options: 'both', 'real', 'imag'")
 
@@ -1790,13 +1800,13 @@ class DiscreteElementModel:
             sigma = self.predict_sigma()
             if sigma is not None:
                 scale_factor = scale_factor = utils.scale.get_factor_from_prefix(scale_prefix)
-                if 'Zreal' in bode_cols:
-                    axes[bode_cols.index('Zreal')].fill_between(self.f_fit, -3 * sigma.real / scale_factor,
+                if 'real' in bode_cols:
+                    axes[bode_cols.index('real')].fill_between(self.f_fit, -3 * sigma.real / scale_factor,
                                                                 3 * sigma.real / scale_factor,
                                                                 color='k', lw=0, alpha=0.15, zorder=-10,
                                                                 label=r'$\pm 3 \sigma$')
-                if 'Zimag' in bode_cols:
-                    axes[bode_cols.index('Zimag')].fill_between(self.f_fit, -3 * sigma.imag / scale_factor,
+                if 'imag' in bode_cols:
+                    axes[bode_cols.index('imag')].fill_between(self.f_fit, -3 * sigma.imag / scale_factor,
                                                                 3 * sigma.imag / scale_factor,
                                                                 color='k', lw=0, alpha=0.15, zorder=-10,
                                                                 label=r'$\pm 3 \sigma$')
@@ -1804,10 +1814,10 @@ class DiscreteElementModel:
             axes[-1].legend()
 
         # Update axis labels
-        if 'Zreal' in bode_cols:
-            axes[bode_cols.index('Zreal')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
-        if 'Zimag' in bode_cols:
-            axes[bode_cols.index('Zimag')].set_ylabel(
+        if 'real' in bode_cols:
+            axes[bode_cols.index('real')].set_ylabel(fr'$Z^{{\prime}} - \hat{{Z}}^{{\prime}}$ ({scale_prefix}$\Omega$)')
+        if 'imag' in bode_cols:
+            axes[bode_cols.index('imag')].set_ylabel(
                 fr'$-(Z^{{\prime\prime}} - \hat{{Z}}^{{\prime\prime}})$ ({scale_prefix}$\Omega$)')
 
         fig.tight_layout()
