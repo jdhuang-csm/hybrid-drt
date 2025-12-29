@@ -410,7 +410,9 @@ def process_eis_plot_data(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarr
 
 def plot_nyquist(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.DataFrame], 
                  area=None, ax=None, label='', plot_func='scatter', scale_prefix=None, set_aspect_ratio=True,
-                 normalize=False, normalize_rp=None, draw_zero_line=True, tight_layout=True, **kw):
+                 normalize=False, normalize_rp=None, draw_zero_line=True, tight_layout=True, 
+                 invert_imag: Optional[bool] = None,
+                 **kw):
     """
     Generate Nyquist plot.
 
@@ -476,8 +478,13 @@ def plot_nyquist(data: Union[ImmittanceData, Tuple[np.ndarray, np.ndarray], pd.D
     df['imag'] /= scale_factor
     
     # Invert imaginary component for impedance; keep sign for admittance
-    imag_sign = 1 if isinstance(data, YData) else -1
-    imag_sign_str = '' if isinstance(data, YData) else '-'
+    if invert_imag is None:
+        imag_sign = 1 if isinstance(data, YData) else -1
+    else:
+        imag_sign = -1 if invert_imag else 1
+        
+    imag_sign_str = '' if imag_sign == 1 else '-'
+    
 
     if plot_func == 'scatter':
         scatter_defaults = {'s': 20, 'alpha': 0.5}

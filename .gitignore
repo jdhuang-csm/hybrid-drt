@@ -11,3 +11,9 @@ OBSOLETE
 OBSOLETE/*
 hybdrt/mapping/stan_models/*.hpp
 hybdrt/mapping/stan_models/*.exe
+.vscode
+.vscode/*
+.pytest_cache
+.pytest_cache/*
+.github
+.github/*
