@@ -31,8 +31,7 @@
 # Functions in this module were adapted from scipy.ndimage._filters (Jan. 2023)
 import numbers
 import numpy as np
-from scipy.ndimage import _ni_support
-from scipy.ndimage.filters import correlate1d, gaussian_filter1d
+from scipy.ndimage import _ni_support, correlate1d, gaussian_filter1d
 
 
 # "Empty" Gaussian filter

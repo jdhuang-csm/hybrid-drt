@@ -663,8 +663,8 @@ def generate_impedance_lookup(basis_type, epsilon, grid_points=2000, zga_params=
     z_re_func = get_impedance_func('real', basis_type, zga_params)
     z_im_func = get_impedance_func('imag', basis_type, zga_params)
 
-    z_re_grid = np.array([np.trapz(z_re_func(y, wt, 1, epsilon), x=y) for wt in wt_re_grid])
-    z_im_grid = np.array([np.trapz(z_im_func(y, wt, 1, epsilon), x=y) for wt in wt_im_grid])
+    z_re_grid = np.array([np.trapezoid(z_re_func(y, wt, 1, epsilon), x=y) for wt in wt_re_grid])
+    z_im_grid = np.array([np.trapezoid(z_im_func(y, wt, 1, epsilon), x=y) for wt in wt_im_grid])
 
     return (np.log(wt_re_grid), z_re_grid), (np.log(wt_im_grid), z_im_grid)
 
@@ -684,6 +684,6 @@ def generate_response_lookup(basis_type, op_mode, step_model, epsilon, grid_poin
     # Get integrand function
     response_func = get_response_func(basis_type, op_mode, step_model, zga_params)
 
-    response_grid = np.array([np.trapz(response_func(y, 1, td, epsilon, tau_rise), x=y) for td in td_grid])
+    response_grid = np.array([np.trapezoid(response_func(y, 1, td, epsilon, tau_rise), x=y) for td in td_grid])
 
     return np.log(td_grid), response_grid
