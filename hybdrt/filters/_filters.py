@@ -312,7 +312,7 @@ def nonuniform_gaussian_filter1d(a, sigma, axis=-1, empty=False,
             # print('max weight sum:', np.max(np.sum(nw, axis=0)))
             return nw
 
-        node_outputs = np.empty((len(sigma_nodes), *a.shape))
+        node_outputs = np.empty((len(sigma_nodes), *a.shape), dtype=a.dtype)
 
         for i in range(len(sigma_nodes)):
             if sigma_nodes[i] < min_sigma:
