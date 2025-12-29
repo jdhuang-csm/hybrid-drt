@@ -14,7 +14,9 @@ class DCT(DRT):
                       # EIS data
                       frequencies, z,
                       # Chrono options
-                      step_times, step_sizes, downsample, downsample_kw, offset_steps, smooth_inf_response,
+                      step_times, step_sizes, downsample, downsample_kw, offset_steps, 
+                      step_offset_size, discard_first_n,
+                      smooth_inf_response,
                       # Scaling
                       scale_data, rp_scale,
                       penalty_type, derivative_weights):
@@ -22,9 +24,13 @@ class DCT(DRT):
         data, mat = super()._prep_for_fit(
             times, i_signal, v_signal,
             frequencies, z,
-            step_times, step_sizes, downsample, downsample_kw, offset_steps, smooth_inf_response,
-            scale_data, rp_scale,
-            penalty_type, derivative_weights
+            step_times=step_times, step_sizes=step_sizes, downsample=downsample,
+            downsample_kw=downsample_kw, offset_steps=offset_steps, step_offset_size=step_offset_size, 
+            discard_first_n=discard_first_n,
+            smooth_inf_response=smooth_inf_response,
+            scale_data=scale_data, rp_scale=rp_scale,
+            penalty_type=penalty_type,
+            derivative_weights=derivative_weights
         )
         
         
@@ -42,13 +48,13 @@ class DCT(DRT):
     
     def _prep_impedance_prediction_matrix(self, frequencies):
         mat = super()._prep_impedance_prediction_matrix(frequencies)
-        mat = tuple([invert_mat(m) for m in mat])
+        mat = tuple([invert_mat(m, True) for m in mat])
         return mat
     
     def _prep_chrono_prediction_matrix(self, times, input_signal, step_times, step_sizes,
-                                       op_mode, offset_steps, smooth_inf_response):
+                                       op_mode, offset_steps, step_offset_size, smooth_inf_response):
         mat = super()._prep_chrono_prediction_matrix(times, input_signal, step_times, step_sizes,
-                                       op_mode, offset_steps, smooth_inf_response)
+                                       op_mode, offset_steps, step_offset_size, smooth_inf_response)
         rm, induc_rv, inf_rv, cap_rv, rm_dop = mat
         
         for m in [rm, rm_dop]:
