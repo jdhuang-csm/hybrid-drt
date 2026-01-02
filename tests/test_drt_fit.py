@@ -44,6 +44,7 @@ def test_drt_fit_eis():
         1.97133255-0.02605813j
     ])
     
+    # Expected outputs for default settings
     expected_result = {
         'x': np.array([0.00019874, 0.00041775, 0.00069699, 0.00098508, 0.00127749,
         0.00155336, 0.00180174, 0.0020093 , 0.00216608, 0.00226478,
@@ -132,9 +133,10 @@ def test_drt_fit_eis():
                 -6.83843652e+01])
         }
     
+    # Set defaults
     drt = DRT(fit_inductance=True, fit_capacitance=False, fit_dop=False, fit_ohmic=True)
     
-    # Default settings
+    # Default hyperparameters
     hypers = dict(
         rp_scale=14,
         derivative_weights=np.array([1.5, 1.0, 0.5]),
@@ -158,7 +160,7 @@ def test_drt_fit_eis():
         if exp_val is None:
             assert val is None
         else:    
-            assert np.allclose(val, drt.fit_parameters[key])
+            assert np.allclose(exp_val, val)
     
     
     
