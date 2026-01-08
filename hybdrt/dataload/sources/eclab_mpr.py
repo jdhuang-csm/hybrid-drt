@@ -14,7 +14,7 @@ except ImportError:
     _galvani_installed = False
     
 
-def read_mpr(file: Union[str, Path], unscale: bool = False):
+def read_mpr(file: Union[str, Path], unscale: bool = False, error_on_unknown_column: bool = False):
     """Read an EC-Lab mpr file.
 
     :param file: Path to file to read.
@@ -29,7 +29,7 @@ def read_mpr(file: Union[str, Path], unscale: bool = False):
         raise ModuleNotFoundError("The galvani package must be installed to read BioLogic .mpr files")
     
     file = Path(file)
-    mpr = MPRfile(file.__str__())
+    mpr = MPRfile(file.__str__(), error_on_unknown_column=error_on_unknown_column)
     
     if unscale:
         # Convert all units to base units (remove m, k, mu, etc. scaling)
