@@ -442,9 +442,9 @@ class DrtScorer:
 
         # Format
         if discretize:
-            ax.set_ylabel(f'$p$ ({scale_prefix}$\Omega$)')
+            ax.set_ylabel(fr'$p$ ({scale_prefix}$\Omega$)')
         else:
-            ax.set_ylabel(f'$\gamma$ ({scale_prefix}$\Omega$)')
+            ax.set_ylabel(fr'$\gamma$ ({scale_prefix}$\Omega$)')
 
         fig = ax.get_figure()
         fig.tight_layout()

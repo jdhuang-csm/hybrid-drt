@@ -566,7 +566,7 @@ class DRTBase:
 
             # Labels
             ax.set_xlabel('$y$')
-            ax.set_ylabel('$\phi(y)$')
+            ax.set_ylabel(r'$\phi(y)$')
 
             ax.legend()
 
