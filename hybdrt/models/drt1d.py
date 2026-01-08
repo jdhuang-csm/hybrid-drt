@@ -2743,7 +2743,7 @@ class DRT(DRTBase):
 
         # Normalize to posterior area
         if len(factors) > 1:
-            post_area = np.trapz(np.exp(log_post_eff), x=np.log(factors))
+            post_area = np.trapezoid(np.exp(log_post_eff), x=np.log(factors))
         else:
             post_area = np.exp(log_post_eff[0])
         post_prob_eff = np.exp(log_post_eff) / post_area
@@ -3591,7 +3591,7 @@ class DRT(DRTBase):
         num_decades = np.log10(tau_max) - np.log10(tau_min)
         tau = np.logspace(np.log10(tau_min), np.log10(tau_max), int(num_decades * ppd) + 1)
         gamma = self.predict_drt(tau, **predict_kw)
-        return np.trapz(gamma, x=np.log(tau))
+        return np.trapezoid(gamma, x=np.log(tau))
 
     def split_r_p(self, tau_splits, resolve_peaks=False, **predict_kw):
         tau_splits = sorted(tau_splits)
@@ -3615,7 +3615,7 @@ class DRT(DRTBase):
             peak_coef = self.estimate_peak_coef(tau, peak_indices=peak_index)
             split_area = np.array([self.predict_r_p(x=pc) for pc in peak_coef])
         else:
-            split_area = np.array([np.trapz(gamma[i:j], x=np.log(tau[i:j])) for i, j in zip(start_index, end_index)])
+            split_area = np.array([np.trapezoid(gamma[i:j], x=np.log(tau[i:j])) for i, j in zip(start_index, end_index)])
 
         return split_area
 
@@ -4106,7 +4106,7 @@ class DRT(DRTBase):
         peak_gammas = self.estimate_peak_drts(tau=tau, **estimate_peak_drts_kw)
 
         # Get peak magnitudes
-        r_peaks = [np.trapz(gamma, x=np.log(tau)) for gamma in peak_gammas]
+        r_peaks = [np.trapezoid(gamma, x=np.log(tau)) for gamma in peak_gammas]
 
         return r_peaks
 

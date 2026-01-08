@@ -755,7 +755,7 @@ def integrate_paths(tau, f, paths, troughs=None, widths=None, weight_multipliers
     norm_weights = path_weights / weight_sum
 
     path_dist = norm_weights * f[None, :]
-    path_sizes = np.trapz(path_dist, x=np.log(tau), axis=-1)
+    path_sizes = np.trapezoid(path_dist, x=np.log(tau), axis=-1)
 
     return path_dist, path_sizes
 
@@ -794,7 +794,7 @@ def integrate_paths_old(tau, f, rp, paths, troughs, width_sigma=1):
     norm_weights = path_weights / weight_sum
 
     path_dist = norm_weights * f[None, :]
-    path_sizes = np.trapz(path_dist, x=np.log(tau), axis=-1)
+    path_sizes = np.trapezoid(path_dist, x=np.log(tau), axis=-1)
 
     return path_dist, path_sizes
 

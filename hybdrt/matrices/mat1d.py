@@ -96,7 +96,7 @@ def construct_response_matrix(basis_tau, times, step_model, step_times, step_siz
                     if integrate_method == 'trapz':
                         y = np.linspace(-20, 20, integrate_points)
                         A_layered[k, times > st] = [
-                            [np.trapz(func(y, tau_m, t_n - st, epsilon, tau_rise[k]), x=y) * sa for tau_m in basis_tau]
+                            [np.trapezoid(func(y, tau_m, t_n - st, epsilon, tau_rise[k]), x=y) * sa for tau_m in basis_tau]
                             for t_n in times[times > st]
                         ]
                     elif integrate_method == 'quad':
@@ -348,8 +348,8 @@ def construct_impedance_matrix(frequencies, part, tau=None, basis_type='gaussian
                 r = [quad(func, quad_limits[0], quad_limits[1], args=(w_0, t_m, epsilon), epsabs=1e-4)[0] for t_m in tau]
             elif integrate_method == 'trapz':
                 y = np.linspace(-20, 20, integrate_points)
-                c = [np.trapz(func(y, w_n, t_0, epsilon), x=y) for w_n in omega]
-                r = [np.trapz(func(y, w_0, t_m, epsilon), x=y) for t_m in tau]
+                c = [np.trapezoid(func(y, w_n, t_0, epsilon), x=y) for w_n in omega]
+                r = [np.trapezoid(func(y, w_0, t_m, epsilon), x=y) for t_m in tau]
             elif integrate_method == 'interp':
                 c = np.interp(np.log(omega * t_0), log_wt_grid, z_grid)
                 r = np.interp(np.log(w_0 * tau), log_wt_grid, z_grid)
@@ -367,7 +367,7 @@ def construct_impedance_matrix(frequencies, part, tau=None, basis_type='gaussian
                                in tau]
                 elif integrate_method == 'trapz':
                     y = np.linspace(-20, 20, integrate_points)
-                    A[n, :] = [np.trapz(func(y, w_n, t_m, epsilon), x=y) for t_m in tau]
+                    A[n, :] = [np.trapezoid(func(y, w_n, t_m, epsilon), x=y) for t_m in tau]
                 elif integrate_method == 'interp':
                     A[n, :] = np.interp(np.log(w_n * tau), log_wt_grid, z_grid)
 

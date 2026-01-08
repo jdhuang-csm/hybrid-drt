@@ -274,7 +274,7 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
             start_index = start_indices[i]
             end_index = end_indices[i]
 
-            r_k = np.trapz(f[start_index:end_index], x=np.log(tau[start_index:end_index]))
+            r_k = np.trapezoid(f[start_index:end_index], x=np.log(tau[start_index:end_index]))
             r_tot += r_k
             # print(i, r_k)
 
@@ -283,8 +283,8 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
                 beta_k = (2 / np.pi) * np.arctan2(2 * np.pi * abs(f[peak_index]), abs(r_k))
 
                 if element_types[i] == 'HN':
-                    r_left = abs(np.trapz(f[start_index:peak_index], x=np.log(tau[start_index:peak_index])))
-                    r_right = abs(np.trapz(f[peak_index:end_index], x=np.log(tau[peak_index:end_index])))
+                    r_left = abs(np.trapezoid(f[start_index:peak_index], x=np.log(tau[start_index:peak_index])))
+                    r_right = abs(np.trapezoid(f[peak_index:end_index], x=np.log(tau[peak_index:end_index])))
                     if r_right >= r_left:
                         alpha_k = 0.99
                     else:
@@ -312,7 +312,7 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
             # peak_index = peak_indices[i]
 
             # 2. Integrate peak area to get R
-            r_k = np.trapz(f_peak, x=np.log(tau))
+            r_k = np.trapezoid(f_peak, x=np.log(tau))
             r_tot += r_k
             # print('r:', r_k)
 
@@ -322,8 +322,8 @@ def estimate_peak_params(tau, element_types, f=None, peak_indices=None, trough_i
                 # print('beta:', beta_k)
 
                 if element_types[i] == 'HN':
-                    r_left = abs(np.trapz(f_peak[:peak_index], x=np.log(tau[:peak_index])))
-                    r_right = abs(np.trapz(f_peak[peak_index:], x=np.log(tau[peak_index:])))
+                    r_left = abs(np.trapezoid(f_peak[:peak_index], x=np.log(tau[:peak_index])))
+                    r_right = abs(np.trapezoid(f_peak[peak_index:], x=np.log(tau[peak_index:])))
                     if r_right >= r_left:
                         alpha_k = 0.99
                     else:

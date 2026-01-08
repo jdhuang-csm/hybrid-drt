@@ -143,9 +143,9 @@ class DrtScorer:
     #     self.regression_summary = {
     #         'r2': r2_score(y_exact, y_est),
     #         'rss': np.sum(sqed_array),
-    #         'kld': np.trapz(kld_array, x=np.log(tau)),
-    #         'jsd': np.trapz(jsd_array, x=np.log(tau)),
-    #         'sqed': np.trapz(sqed_array, x=np.log(tau))
+    #         'kld': np.trapezoid(kld_array, x=np.log(tau)),
+    #         'jsd': np.trapezoid(jsd_array, x=np.log(tau)),
+    #         'sqed': np.trapezoid(sqed_array, x=np.log(tau))
     #     }
     #
     #     return self.regression_summary.copy()
@@ -508,7 +508,7 @@ def get_model_r_p(model, tau=None):
         if tau is None:
             raise ValueError('tau must be provided if model does not have a predict_r_p method')
         y_norm = model.predict_distribution(tau)
-        r_p = np.trapz(y_norm, x=np.log(tau))
+        r_p = np.trapezoid(y_norm, x=np.log(tau))
         # Add singularity mass to R_p
         if getattr(model, 'singularity_info', None) is not None:
             r_p += np.sum([si[0] for si in getattr(model, 'singularity_info')])
@@ -577,7 +577,7 @@ def calculate_reg_metrics(tau, y_exact, y_est, discrete, normalize=True, pad=1e-
         if discrete:
             return np.sum(div_array)
         else:
-            return np.trapz(div_array, x=np.log(tau))
+            return np.trapezoid(div_array, x=np.log(tau))
 
     reg_detail = {
         'r2_resid': r2_resid.copy(),
@@ -810,7 +810,7 @@ def normalize_distributions(x, *distributions, common_norm=False, discrete=False
             # Sum masses, don't integrate
             areas = [np.sum(p) for p in distributions]
         else:
-            areas = [np.trapz(p, x=x) for p in distributions]
+            areas = [np.trapezoid(p, x=x) for p in distributions]
 
         if common_norm:
             # Normalize all distributions to mean area (maintains relative scales)
@@ -825,7 +825,7 @@ def normalize_distributions(x, *distributions, common_norm=False, discrete=False
             # Sum masses, don't integrate
             area = np.sum(p)
         else:
-            area = np.trapz(p, x=x)
+            area = np.trapezoid(p, x=x)
         return p / area
 
 
@@ -870,7 +870,7 @@ def kl_divergence(x, p, q, pad=1e-5, normalize=False, discrete=False):
     if discrete:
         return np.sum(kl_div)
     else:
-        return np.trapz(kl_div, x=x)
+        return np.trapezoid(kl_div, x=x)
 
 
 def js_div_array(x, p, q, **kl_kw):
@@ -879,7 +879,7 @@ def js_div_array(x, p, q, **kl_kw):
 
 
 def js_divergence(x, p, q, **kl_kw):
-    return np.trapz(js_div_array(x, p, q, **kl_kw), x=x)
+    return np.trapezoid(js_div_array(x, p, q, **kl_kw), x=x)
 
 
 def sqe_distance_array(x, p, q, normalize=False, discrete=False):
@@ -895,7 +895,7 @@ def sqe_distance(x, p, q, normalize=False, discrete=False):
     if discrete:
         return np.sum(sqe)
     else:
-        return np.trapz(sqe, x=x)
+        return np.trapezoid(sqe, x=x)
 
 
 def divergence_index(div):

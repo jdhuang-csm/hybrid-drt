@@ -41,7 +41,7 @@ def integrate_peaks(pf, min_prob):
     peak_starts, peak_ends = get_peak_ranges(pf, min_prob)
     peak_index = identify_peaks(pf, min_prob)
     # print(peak_starts, peak_ends)
-    peak_areas = np.array([np.trapz(pf[start - 1:end + 1]) for start, end in zip(peak_starts, peak_ends)])
+    peak_areas = np.array([np.trapezoid(pf[start - 1:end + 1]) for start, end in zip(peak_starts, peak_ends)])
 
     return peak_index, peak_areas
 
