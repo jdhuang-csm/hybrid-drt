@@ -1,8 +1,7 @@
 import numpy as np
 from numpy import ndarray
 from pathlib import Path
-import pandas as pd
-from typing import Union, Callable, Tuple
+from typing import Union
 
 from ...utils import units
 from .eclab import process_fieldnames
