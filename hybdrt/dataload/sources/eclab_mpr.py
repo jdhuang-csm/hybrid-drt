@@ -1,13 +1,18 @@
 import numpy as np
 from numpy import ndarray
 from pathlib import Path
-from galvani.BioLogic import MPRfile
 import pandas as pd
 from typing import Union, Callable, Tuple
 
 from ...utils import units
 from .eclab import process_fieldnames
 
+try:
+    from galvani.BioLogic import MPRfile
+    _galvani_installed = True
+except ImportError:
+    _galvani_installed = False
+    
 
 def read_mpr(file: Union[str, Path], unscale: bool = False):
     """Read an EC-Lab mpr file.
@@ -20,6 +25,9 @@ def read_mpr(file: Union[str, Path], unscale: bool = False):
     :return: mpr file object
     :rtype: MPRfile
     """
+    if not _galvani_installed:
+        raise ModuleNotFoundError("The galvani package must be installed to read BioLogic .mpr files")
+    
     file = Path(file)
     mpr = MPRfile(file.__str__())
     
