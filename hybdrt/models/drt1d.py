@@ -3976,7 +3976,7 @@ class DRT(DRTBase):
                                     max_epsilon=1.25, min_epsilon=None, epsilon_uniform=None, squeeze_factors=None, find_peaks_kw=None,
                                     peak_tau=None, trough_tau=None):
         warnings.warn("estimate_peak_distributions is deprecated. Please use estimate_peak_drts instead", DeprecationWarning)
-        return self.estimtate_peak_drts(tau=tau, ppd=ppd, tau_find_peaks=tau_find_peaks, peak_indices=peak_indices, x=x, sign=sign,
+        return self.estimate_peak_drts(tau=tau, ppd=ppd, tau_find_peaks=tau_find_peaks, peak_indices=peak_indices, x=x, sign=sign,
                                     epsilon_factor=epsilon_factor,
                                     max_epsilon=max_epsilon, min_epsilon=min_epsilon, epsilon_uniform=epsilon_uniform, squeeze_factors=squeeze_factors, find_peaks_kw=find_peaks_kw,
                                     peak_tau=peak_tau, trough_tau=trough_tau)
