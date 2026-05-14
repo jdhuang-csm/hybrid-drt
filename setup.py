@@ -9,6 +9,7 @@ setup(name='hybrid-drt',
       author_email='jdhuang@mines.edu',
       license='BSD 3-clause',
       packages=find_packages(),
+      python_requires='>=3.11',
       install_requires=[
           'numpy >= 2.0.0',
           'pandas',
