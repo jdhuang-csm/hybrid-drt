@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import Union, Optional, Tuple, List
+from typing import Union, Optional, Tuple
 import pandas as pd
-from datetime import datetime
 import warnings
 
 from .core import (

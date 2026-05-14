@@ -546,7 +546,7 @@ def filter_chrono_signal(times, y, step_index=None, input_signal=None, decimate_
 
     # Get sigmas corresponding to decimation index
     if decimate_index is not None:
-        decimate_sigma = sigma_from_decimate_index(y, decimate_index)
+        decimate_sigma = sigma_from_decimate_index(y, step_index, decimate_index)
         step_dec_sigmas = split_steps(decimate_sigma, step_index)
     else:
         step_dec_sigmas = None
@@ -574,13 +574,19 @@ def filter_chrono_signal(times, y, step_index=None, input_signal=None, decimate_
     return np.concatenate(y_filt)
 
 
-def sigma_from_decimate_index(y, decimate_index, truncate=4.0):
+def sigma_from_decimate_index(y: np.ndarray, step_index: np.ndarray, decimate_index: np.ndarray, truncate=4.0):
     sigmas = np.zeros(len(y)) #+ 0.25
 
     # Determine distance to nearest sample
     diff = np.diff(decimate_index)
     ldiff = np.insert(diff, 0, diff[0])
     rdiff = np.append(diff, diff[-1])
+    # min_diff = np.minimum(ldiff, rdiff)
+    
+    # If the next sample to the right is the beginning of a new step,
+    # don't consider its distance in the sigma calculation,
+    # since the filter is bounded within each step.
+    rdiff[np.isin(decimate_index, np.array(step_index) -1)] = 10000
     min_diff = np.minimum(ldiff, rdiff)
 
     # Set sigma such that truncate * sigma reaches halfway to nearest sample

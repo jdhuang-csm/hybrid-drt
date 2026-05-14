@@ -3,9 +3,7 @@ from numpy import ndarray
 from datetime import datetime
 from typing import List, Optional
 import pandas as pd
-from enum import StrEnum, auto
-
-from ..utils.eis import complex_from_polar
+from enum import StrEnum
 
 
 # Define generic immittance fields enum, with members ZFields and YFields
