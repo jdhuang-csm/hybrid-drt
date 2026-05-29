@@ -2,13 +2,13 @@
 
 `hybrid-drt` is a Python package for probabilistic analysis of electrochemical impedance data using the distribution of relaxation times (DRT) and distribution of phasances (DOP). The key features of `hybrid-drt` are:
 1. DRT estimation using a robust, self-tuning hierarchical Bayesian approach (no manual tuning needed)
-2. Introduction of the [DOP]() for handling constant-phase features like (pseudo)-inductance, (pseudo)-capacitance, or Warburg-like diffusion
+2. Introduction of the [DOP](https://github.com/jdhuang-csm/hybrid-drt/blob/main/tutorials/Fitting_with_distribution_of_phasances.ipynb) for handling constant-phase features like (pseudo)-inductance, (pseudo)-capacitance, or Warburg-like diffusion
 3. DRT/DOP estimation from accelerated joint time/frequency-domain impedance measurements
 4. Probabilistic DRT analysis methods (distinguishing pseudo-peaks from true peaks)
 5. Automatic creation of equivalent circuit analogs from the DRT
 6. Multi-dimensional DRT fitting and analysis
 
-For methodology details, see [this work on probabilistic DRT analysis](https://www.sciencedirect.com/science/article/pii/S001346862300066X) and [this work on joint-domain impedance measurements and DOP transformation](https://www.sciencedirect.com/science/article/pii/S001346862300066X).
+For methodology details, see [this work on probabilistic DRT analysis](https://www.sciencedirect.com/science/article/pii/S001346862300066X) and [this work on joint-domain impedance measurements and DOP transformation](https://doi.org/10.1016/j.joule.2024.05.003).
 
 *Disclaimer:* `hybrid-drt` is experimental and under active development. The code is provided to demonstrate several conceptual approaches to electrochemical analysis, but the details of the implementation may change in the future.
 
@@ -20,7 +20,7 @@ The philosophy underpinning the probabilistic methods in `hybrid-drt` is that di
 * Methods for scoring the accuracy of DRT estimates using regression, classification, and hybrid metrics
 
 ## Joint-domain impedance measurement and DRT transformation
-Joint-domain ("hybrid") impedance measurements use time-domain chronopotentiometry measurements to quickly probe low-frequency processes ($\leq \sim 100$ Hz), while still accessing high frequencies ($\geq \sim 100$ Hz) with conventional frequency-domain impedance measurements. The two data components can then be joined with the DRT transform, thereby allowing recovery of the full impedance spectrum with high accuracy. This allows full-frequency-range impedance measurements to be completed more than 10x faster than with conventional impedance. For more details, see [this paper](https://www.sciencedirect.com/science/article/pii/S001346862300066X).
+Joint-domain ("hybrid") impedance measurements use time-domain chronopotentiometry measurements to quickly probe low-frequency processes ($\leq \sim 100$ Hz), while still accessing high frequencies ($\geq \sim 100$ Hz) with conventional frequency-domain impedance measurements. The two data components can then be joined with the DRT transform, thereby allowing recovery of the full impedance spectrum with high accuracy. This allows full-frequency-range impedance measurements to be completed more than 10x faster than with conventional impedance. For more details, see [this paper introducing the method for fuel cells and Li-ion batteries](https://doi.org/10.1016/j.joule.2024.05.003) and [this paper applying it to solid-state batteries](https://doi.org/10.1021/acsenergylett.5c03055).
 
 
 ## Tutorials
@@ -67,6 +67,17 @@ If you use `hybrid-drt` in published work, please consider citing the revelant w
   pages={2049--2072},
   year={2024},
   publisher={Elsevier}
+}
+
+@article{doi:10.1021/acsenergylett.5c03055,
+  author = {Huang, Jake D. and Zeier, Wolfgang G.},
+  title = {Joint-Domain Impedance Spectroscopy for Solid-State Batteries: Enabling Accelerated Characterization and Data-Driven Insights},
+  journal = {ACS Energy Letters},
+  volume = {11},
+  number = {2},
+  pages = {986-994},
+  year = {2026},
+  doi = {10.1021/acsenergylett.5c03055},
 }
 
 
